@@ -1,6 +1,5 @@
-version: "3.9"
-
 services:
+  # ── Infrastructure ─────────────────────────────────────
   postgres:
     image: postgres:16
     container_name: amp-postgres
@@ -42,6 +41,52 @@ services:
     ports:
       - "8025:8025"
       - "1025:1025"
+    networks:
+      - amp-net
+
+  # ── Application (optional — use 'docker compose --profile app up') ──
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: amp-api
+    restart: unless-stopped
+    profiles: ["app"]
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/amp
+      SPRING_DATASOURCE_USERNAME: amp
+      SPRING_DATASOURCE_PASSWORD: amp
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - amp-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: amp-frontend
+    restart: unless-stopped
+    profiles: ["app"]
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
     networks:
       - amp-net
 

@@ -1,0 +1,206 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - prod
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.eu-central-1.amazonaws.com
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER_NAME }}
+  PROJECT: ai-marketing-platform
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ── Determine environment ──────────────────────────────
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Backend: test → build → push ──────────────────────
+  backend:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.environment }}
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        working-directory: backend
+        run: ./mvnw verify -B -Dspring.profiles.active=local
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/amp
+          SPRING_DATASOURCE_USERNAME: amp
+          SPRING_DATASOURCE_PASSWORD: amp
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push Docker image
+        id: meta
+        working-directory: backend
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          IMAGE="${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-api:${IMAGE_TAG}"
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" "${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-api:latest"
+          docker push "$IMAGE"
+          docker push "${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-api:latest"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: amp
+          POSTGRES_PASSWORD: amp
+          POSTGRES_DB: amp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+  # ── Frontend: build → push ────────────────────────────
+  frontend:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.environment }}
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install & build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build-only
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push Docker image
+        id: meta
+        working-directory: frontend
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          IMAGE="${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-frontend:${IMAGE_TAG}"
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" "${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-frontend:latest"
+          docker push "$IMAGE"
+          docker push "${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}-frontend:latest"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+  # ── Deploy to ECS ─────────────────────────────────────
+  deploy:
+    needs: [setup, backend, frontend]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --service "${{ env.PROJECT }}-${{ needs.setup.outputs.environment }}-api" \
+            --force-new-deployment \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy Worker service
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --service "${{ env.PROJECT }}-${{ needs.setup.outputs.environment }}-worker" \
+            --force-new-deployment \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Wait for API service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.PROJECT }}-${{ needs.setup.outputs.environment }}-api" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy frontend to S3 + invalidate CDN
+        if: needs.setup.outputs.environment == 'prod'
+        run: |
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${{ env.PROJECT }}-cdn" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -n "$DISTRIBUTION_ID" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$DISTRIBUTION_ID" \
+              --paths "/*"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Image |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API       | \`${{ needs.backend.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend  | \`${{ needs.frontend.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Env       | \`${{ needs.setup.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY

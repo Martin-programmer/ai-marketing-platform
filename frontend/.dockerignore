@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.git
+.gitignore
+*.md
+Dockerfile
+.dockerignore
+.vscode
+.editorconfig
+.prettierrc.json
+.oxlintrc.json
+eslint.config.ts
+vitest.config.ts
+tsconfig*.json
+src/__tests__/
