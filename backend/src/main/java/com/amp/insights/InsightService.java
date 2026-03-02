@@ -1,5 +1,6 @@
 package com.amp.insights;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,7 @@ public class InsightService {
                 .stream().map(InsightResponse::from).toList();
     }
 
+    @Cacheable(value = "kpis", key = "#agencyId + '_' + #clientId + '_' + #from + '_' + #to")
     public KpiSummary getClientKpis(UUID agencyId, UUID clientId,
                                     LocalDate from, LocalDate to) {
         return repository.aggregateKpis(agencyId, clientId, from, to);

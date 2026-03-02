@@ -8,6 +8,8 @@ import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,10 +47,12 @@ public class CampaignService {
     // ──────── Campaign ────────
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "campaigns", key = "#agencyId + '_' + #clientId")
     public List<Campaign> listCampaigns(UUID agencyId, UUID clientId) {
         return campaignRepository.findAllByAgencyIdAndClientId(agencyId, clientId);
     }
 
+    @CacheEvict(value = "campaigns", key = "#agencyId + '_' + #clientId")
     public Campaign createCampaign(UUID agencyId, UUID clientId, CreateCampaignRequest req) {
         TenantContext ctx = TenantContextHolder.require();
         log.info("Creating campaign: name={}, objective={}, clientId={}", req.name(), req.objective(), clientId);
@@ -83,6 +87,7 @@ public class CampaignService {
                 .orElseThrow(() -> new ResourceNotFoundException("Campaign", campaignId));
     }
 
+    @CacheEvict(value = "campaigns", allEntries = true)
     public Campaign pauseCampaign(UUID agencyId, UUID campaignId) {
         TenantContext ctx = TenantContextHolder.require();
         Campaign c = getCampaign(agencyId, campaignId);
@@ -97,6 +102,7 @@ public class CampaignService {
         return saved;
     }
 
+    @CacheEvict(value = "campaigns", allEntries = true)
     public Campaign resumeCampaign(UUID agencyId, UUID campaignId) {
         TenantContext ctx = TenantContextHolder.require();
         Campaign c = getCampaign(agencyId, campaignId);
@@ -111,6 +117,7 @@ public class CampaignService {
         return saved;
     }
 
+    @CacheEvict(value = "campaigns", allEntries = true)
     public Campaign publishCampaign(UUID agencyId, UUID campaignId) {
         TenantContext ctx = TenantContextHolder.require();
         Campaign c = getCampaign(agencyId, campaignId);
