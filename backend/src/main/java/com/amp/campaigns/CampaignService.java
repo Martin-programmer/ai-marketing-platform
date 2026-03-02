@@ -2,6 +2,7 @@ package com.amp.campaigns;
 
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
+import com.amp.clients.ClientRepository;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
@@ -27,15 +28,18 @@ public class CampaignService {
     private final AdsetRepository adsetRepository;
     private final AdRepository adRepository;
     private final AuditService auditService;
+    private final ClientRepository clientRepository;
 
     public CampaignService(CampaignRepository campaignRepository,
                            AdsetRepository adsetRepository,
                            AdRepository adRepository,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           ClientRepository clientRepository) {
         this.campaignRepository = campaignRepository;
         this.adsetRepository = adsetRepository;
         this.adRepository = adRepository;
         this.auditService = auditService;
+        this.clientRepository = clientRepository;
     }
 
     // ──────── Campaign ────────
@@ -48,6 +52,10 @@ public class CampaignService {
     public Campaign createCampaign(UUID agencyId, UUID clientId, CreateCampaignRequest req) {
         TenantContext ctx = TenantContextHolder.require();
         log.info("Creating campaign: name={}, objective={}, clientId={}", req.name(), req.objective(), clientId);
+
+        // Verify client belongs to agency
+        clientRepository.findByIdAndAgencyId(clientId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
 
         Campaign c = new Campaign();
         c.setAgencyId(agencyId);

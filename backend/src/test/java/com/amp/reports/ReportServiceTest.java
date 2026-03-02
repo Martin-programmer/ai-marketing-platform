@@ -117,17 +117,14 @@ class ReportServiceTest {
     }
 
     @Test
-    @DisplayName("markReportSent — DRAFT: service currently allows it (no guard)")
+    @DisplayName("markReportSent — DRAFT: throws IllegalStateException (must be APPROVED)")
     void sendReport_notApproved() {
-        // The current service does NOT guard against sending a DRAFT report;
-        // it unconditionally sets SENT. If a guard is added, update this test.
         Report report = buildReport("DRAFT");
         when(reportRepository.findByIdAndAgencyId(REPORT_ID, AGENCY_ID)).thenReturn(Optional.of(report));
-        when(reportRepository.save(any(Report.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        ReportResponse result = reportService.markReportSent(AGENCY_ID, REPORT_ID);
-
-        assertThat(result.status()).isEqualTo("SENT");
+        assertThatThrownBy(() -> reportService.markReportSent(AGENCY_ID, REPORT_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APPROVED");
     }
 
     @Test

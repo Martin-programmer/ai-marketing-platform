@@ -1,6 +1,8 @@
 package com.amp.campaigns;
 
 import com.amp.audit.AuditService;
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
@@ -38,6 +40,7 @@ class CampaignServiceTest {
     @Mock private AdsetRepository adsetRepository;
     @Mock private AdRepository adRepository;
     @Mock private AuditService auditService;
+    @Mock private ClientRepository clientRepository;
 
     @InjectMocks
     private CampaignService campaignService;
@@ -91,6 +94,8 @@ class CampaignServiceTest {
     void createCampaign_success() {
         CreateCampaignRequest req = new CreateCampaignRequest(CLIENT_ID, "My Campaign", "SALES");
 
+        when(clientRepository.findByIdAndAgencyId(CLIENT_ID, AGENCY_ID))
+                .thenReturn(Optional.of(mock(Client.class)));
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> {
             Campaign c = inv.getArgument(0);
             c.setId(CAMPAIGN_ID);

@@ -72,6 +72,10 @@ public class ReportService {
         TenantContext ctx = TenantContextHolder.require();
         Report r = findReportOrThrow(agencyId, reportId);
 
+        if (!"APPROVED".equals(r.getStatus())) {
+            throw new IllegalStateException("Report must be APPROVED to send, current status: " + r.getStatus());
+        }
+
         r.setSentAt(OffsetDateTime.now());
         r.setStatus("SENT");
         Report saved = reportRepository.save(r);
