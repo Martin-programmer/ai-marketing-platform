@@ -197,10 +197,10 @@
             <template #item="{ item, props: itemProps }">
               <v-list-item v-bind="itemProps">
                 <template #subtitle>
-                  <v-chip size="x-small" :color="item.raw.status === 'APPROVED' ? 'success' : item.raw.status === 'DRAFT' ? 'grey' : 'info'" class="mr-1">
-                    {{ item.raw.status }}
+                  <v-chip size="x-small" :color="item.status === 'APPROVED' ? 'success' : item.status === 'DRAFT' ? 'grey' : 'info'" class="mr-1">
+                    {{ item.status }}
                   </v-chip>
-                  {{ item.raw.objective || '' }}
+                  {{ item.objective || '' }}
                 </template>
               </v-list-item>
             </template>
@@ -319,8 +319,9 @@ async function onCreateCampaign() {
 
 async function onCreateAdset() {
   const data = await store.createAdset(currentCampaignId.value, adsetForm.value)
-  if (!adsetMap[currentCampaignId.value]) adsetMap[currentCampaignId.value] = []
-  adsetMap[currentCampaignId.value].push(data)
+  const key = currentCampaignId.value
+  if (!adsetMap[key]) adsetMap[key] = []
+  adsetMap[key]!.push(data)
   showCreateAdset.value = false
 }
 
@@ -328,8 +329,9 @@ async function onCreateAd() {
   const payload: any = { name: adForm.value.name }
   if (adForm.value.creativePackageItemId) payload.creativePackageItemId = adForm.value.creativePackageItemId
   const data = await store.createAd(currentAdsetId.value, payload)
-  if (!adMap[currentAdsetId.value]) adMap[currentAdsetId.value] = []
-  adMap[currentAdsetId.value].push(data)
+  const key = currentAdsetId.value
+  if (!adMap[key]) adMap[key] = []
+  adMap[key]!.push(data)
   showCreateAd.value = false
 }
 

@@ -56,6 +56,10 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Make mvnw executable
+        run: chmod +x ./mvnw
+        working-directory: backend
+
       - name: Run tests
         working-directory: backend
         run: ./mvnw verify -B -Dspring.profiles.active=local

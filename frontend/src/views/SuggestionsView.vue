@@ -28,7 +28,7 @@
       <div class="d-flex ga-2 mb-4">
         <v-chip
           v-for="f in filters"
-          :key="f.value"
+          :key="f.value ?? 'all'"
           :color="statusFilter === f.value ? 'primary' : undefined"
           :variant="statusFilter === f.value ? 'flat' : 'outlined'"
           @click="onFilterChange(f.value)"
