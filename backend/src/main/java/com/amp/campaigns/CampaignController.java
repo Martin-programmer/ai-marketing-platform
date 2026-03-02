@@ -35,11 +35,7 @@ public class CampaignController {
     public CampaignResponse createCampaign(@PathVariable UUID clientId,
                                            @Valid @RequestBody CreateCampaignRequest req) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
-        // Ensure DTO clientId matches the path parameter
-        if (!clientId.equals(req.clientId())) {
-            throw new IllegalArgumentException("clientId in path and body must match");
-        }
-        return CampaignResponse.from(campaignService.createCampaign(agencyId, req));
+        return CampaignResponse.from(campaignService.createCampaign(agencyId, clientId, req));
     }
 
     @GetMapping("/campaigns/{campaignId}")
@@ -48,13 +44,13 @@ public class CampaignController {
         return CampaignResponse.from(campaignService.getCampaign(agencyId, campaignId));
     }
 
-    @PatchMapping("/campaigns/{campaignId}/pause")
+    @PostMapping("/campaigns/{campaignId}/pause")
     public CampaignResponse pauseCampaign(@PathVariable UUID campaignId) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return CampaignResponse.from(campaignService.pauseCampaign(agencyId, campaignId));
     }
 
-    @PatchMapping("/campaigns/{campaignId}/resume")
+    @PostMapping("/campaigns/{campaignId}/resume")
     public CampaignResponse resumeCampaign(@PathVariable UUID campaignId) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return CampaignResponse.from(campaignService.resumeCampaign(agencyId, campaignId));
@@ -82,10 +78,7 @@ public class CampaignController {
     public AdsetResponse createAdset(@PathVariable UUID campaignId,
                                      @Valid @RequestBody CreateAdsetRequest req) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
-        if (!campaignId.equals(req.campaignId())) {
-            throw new IllegalArgumentException("campaignId in path and body must match");
-        }
-        return AdsetResponse.from(campaignService.createAdset(agencyId, req));
+        return AdsetResponse.from(campaignService.createAdset(agencyId, campaignId, req));
     }
 
     // ──────── Ad ────────
@@ -104,9 +97,6 @@ public class CampaignController {
     public AdResponse createAd(@PathVariable UUID adsetId,
                                @Valid @RequestBody CreateAdRequest req) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
-        if (!adsetId.equals(req.adsetId())) {
-            throw new IllegalArgumentException("adsetId in path and body must match");
-        }
-        return AdResponse.from(campaignService.createAd(agencyId, req));
+        return AdResponse.from(campaignService.createAd(agencyId, adsetId, req));
     }
 }

@@ -5,6 +5,8 @@ import com.amp.audit.AuditService;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import java.util.UUID;
 @Service
 @Transactional
 public class CampaignService {
+
+    private static final Logger log = LoggerFactory.getLogger(CampaignService.class);
 
     private final CampaignRepository campaignRepository;
     private final AdsetRepository adsetRepository;
@@ -41,12 +45,13 @@ public class CampaignService {
         return campaignRepository.findAllByAgencyIdAndClientId(agencyId, clientId);
     }
 
-    public Campaign createCampaign(UUID agencyId, CreateCampaignRequest req) {
+    public Campaign createCampaign(UUID agencyId, UUID clientId, CreateCampaignRequest req) {
         TenantContext ctx = TenantContextHolder.require();
+        log.info("Creating campaign: name={}, objective={}, clientId={}", req.name(), req.objective(), clientId);
 
         Campaign c = new Campaign();
         c.setAgencyId(agencyId);
-        c.setClientId(req.clientId());
+        c.setClientId(clientId);
         c.setPlatform("META");
         c.setName(req.name());
         c.setObjective(req.objective());
@@ -57,7 +62,7 @@ public class CampaignService {
 
         Campaign saved = campaignRepository.save(c);
 
-        auditService.log(agencyId, req.clientId(), ctx.getUserId(), ctx.getRole(),
+        auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),
                 AuditAction.CAMPAIGN_CREATE, "Campaign", saved.getId(),
                 null, saved, null);
 
@@ -124,16 +129,17 @@ public class CampaignService {
         return adsetRepository.findAllByCampaignId(campaignId);
     }
 
-    public Adset createAdset(UUID agencyId, CreateAdsetRequest req) {
+    public Adset createAdset(UUID agencyId, UUID campaignId, CreateAdsetRequest req) {
         TenantContext ctx = TenantContextHolder.require();
+        log.info("Creating adset: name={}, campaignId={}, dailyBudget={}", req.name(), campaignId, req.dailyBudget());
 
         // Verify campaign belongs to agency
-        Campaign campaign = getCampaign(agencyId, req.campaignId());
+        Campaign campaign = getCampaign(agencyId, campaignId);
 
         Adset a = new Adset();
         a.setAgencyId(agencyId);
         a.setClientId(campaign.getClientId());
-        a.setCampaignId(req.campaignId());
+        a.setCampaignId(campaignId);
         a.setName(req.name());
         a.setDailyBudget(req.dailyBudget());
         a.setTargetingJson(req.targetingJson() != null ? req.targetingJson() : "{}");
@@ -157,17 +163,18 @@ public class CampaignService {
         return adRepository.findAllByAdsetId(adsetId);
     }
 
-    public Ad createAd(UUID agencyId, CreateAdRequest req) {
+    public Ad createAd(UUID agencyId, UUID adsetId, CreateAdRequest req) {
         TenantContext ctx = TenantContextHolder.require();
+        log.info("Creating ad: name={}, adsetId={}", req.name(), adsetId);
 
         // Verify adset belongs to agency
-        Adset adset = adsetRepository.findByIdAndAgencyId(req.adsetId(), agencyId)
-                .orElseThrow(() -> new ResourceNotFoundException("Adset", req.adsetId()));
+        Adset adset = adsetRepository.findByIdAndAgencyId(adsetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Adset", adsetId));
 
         Ad ad = new Ad();
         ad.setAgencyId(agencyId);
         ad.setClientId(adset.getClientId());
-        ad.setAdsetId(req.adsetId());
+        ad.setAdsetId(adsetId);
         ad.setName(req.name());
         ad.setCreativePackageItemId(req.creativePackageItemId());
         ad.setStatus("DRAFT");

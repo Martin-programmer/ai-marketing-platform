@@ -4,6 +4,8 @@ import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +19,8 @@ import java.util.UUID;
 @Service
 @Transactional
 public class CreativeService {
+
+    private static final Logger log = LoggerFactory.getLogger(CreativeService.class);
 
     private final CreativeAssetRepository assetRepository;
     private final CreativeAnalysisRepository analysisRepository;
@@ -93,13 +97,14 @@ public class CreativeService {
                 .toList();
     }
 
-    public PackageResponse createPackage(UUID agencyId, CreatePackageRequest request) {
+    public PackageResponse createPackage(UUID agencyId, UUID clientId, CreatePackageRequest request) {
+        log.info("Creating creative package: name={}, clientId={}", request.name(), clientId);
         UUID userId = TenantContextHolder.require().getUserId();
         OffsetDateTime now = OffsetDateTime.now();
 
         CreativePackage pkg = new CreativePackage();
         pkg.setAgencyId(agencyId);
-        pkg.setClientId(request.clientId());
+        pkg.setClientId(clientId);
         pkg.setName(request.name());
         pkg.setObjective(request.objective() != null ? request.objective() : "SALES");
         pkg.setStatus("DRAFT");
@@ -108,7 +113,7 @@ public class CreativeService {
 
         CreativePackage saved = packageRepository.save(pkg);
 
-        auditService.log(agencyId, request.clientId(), null, null,
+        auditService.log(agencyId, clientId, null, null,
                 AuditAction.CREATIVE_UPLOAD, "CREATIVE_PACKAGE", saved.getId(),
                 null, saved, UUID.randomUUID().toString());
 

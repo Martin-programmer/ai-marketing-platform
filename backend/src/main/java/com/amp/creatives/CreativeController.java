@@ -73,7 +73,7 @@ public class CreativeController {
             @PathVariable UUID clientId,
             @Valid @RequestBody CreatePackageRequest request) {
 
-        PackageResponse created = creativeService.createPackage(agencyId(), request);
+        PackageResponse created = creativeService.createPackage(agencyId(), clientId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

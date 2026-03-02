@@ -75,7 +75,7 @@ public class AuditService {
         entry.setEntityId(entityId);
         entry.setBeforeJson(toJson(before));
         entry.setAfterJson(toJson(after));
-        entry.setCorrelationId(correlationId);
+        entry.setCorrelationId(correlationId != null ? correlationId : UUID.randomUUID().toString());
         entry.setCreatedAt(OffsetDateTime.now());
 
         repository.save(entry);

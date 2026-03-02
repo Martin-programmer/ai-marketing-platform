@@ -44,24 +44,11 @@ public class MetaController {
         return metaService.getSyncStatus(agencyId, clientId);
     }
 
-    @PostMapping("/clients/{clientId}/meta/sync/initial")
+    @PostMapping("/clients/{clientId}/meta/sync/{jobType}")
     @ResponseStatus(HttpStatus.CREATED)
-    public MetaSyncJobResponse triggerInitialSync(@PathVariable UUID clientId) {
+    public MetaSyncJobResponse triggerSync(@PathVariable UUID clientId,
+                                          @PathVariable String jobType) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
-        return metaService.triggerSync(agencyId, clientId, "INITIAL");
-    }
-
-    @PostMapping("/clients/{clientId}/meta/sync/daily")
-    @ResponseStatus(HttpStatus.CREATED)
-    public MetaSyncJobResponse triggerDailySync(@PathVariable UUID clientId) {
-        UUID agencyId = TenantContextHolder.require().getAgencyId();
-        return metaService.triggerSync(agencyId, clientId, "DAILY");
-    }
-
-    @PostMapping("/clients/{clientId}/meta/sync/manual")
-    @ResponseStatus(HttpStatus.CREATED)
-    public MetaSyncJobResponse triggerManualSync(@PathVariable UUID clientId) {
-        UUID agencyId = TenantContextHolder.require().getAgencyId();
-        return metaService.triggerSync(agencyId, clientId, "MANUAL");
+        return metaService.triggerSync(agencyId, clientId, jobType.toUpperCase());
     }
 }

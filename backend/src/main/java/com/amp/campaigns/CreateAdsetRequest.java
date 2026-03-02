@@ -10,7 +10,6 @@ import java.util.UUID;
  * Request DTO for creating an adset within a campaign.
  */
 public record CreateAdsetRequest(
-        @NotNull(message = "campaignId is required")
         UUID campaignId,
         @NotBlank(message = "name is required")
         String name,

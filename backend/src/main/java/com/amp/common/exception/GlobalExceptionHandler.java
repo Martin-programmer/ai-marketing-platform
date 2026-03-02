@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -30,11 +31,36 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+        log.warn("Validation error: {}", ex.getMessage());
         Map<String, Object> details = new HashMap<>();
         ex.getBindingResult().getFieldErrors().forEach(e ->
                 details.put(e.getField(), e.getDefaultMessage()));
         return ResponseEntity.status(400).body(new ErrorResponse(
                 "VALIDATION_ERROR", "Invalid input", details, UUID.randomUUID().toString()
+        ));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Request body not readable: {}", ex.getMessage());
+        return ResponseEntity.status(400).body(new ErrorResponse(
+                "BAD_REQUEST", "Malformed or missing request body", null, UUID.randomUUID().toString()
+        ));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Illegal argument: {}", ex.getMessage());
+        return ResponseEntity.status(400).body(new ErrorResponse(
+                "BAD_REQUEST", ex.getMessage(), null, UUID.randomUUID().toString()
+        ));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalState(IllegalStateException ex) {
+        log.warn("Illegal state: {}", ex.getMessage());
+        return ResponseEntity.status(409).body(new ErrorResponse(
+                "CONFLICT", ex.getMessage(), null, UUID.randomUUID().toString()
         ));
     }
 
