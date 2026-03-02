@@ -81,11 +81,21 @@
                   no-data-text="No adsets"
                   @click:row="(_e: any, row: any) => onAdsetClick(row.item)"
                 >
+                  <template #item.dailyBudget="{ item: adset }">
+                    {{ adset.dailyBudget?.toFixed(2) ?? '—' }} BGN
+                  </template>
+                  <template #item.targetingJson="{ item: adset }">
+                    <v-tooltip location="top">
+                      <template #activator="{ props: tp }">
+                        <v-chip v-bind="tp" size="small" variant="outlined">
+                          {{ formatTargeting(adset.targetingJson) }}
+                        </v-chip>
+                      </template>
+                      <pre style="max-width:400px;white-space:pre-wrap">{{ typeof adset.targetingJson === 'string' ? adset.targetingJson : JSON.stringify(adset.targetingJson, null, 2) }}</pre>
+                    </v-tooltip>
+                  </template>
                   <template #item.status="{ item: adset }">
                     <v-chip :color="campaignStatusColor(adset.status)" size="small">{{ adset.status }}</v-chip>
-                  </template>
-                  <template #item.budgetDaily="{ item: adset }">
-                    {{ adset.budgetDaily?.toFixed(2) ?? '—' }}
                   </template>
 
                   <!-- Expanded adset row: Ads -->
@@ -147,8 +157,8 @@
       <v-card title="New Adset">
         <v-card-text>
           <v-text-field v-model="adsetForm.name" label="Name" required />
-          <v-text-field v-model.number="adsetForm.dailyBudget" label="Daily Budget" type="number" />
-          <v-text-field v-model="adsetForm.optimizationGoal" label="Optimization Goal" />
+          <v-text-field v-model.number="adsetForm.dailyBudget" label="Daily Budget" type="number" prefix="BGN" />
+          <v-textarea v-model="adsetForm.targetingJson" label="Targeting (JSON)" rows="3" auto-grow placeholder='{"age_min": 25, "age_max": 45}' />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -163,7 +173,43 @@
       <v-card title="New Ad">
         <v-card-text>
           <v-text-field v-model="adForm.name" label="Name" required />
-          <v-text-field v-model="adForm.creativePackageItemId" label="Creative Package Item ID" />
+          <v-select
+            v-model="adForm.creativePackageItemId"
+            :items="creativeStore.packages"
+            item-title="name"
+            item-value="id"
+            label="Creative Package"
+            clearable
+            :no-data-text="'No packages available'"
+          >
+            <template #prepend-item v-if="creativeStore.packages.length === 0">
+              <v-list-item>
+                <v-list-item-title class="text-grey">
+                  No creative packages found.
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  <v-btn size="small" color="primary" variant="text" to="/creatives">
+                    <v-icon start>mdi-plus</v-icon> Create a package first
+                  </v-btn>
+                </v-list-item-subtitle>
+              </v-list-item>
+            </template>
+            <template #item="{ item, props: itemProps }">
+              <v-list-item v-bind="itemProps">
+                <template #subtitle>
+                  <v-chip size="x-small" :color="item.raw.status === 'APPROVED' ? 'success' : item.raw.status === 'DRAFT' ? 'grey' : 'info'" class="mr-1">
+                    {{ item.raw.status }}
+                  </v-chip>
+                  {{ item.raw.objective || '' }}
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
+          <v-alert v-if="creativeStore.packages.length === 0 && selectedClient" type="warning" density="compact" variant="tonal" class="mt-2">
+            No creative packages available for this client.
+            <v-btn size="small" variant="text" color="primary" to="/creatives">Go to Creatives</v-btn>
+            to create one first.
+          </v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -179,9 +225,11 @@
 import { ref, onMounted, reactive } from 'vue'
 import { useCampaignStore } from '@/stores/campaigns'
 import { useClientStore } from '@/stores/clients'
+import { useCreativeStore } from '@/stores/creatives'
 
 const store = useCampaignStore()
 const clientStore = useClientStore()
+const creativeStore = useCreativeStore()
 const selectedClient = ref<string | null>(null)
 
 const adsetMap = reactive<Record<string, any[]>>({})
@@ -194,7 +242,7 @@ const currentCampaignId = ref('')
 const currentAdsetId = ref('')
 
 const campaignForm = ref({ name: '', objective: 'SALES', platform: 'META' })
-const adsetForm = ref({ name: '', dailyBudget: 0, optimizationGoal: '' })
+const adsetForm = ref({ name: '', dailyBudget: 0, targetingJson: '' })
 const adForm = ref({ name: '', creativePackageItemId: '' })
 
 const campaignHeaders = [
@@ -208,9 +256,10 @@ const campaignHeaders = [
 
 const adsetHeaders = [
   { title: 'Name', key: 'name' },
-  { title: 'Budget Daily', key: 'budgetDaily' },
-  { title: 'Optimization Goal', key: 'optimizationGoal' },
+  { title: 'Daily Budget', key: 'dailyBudget' },
+  { title: 'Targeting', key: 'targetingJson' },
   { title: 'Status', key: 'status' },
+  { title: 'Actions', key: 'actions', sortable: false },
 ]
 
 const adHeaders = [
@@ -223,10 +272,19 @@ function campaignStatusColor(status: string) {
   return map[status] || 'grey'
 }
 
+function formatTargeting(json: any): string {
+  if (!json) return '—'
+  const str = typeof json === 'string' ? json : JSON.stringify(json)
+  return str.length > 50 ? str.substring(0, 50) + '…' : str
+}
+
 async function onClientChange(clientId: string) {
   if (clientId) {
     store.selectedClientId = clientId
-    await store.fetchCampaigns(clientId)
+    await Promise.all([
+      store.fetchCampaigns(clientId),
+      creativeStore.fetchPackages(clientId),
+    ])
     // Pre-fetch adsets for each campaign
     for (const c of store.campaigns) {
       const data = await store.fetchAdsets(c.id)
@@ -242,7 +300,7 @@ async function onAdsetClick(adset: any) {
 
 function openCreateAdset(campaignId: string) {
   currentCampaignId.value = campaignId
-  adsetForm.value = { name: '', dailyBudget: 0, optimizationGoal: '' }
+  adsetForm.value = { name: '', dailyBudget: 0, targetingJson: '' }
   showCreateAdset.value = true
 }
 

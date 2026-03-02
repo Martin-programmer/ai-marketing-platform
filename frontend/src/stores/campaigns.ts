@@ -23,9 +23,8 @@ export interface Adset {
   metaAdsetId: string | null
   name: string
   targetingJson: any
-  budgetDaily: number
+  dailyBudget: number
   bidAmount: number | null
-  optimizationGoal: string | null
   status: string
   createdAt: string
   updatedAt: string
@@ -94,7 +93,7 @@ export const useCampaignStore = defineStore('campaigns', () => {
     return data
   }
 
-  async function createAdset(campaignId: string, payload: { name: string; dailyBudget: number; targetingJson?: any; optimizationGoal?: string }) {
+  async function createAdset(campaignId: string, payload: { name: string; dailyBudget: number; targetingJson?: any }) {
     const { data } = await api.post(`/campaigns/${campaignId}/adsets`, payload)
     adsets.value.push(data)
     return data
