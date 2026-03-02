@@ -1,0 +1,30 @@
+package com.amp.audit;
+
+/**
+ * Enumeration of auditable actions across the platform.
+ */
+public enum AuditAction {
+
+    CLIENT_CREATE,
+    CLIENT_UPDATE,
+    CLIENT_PAUSE,
+    CLIENT_ACTIVATE,
+    META_CONNECT,
+    META_DISCONNECT,
+    PUBLISH,
+    SUGGESTION_APPROVE,
+    SUGGESTION_APPLY,
+    SUGGESTION_REJECT,
+    REPORT_GENERATE,
+    REPORT_SEND,
+    ROLE_CHANGE,
+    USER_INVITE,
+    CREATIVE_UPLOAD,
+    CREATIVE_APPROVE,
+    CAMPAIGN_CREATE,
+    CAMPAIGN_PAUSE,
+    CAMPAIGN_RESUME,
+    CAMPAIGN_PUBLISH,
+    ADSET_CREATE,
+    AD_CREATE
+}
