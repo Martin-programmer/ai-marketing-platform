@@ -82,6 +82,33 @@
         </v-col>
       </v-row>
 
+      <!-- Permissions Section (ADMIN only) -->
+      <v-card v-if="isAdmin" class="mb-6">
+        <v-card-title class="d-flex align-center">
+          Permissions
+          <v-spacer />
+          <v-btn size="small" color="primary" prepend-icon="mdi-plus" @click="showAddPermission = true">
+            Add Permission
+          </v-btn>
+        </v-card-title>
+        <v-card-text>
+          <v-data-table
+            :headers="permHeaders"
+            :items="permissions"
+            :loading="permLoading"
+            density="compact"
+            item-value="userId"
+          >
+            <template #item.permission="{ item }">
+              <v-chip size="small" :color="permColor(item.permission)">{{ item.permission }}</v-chip>
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="removePermission(item.userId)" />
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+
       <!-- Recent Activity -->
       <v-card>
         <v-card-title>Recent Activity</v-card-title>
@@ -90,6 +117,25 @@
         </v-card-text>
       </v-card>
     </template>
+
+    <!-- Add Permission Dialog -->
+    <v-dialog v-model="showAddPermission" max-width="440" persistent>
+      <v-card title="Add Permission">
+        <v-card-text>
+          <v-text-field v-model="addPermForm.userId" label="User ID" class="mb-2" />
+          <v-select
+            v-model="addPermForm.permission"
+            label="Permission"
+            :items="permLevels"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="showAddPermission = false">Cancel</v-btn>
+          <v-btn color="primary" @click="handleAddPermission">Add</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Edit Profile Dialog -->
     <v-dialog v-model="showEditProfile" max-width="600">
@@ -117,10 +163,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api/client'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const clientId = computed(() => route.params.id as string)
+
+const isAdmin = computed(() => ['AGENCY_ADMIN', 'OWNER_ADMIN'].includes(authStore.userRole))
 
 const client = ref<any>(null)
 const profile = ref<any>(null)
@@ -128,6 +178,54 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showEditProfile = ref(false)
 const profileForm = ref({ website: '', profileJson: '' })
+
+/* ── Permissions ── */
+const permissions = ref<any[]>([])
+const permLoading = ref(false)
+const showAddPermission = ref(false)
+const addPermForm = ref({ userId: '', permission: 'READ' })
+const permLevels = ['READ', 'WRITE', 'APPROVE', 'ADMIN']
+const permHeaders = [
+  { title: 'User', key: 'userDisplayName' },
+  { title: 'Email', key: 'userEmail' },
+  { title: 'Permission', key: 'permission' },
+  { title: 'Actions', key: 'actions', sortable: false, align: 'end' as const }
+]
+
+function permColor(p: string) {
+  switch (p) {
+    case 'ADMIN': return 'error'
+    case 'APPROVE': return 'warning'
+    case 'WRITE': return 'primary'
+    default: return 'info'
+  }
+}
+
+async function fetchPermissions() {
+  if (!isAdmin.value) return
+  permLoading.value = true
+  try {
+    const { data } = await api.get(`/clients/${clientId.value}/permissions`)
+    permissions.value = data
+  } catch { /* ignore */ }
+  finally { permLoading.value = false }
+}
+
+async function handleAddPermission() {
+  try {
+    await api.post(`/clients/${clientId.value}/permissions/add`, addPermForm.value)
+    showAddPermission.value = false
+    addPermForm.value = { userId: '', permission: 'READ' }
+    await fetchPermissions()
+  } catch (e: any) { error.value = e.response?.data?.message || 'Failed to add permission' }
+}
+
+async function removePermission(userId: string) {
+  try {
+    await api.delete(`/clients/${clientId.value}/permissions/${userId}`)
+    await fetchPermissions()
+  } catch (e: any) { error.value = e.response?.data?.message || 'Failed to remove permission' }
+}
 
 const quickLinks = computed(() => [
   { label: 'Campaigns', icon: 'mdi-bullhorn', to: '/campaigns' },
@@ -191,5 +289,6 @@ async function onSaveProfile() {
 onMounted(() => {
   fetchClient()
   fetchProfile()
+  fetchPermissions()
 })
 </script>

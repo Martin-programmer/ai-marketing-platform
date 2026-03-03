@@ -1,6 +1,10 @@
 package com.amp.agency;
 
+import com.amp.auth.UserAccount;
+import com.amp.auth.UserAccountRepository;
 import com.amp.common.exception.ResourceNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +20,13 @@ import java.util.UUID;
 public class AgencyService {
 
     private final AgencyRepository agencyRepository;
+    private final UserAccountRepository userAccountRepository;
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public AgencyService(AgencyRepository agencyRepository) {
+    public AgencyService(AgencyRepository agencyRepository,
+                         UserAccountRepository userAccountRepository) {
         this.agencyRepository = agencyRepository;
+        this.userAccountRepository = userAccountRepository;
     }
 
     @Transactional(readOnly = true)
@@ -37,6 +45,40 @@ public class AgencyService {
 
         Agency saved = agencyRepository.save(a);
         return AgencyResponse.from(saved);
+    }
+
+    /**
+     * Create a new agency together with its first AGENCY_ADMIN user.
+     */
+    public CreateAgencyWithAdminResponse createAgencyWithAdmin(CreateAgencyWithAdminRequest req) {
+        // Create the agency
+        Agency a = new Agency();
+        a.setName(req.name());
+        a.setStatus("ACTIVE");
+        a.setPlanCode(req.planCode());
+        a.setCreatedAt(OffsetDateTime.now());
+        a.setUpdatedAt(OffsetDateTime.now());
+        Agency saved = agencyRepository.save(a);
+
+        // Create the admin user for this agency
+        UserAccount admin = new UserAccount();
+        admin.setEmail(req.adminEmail());
+        admin.setPasswordHash(passwordEncoder.encode(req.adminPassword()));
+        admin.setDisplayName(req.adminDisplayName());
+        admin.setRole("AGENCY_ADMIN");
+        admin.setAgencyId(saved.getId());
+        admin.setStatus("ACTIVE");
+        admin.setCognitoSub("local-" + UUID.randomUUID());
+        admin.setCreatedAt(OffsetDateTime.now());
+        admin.setUpdatedAt(OffsetDateTime.now());
+        admin = userAccountRepository.save(admin);
+
+        return new CreateAgencyWithAdminResponse(
+                AgencyResponse.from(saved),
+                new CreateAgencyWithAdminResponse.AdminUserInfo(
+                        admin.getId(), admin.getEmail(), admin.getRole()
+                )
+        );
     }
 
     @Transactional(readOnly = true)

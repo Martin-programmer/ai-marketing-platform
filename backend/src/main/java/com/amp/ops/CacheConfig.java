@@ -1,5 +1,8 @@
 package com.amp.ops;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,16 +23,27 @@ public class CacheConfig {
 
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.activateDefaultTyping(
+                BasicPolymorphicTypeValidator.builder()
+                        .allowIfBaseType(Object.class)
+                        .build(),
+                ObjectMapper.DefaultTyping.NON_FINAL);
+
+        GenericJackson2JsonRedisSerializer jsonSerializer =
+                new GenericJackson2JsonRedisSerializer(mapper);
+
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair
-                        .fromSerializer(new GenericJackson2JsonRedisSerializer()));
+                        .fromSerializer(jsonSerializer));
 
         Map<String, RedisCacheConfiguration> cacheConfigs = Map.of(
-                "kpis", RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(5)),
-                "campaigns", RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(10)),
-                "suggestions", RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(5)),
-                "reports", RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(15))
+                "kpis", defaultConfig.entryTtl(Duration.ofMinutes(5)),
+                "campaigns", defaultConfig.entryTtl(Duration.ofMinutes(10)),
+                "suggestions", defaultConfig.entryTtl(Duration.ofMinutes(5)),
+                "reports", defaultConfig.entryTtl(Duration.ofMinutes(15))
         );
 
         return RedisCacheManager.builder(connectionFactory)

@@ -16,3 +16,4 @@ spring:
 app:
   security:
     dev-mode: true
+    jwt-secret: test-secret-key-that-is-at-least-32-bytes-long!!

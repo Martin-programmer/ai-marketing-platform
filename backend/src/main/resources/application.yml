@@ -1,0 +1,12 @@
+# ============================================================
+# application.yml — shared / production defaults
+# ============================================================
+# Profile-specific files (application-local.yml, application-test.yml)
+# override these values.
+
+app:
+  security:
+    dev-mode: false
+    jwt-secret: ${JWT_SECRET:change-me-in-production-at-least-32-bytes!!}
+    access-token-exp-ms: 3600000       # 1 hour
+    refresh-token-exp-ms: 604800000    # 7 days

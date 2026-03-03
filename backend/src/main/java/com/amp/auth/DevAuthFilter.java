@@ -6,11 +6,9 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -29,12 +27,14 @@ import java.util.UUID;
  * <p>
  * If the email header is missing the request passes through unauthenticated,
  * letting Spring Security's authorization rules decide the outcome.
- * <p>
- * <strong>This filter is active only under the {@code local} profile.</strong>
  */
-@Component
-@Profile("local")
 public class DevAuthFilter extends OncePerRequestFilter {
+
+    private final UserAccountRepository userAccountRepository;
+
+    public DevAuthFilter(UserAccountRepository userAccountRepository) {
+        this.userAccountRepository = userAccountRepository;
+    }
 
     private static final String HEADER_EMAIL     = "X-Dev-User-Email";
     private static final String HEADER_ROLE      = "X-Dev-User-Role";
@@ -58,17 +58,34 @@ public class DevAuthFilter extends OncePerRequestFilter {
                     role = DEFAULT_ROLE;
                 }
 
-                // Spring Security authentication
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        email, null, authorities);
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-
                 // Tenant context
                 UUID agencyId = parseUuid(request.getHeader(HEADER_AGENCY_ID));
                 UUID userId = parseUuid(request.getHeader(HEADER_USER_ID));
                 if (userId == null) {
                     userId = DEFAULT_USER_ID;
+                }
+
+                UserAccount user = userAccountRepository.findByEmail(email).orElse(null);
+                if (user != null && "ACTIVE".equals(user.getStatus())) {
+                    // Set request attributes (for backward compatibility)
+                    request.setAttribute("currentUser", user);
+                    request.setAttribute("currentUserId", userId);
+                    request.setAttribute("currentUserRole", role);
+                    request.setAttribute("currentUserEmail", user.getEmail());
+                    if (agencyId != null) {
+                        request.setAttribute("currentAgencyId", agencyId);
+                    }
+
+                    // SET SPRING SECURITY CONTEXT
+                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+                    var authentication = new UsernamePasswordAuthenticationToken(user, null, authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } else {
+                    // Fallback for local dev header-based auth
+                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+                    var authentication = new UsernamePasswordAuthenticationToken(
+                            email, null, authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
 
                 TenantContextHolder.set(new TenantContext(agencyId, userId, email, role));

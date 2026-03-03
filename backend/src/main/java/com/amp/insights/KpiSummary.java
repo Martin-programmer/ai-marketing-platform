@@ -8,13 +8,15 @@ import java.math.BigDecimal;
  */
 public class KpiSummary {
 
-    private final Long totalImpressions;
-    private final Long totalClicks;
-    private final BigDecimal totalSpend;
-    private final BigDecimal totalConversions;
-    private final Double avgCtr;
-    private final BigDecimal avgCpc;
-    private final BigDecimal avgRoas;
+    private Long totalImpressions;
+    private Long totalClicks;
+    private BigDecimal totalSpend;
+    private BigDecimal totalConversions;
+    private Double avgCtr;
+    private BigDecimal avgCpc;
+    private BigDecimal avgRoas;
+
+    protected KpiSummary() {}
 
     public KpiSummary(Long totalImpressions,
                       Long totalClicks,

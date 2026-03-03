@@ -27,6 +27,7 @@ server:
 logging:
   level:
     com.amp: DEBUG
+    com.amp.auth: DEBUG
     org.springframework.security: DEBUG
 
 springdoc:
@@ -34,3 +35,10 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /api-docs
+
+app:
+  security:
+    dev-mode: true
+    jwt-secret: local-dev-secret-key-that-is-at-least-32-bytes-long!!
+    access-token-exp-ms: 3600000
+    refresh-token-exp-ms: 604800000
