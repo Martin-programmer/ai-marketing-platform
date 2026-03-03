@@ -8,13 +8,14 @@ INSERT INTO agency (id, name, status, plan_code, created_at, updated_at)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Demo Agency', 'ACTIVE', 'PRO', now(), now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 2. Users ────────
-INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, created_at, updated_at)
+-- ──────── 2. Users (agency roles) ────────
+-- BCrypt hash of 'admin123': $2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK
+INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at)
 VALUES
-  ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-admin', 'agency_admin@local', 'AGENCY_ADMIN', 'ACTIVE', now(), now()),
-  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-user',  'agency_user@local',  'AGENCY_USER', 'ACTIVE', now(), now()),
-  ('00000000-0000-0000-0000-000000000020', NULL,                                   'local-sub-owner-admin',  'owner_admin@local',  'OWNER_ADMIN', 'ACTIVE', now(), now())
-ON CONFLICT DO NOTHING;
+  ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-admin', 'agency_admin@local', 'AGENCY_ADMIN', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Agency Admin', now(), now()),
+  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-user',  'agency_user@local',  'AGENCY_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Agency User',  now(), now()),
+  ('00000000-0000-0000-0000-000000000020', NULL,                                   'local-sub-owner-admin',  'owner_admin@local',  'OWNER_ADMIN', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Owner Admin',  now(), now())
+ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
 
 -- ──────── 3. Clients ────────
 INSERT INTO client (id, agency_id, name, industry, status, timezone, currency, created_at, updated_at)
@@ -33,6 +34,13 @@ VALUES
    '{"usp": "Healthy meal prep delivery in Sofia", "audiences": ["fitness enthusiasts", "busy professionals 25-40"], "tone": "energetic and motivational", "offers": ["First box -20%", "Subscribe & save 15%"], "competitors": ["healthbox.bg", "fitprep.bg"], "restrictions": "No before/after body images"}',
    now(), now())
 ON CONFLICT DO NOTHING;
+
+-- ──────── 4b. CLIENT_USER Users (must come after clients due to FK on client_id) ────────
+INSERT INTO user_account (id, agency_id, client_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at)
+VALUES
+  ('00000000-0000-0000-0000-000000000050', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'local-sub-client-user-1', 'client_user@local',  'CLIENT_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Demo Client User',    now(), now()),
+  ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'local-sub-client-user-2', 'client_user2@local', 'CLIENT_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'FitFood Client User', now(), now())
+ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
 
 -- ──────── 5. Meta Connections ────────
 INSERT INTO meta_connection (id, agency_id, client_id, ad_account_id, pixel_id, page_id, access_token_enc, token_key_id, status, connected_at, last_sync_at, created_at, updated_at)

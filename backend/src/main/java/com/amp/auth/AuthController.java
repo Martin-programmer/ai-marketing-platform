@@ -65,7 +65,8 @@ public class AuthController {
             String email,
             String displayName,
             String role,
-            UUID agencyId) {}
+            UUID agencyId,
+            UUID clientId) {}
 
     // ── endpoints ───────────────────────────────────────────────
 
@@ -168,7 +169,8 @@ public class AuthController {
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getRole(),
-                user.getAgencyId()));
+                user.getAgencyId(),
+                user.getClientId()));
     }
 
     // ── helpers ─────────────────────────────────────────────────
@@ -178,7 +180,7 @@ public class AuthController {
         String refreshToken = jwtService.generateRefreshToken(user);
         UserInfo info = new UserInfo(
                 user.getId(), user.getEmail(), user.getDisplayName(),
-                user.getRole(), user.getAgencyId());
+                user.getRole(), user.getAgencyId(), user.getClientId());
         // expiresIn is in seconds for the client
         return new TokenResponse(accessToken, refreshToken, 3600, info);
     }

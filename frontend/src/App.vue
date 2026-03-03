@@ -20,17 +20,30 @@
       <v-divider />
 
       <v-list nav density="compact">
-        <v-list-item prepend-icon="mdi-view-dashboard" title="Dashboard" to="/" />
-        <v-list-item prepend-icon="mdi-account-group" title="Clients" to="/clients" />
-        <v-list-item prepend-icon="mdi-image-multiple" title="Creatives" to="/creatives" />
-        <v-list-item prepend-icon="mdi-bullhorn" title="Campaigns" to="/campaigns" />
-        <v-list-item prepend-icon="mdi-lightbulb-on" title="Suggestions" to="/suggestions" />
-        <v-list-item prepend-icon="mdi-file-chart" title="Reports" to="/reports" />
-        <v-list-item prepend-icon="mdi-facebook" title="Meta" to="/meta" />
+        <!-- Agency navigation -->
+        <template v-if="!isClientUser">
+          <v-list-item prepend-icon="mdi-view-dashboard" title="Dashboard" to="/" />
+          <v-list-item prepend-icon="mdi-account-group" title="Clients" to="/clients" />
+          <v-list-item prepend-icon="mdi-image-multiple" title="Creatives" to="/creatives" />
+          <v-list-item prepend-icon="mdi-bullhorn" title="Campaigns" to="/campaigns" />
+          <v-list-item prepend-icon="mdi-lightbulb-on" title="Suggestions" to="/suggestions" />
+          <v-list-item prepend-icon="mdi-file-chart" title="Reports" to="/reports" />
+          <v-list-item prepend-icon="mdi-facebook" title="Meta" to="/meta" />
+          <v-list-item prepend-icon="mdi-history" title="Audit Log" to="/audit" />
 
-        <v-divider v-if="isAgencyAdmin" class="my-2" />
-        <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-account-multiple" title="Team" to="/team" />
-        <v-list-item v-if="isOwnerAdmin" prepend-icon="mdi-shield-crown" title="Admin" to="/admin" />
+          <v-divider v-if="isAgencyAdmin" class="my-2" />
+          <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-account-multiple" title="Team" to="/team" />
+          <v-list-item v-if="isOwnerAdmin" prepend-icon="mdi-shield-crown" title="Admin" to="/admin" />
+        </template>
+
+        <!-- Client Portal navigation -->
+        <template v-else>
+          <v-list-item prepend-icon="mdi-view-dashboard" title="Dashboard" to="/portal" />
+          <v-list-item prepend-icon="mdi-file-chart" title="Reports" to="/portal/reports" />
+          <v-list-item prepend-icon="mdi-bullhorn" title="Campaigns" to="/portal/campaigns" />
+          <v-list-item prepend-icon="mdi-lightbulb-on" title="Activity" to="/portal/suggestions" />
+          <v-list-item prepend-icon="mdi-information" title="Profile" to="/portal/profile" />
+        </template>
       </v-list>
 
       <template v-slot:append>
@@ -43,7 +56,7 @@
     </v-navigation-drawer>
 
     <v-app-bar flat border>
-      <v-app-bar-title>AI Marketing Platform</v-app-bar-title>
+      <v-app-bar-title>{{ isClientUser ? 'Client Portal' : 'AI Marketing Platform' }}</v-app-bar-title>
     </v-app-bar>
 
     <v-main>
@@ -66,6 +79,7 @@ const isAgencyAdmin = computed(() =>
   ['AGENCY_ADMIN', 'OWNER_ADMIN'].includes(authStore.userRole)
 )
 const isOwnerAdmin = computed(() => authStore.userRole === 'OWNER_ADMIN')
+const isClientUser = computed(() => authStore.userRole === 'CLIENT_USER')
 
 function handleLogout() {
   authStore.logout()

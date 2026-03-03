@@ -7,6 +7,7 @@ interface User {
   email: string
   role: string
   agencyId: string
+  clientId: string | null
   displayName: string
 }
 
@@ -20,6 +21,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const userRole = computed(() => user.value?.role || '')
   const agencyId = computed(() => user.value?.agencyId || '')
+  const clientId = computed(() => user.value?.clientId || null)
+  const isClientUser = computed(() => user.value?.role === 'CLIENT_USER')
   const displayName = computed(() => user.value?.displayName || user.value?.email || '')
 
   async function login(email: string, password: string) {
@@ -79,7 +82,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     accessToken, refreshToken, user, loading, error,
-    isAuthenticated, userRole, agencyId, displayName,
+    isAuthenticated, userRole, agencyId, clientId, isClientUser, displayName,
     login, refreshAccessToken, fetchMe, logout
   }
 })

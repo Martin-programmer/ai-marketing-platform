@@ -3,6 +3,8 @@ package com.amp.clients;
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
 import com.amp.common.exception.ResourceNotFoundException;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,11 +27,13 @@ public class ClientService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "clients", key = "#agencyId")
     public List<Client> listClients(UUID agencyId) {
         return clientRepository.findAllByAgencyId(agencyId);
     }
 
     @Transactional
+    @CacheEvict(value = "clients", key = "#agencyId")
     public Client createClient(UUID agencyId, CreateClientRequest request) {
         Client client = new Client();
         client.setAgencyId(agencyId);
@@ -59,6 +63,7 @@ public class ClientService {
     }
 
     @Transactional
+    @CacheEvict(value = "clients", key = "#agencyId")
     public Client updateClient(UUID agencyId, UUID clientId, UpdateClientRequest request) {
         Client client = clientRepository.findByIdAndAgencyId(clientId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
@@ -80,6 +85,7 @@ public class ClientService {
     }
 
     @Transactional
+    @CacheEvict(value = "clients", key = "#agencyId")
     public Client pauseClient(UUID agencyId, UUID clientId) {
         Client client = clientRepository.findByIdAndAgencyId(clientId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
@@ -96,6 +102,7 @@ public class ClientService {
     }
 
     @Transactional
+    @CacheEvict(value = "clients", key = "#agencyId")
     public Client activateClient(UUID agencyId, UUID clientId) {
         Client client = clientRepository.findByIdAndAgencyId(clientId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));

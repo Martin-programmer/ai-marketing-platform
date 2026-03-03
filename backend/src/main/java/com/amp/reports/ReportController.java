@@ -1,5 +1,6 @@
 package com.amp.reports;
 
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,7 @@ public class ReportController {
     @ResponseStatus(HttpStatus.CREATED)
     public ReportResponse generateReport(@PathVariable UUID clientId,
                                          @Valid @RequestBody GenerateReportRequest req) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         if (!clientId.equals(req.clientId())) {
             throw new IllegalArgumentException("clientId in path and body must match");
@@ -36,18 +38,21 @@ public class ReportController {
 
     @GetMapping("/clients/{clientId}/reports")
     public List<ReportResponse> listReports(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return reportService.listReports(agencyId, clientId);
     }
 
     @GetMapping("/reports/{reportId}")
     public ReportResponse getReport(@PathVariable UUID reportId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return reportService.getReport(agencyId, reportId);
     }
 
     @PostMapping("/reports/{reportId}/send")
     public ReportResponse markReportSent(@PathVariable UUID reportId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return reportService.markReportSent(agencyId, reportId);
     }
@@ -58,6 +63,7 @@ public class ReportController {
     @ResponseStatus(HttpStatus.CREATED)
     public FeedbackResponse createFeedback(@PathVariable UUID clientId,
                                            @Valid @RequestBody CreateFeedbackRequest req) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         if (!clientId.equals(req.clientId())) {
             throw new IllegalArgumentException("clientId in path and body must match");
@@ -69,6 +75,7 @@ public class ReportController {
     public List<FeedbackResponse> listFeedback(
             @PathVariable UUID clientId,
             @RequestParam(required = false) String entityType) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return reportService.listFeedback(agencyId, clientId, entityType);
     }

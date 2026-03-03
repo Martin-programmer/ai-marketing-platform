@@ -47,6 +47,7 @@ public class JwtService {
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole())
                 .claim("agencyId", user.getAgencyId() != null ? user.getAgencyId().toString() : null)
+                .claim("clientId", user.getClientId() != null ? user.getClientId().toString() : null)
                 .claim("type", "access")
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(accessTokenExpMs)))

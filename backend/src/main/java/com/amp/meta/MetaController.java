@@ -1,5 +1,6 @@
 package com.amp.meta;
 
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -22,24 +23,28 @@ public class MetaController {
     @PostMapping("/clients/{clientId}/meta/connect/start")
     @ResponseStatus(HttpStatus.CREATED)
     public ConnectStartResponse connectStart(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return metaService.connectStart(agencyId, clientId);
     }
 
     @GetMapping("/clients/{clientId}/meta/connection")
     public MetaConnectionResponse getConnection(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return metaService.getConnection(agencyId, clientId);
     }
 
     @PostMapping("/clients/{clientId}/meta/disconnect")
     public void disconnect(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         metaService.disconnect(agencyId, clientId);
     }
 
     @GetMapping("/clients/{clientId}/meta/sync/status")
     public MetaSyncJobResponse getSyncStatus(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return metaService.getSyncStatus(agencyId, clientId);
     }
@@ -48,6 +53,7 @@ public class MetaController {
     @ResponseStatus(HttpStatus.CREATED)
     public MetaSyncJobResponse triggerSync(@PathVariable UUID clientId,
                                           @PathVariable String jobType) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return metaService.triggerSync(agencyId, clientId, jobType.toUpperCase());
     }

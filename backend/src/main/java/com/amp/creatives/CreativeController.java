@@ -1,5 +1,6 @@
 package com.amp.creatives;
 
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -35,6 +36,7 @@ public class CreativeController {
 
     @GetMapping("/clients/{clientId}/creatives")
     public ResponseEntity<List<AssetResponse>> listAssets(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         return ResponseEntity.ok(creativeService.listAssets(agencyId(), clientId));
     }
 
@@ -43,17 +45,20 @@ public class CreativeController {
             @PathVariable UUID clientId,
             @Valid @RequestBody CreateAssetRequest request) {
 
+        RoleGuard.requireAgencyRole();
         AssetResponse created = creativeService.createAsset(agencyId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @GetMapping("/creatives/{assetId}")
     public ResponseEntity<AssetResponse> getAsset(@PathVariable UUID assetId) {
+        RoleGuard.requireAgencyRole();
         return ResponseEntity.ok(creativeService.getAsset(agencyId(), assetId));
     }
 
     @GetMapping("/creatives/{assetId}/analysis")
     public ResponseEntity<CreativeAnalysis> getAnalysis(@PathVariable UUID assetId) {
+        RoleGuard.requireAgencyRole();
         CreativeAnalysis analysis = creativeService.getAnalysis(assetId);
         if (analysis == null) {
             return ResponseEntity.noContent().build();
@@ -65,6 +70,7 @@ public class CreativeController {
 
     @GetMapping("/clients/{clientId}/creative-packages")
     public ResponseEntity<List<PackageResponse>> listPackages(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         return ResponseEntity.ok(creativeService.listPackages(agencyId(), clientId));
     }
 
@@ -73,17 +79,43 @@ public class CreativeController {
             @PathVariable UUID clientId,
             @Valid @RequestBody CreatePackageRequest request) {
 
+        RoleGuard.requireAgencyRole();
         PackageResponse created = creativeService.createPackage(agencyId(), clientId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PostMapping("/creative-packages/{packageId}/submit")
     public ResponseEntity<PackageResponse> submitPackage(@PathVariable UUID packageId) {
+        RoleGuard.requireAgencyRole();
         return ResponseEntity.ok(creativeService.submitPackage(agencyId(), packageId));
     }
 
     @PostMapping("/creative-packages/{packageId}/approve")
     public ResponseEntity<PackageResponse> approvePackage(@PathVariable UUID packageId) {
+        RoleGuard.requireAgencyRole();
         return ResponseEntity.ok(creativeService.approvePackage(agencyId(), packageId));
+    }
+
+    // ---- Copy Variants ----
+
+    @GetMapping("/clients/{clientId}/copy-variants")
+    public ResponseEntity<List<CopyVariantResponse>> listCopyVariants(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
+        return ResponseEntity.ok(creativeService.listCopyVariants(agencyId(), clientId));
+    }
+
+    @PostMapping("/clients/{clientId}/copy-variants")
+    public ResponseEntity<CopyVariantResponse> createCopyVariant(
+            @PathVariable UUID clientId,
+            @Valid @RequestBody CreateCopyVariantRequest request) {
+        RoleGuard.requireAgencyRole();
+        CopyVariantResponse created = creativeService.createCopyVariant(agencyId(), clientId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @GetMapping("/copy-variants/{variantId}")
+    public ResponseEntity<CopyVariantResponse> getCopyVariant(@PathVariable UUID variantId) {
+        RoleGuard.requireAgencyRole();
+        return ResponseEntity.ok(creativeService.getCopyVariant(agencyId(), variantId));
     }
 }

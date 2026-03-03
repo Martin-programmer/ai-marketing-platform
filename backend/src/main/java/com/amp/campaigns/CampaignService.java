@@ -174,7 +174,10 @@ public class CampaignService {
     // ──────── Ad ────────
 
     @Transactional(readOnly = true)
-    public List<Ad> listAds(UUID adsetId) {
+    public List<Ad> listAds(UUID agencyId, UUID adsetId) {
+        // Verify adset belongs to agency
+        adsetRepository.findByIdAndAgencyId(adsetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Adset", adsetId));
         return adRepository.findAllByAdsetId(adsetId);
     }
 

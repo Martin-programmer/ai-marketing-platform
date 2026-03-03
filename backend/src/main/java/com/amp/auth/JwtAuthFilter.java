@@ -96,9 +96,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                     log.debug("JWT auth successful for user: {} role: {}", user.getEmail(), role);
 
+                    // Client context
+                    String clientIdStr = claims.get("clientId", String.class);
+                    UUID clientId = (clientIdStr != null && !clientIdStr.isBlank())
+                            ? UUID.fromString(clientIdStr) : user.getClientId();
+                    if (clientId != null) {
+                        request.setAttribute("currentClientId", clientId);
+                    }
+
                     // Tenant context
                     UUID agencyUuid = agencyId != null && !agencyId.isBlank() ? UUID.fromString(agencyId) : user.getAgencyId();
-                    TenantContextHolder.set(new TenantContext(agencyUuid, userId, user.getEmail(), role));
+                    TenantContextHolder.set(new TenantContext(agencyUuid, userId, user.getEmail(), role, clientId));
                 } else {
                     log.debug("JWT user not found or inactive: {}", userId);
                 }

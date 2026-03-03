@@ -40,6 +40,7 @@ public class DevAuthFilter extends OncePerRequestFilter {
     private static final String HEADER_ROLE      = "X-Dev-User-Role";
     private static final String HEADER_AGENCY_ID = "X-Agency-Id";
     private static final String HEADER_USER_ID   = "X-Dev-User-Id";
+    private static final String HEADER_CLIENT_ID = "X-Dev-Client-Id";
     private static final String DEFAULT_ROLE     = "AGENCY_ADMIN";
     private static final UUID   DEFAULT_USER_ID  = UUID.fromString("00000000-0000-0000-0000-000000000010");
 
@@ -88,7 +89,16 @@ public class DevAuthFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
 
-                TenantContextHolder.set(new TenantContext(agencyId, userId, email, role));
+                // Client context
+                UUID clientId = parseUuid(request.getHeader(HEADER_CLIENT_ID));
+                if (clientId == null && user != null) {
+                    clientId = user.getClientId();
+                }
+                if (clientId != null) {
+                    request.setAttribute("currentClientId", clientId);
+                }
+
+                TenantContextHolder.set(new TenantContext(agencyId, userId, email, role, clientId));
             }
 
             filterChain.doFilter(request, response);

@@ -54,6 +54,7 @@
           <v-chip size="small" class="ma-1" @click="fillDemo('agency_admin@local')">Agency Admin</v-chip>
           <v-chip size="small" class="ma-1" @click="fillDemo('agency_user@local')">Agency User</v-chip>
           <v-chip size="small" class="ma-1" @click="fillDemo('owner_admin@local')">Owner Admin</v-chip>
+          <v-chip size="small" class="ma-1" color="teal" @click="fillDemo('client_user@local')">Client User</v-chip>
         </div>
       </v-card>
     </v-main>
@@ -81,7 +82,11 @@ async function handleLogin() {
   if (!email.value || !password.value) return
   const success = await authStore.login(email.value, password.value)
   if (success) {
-    router.push('/')
+    if (authStore.isClientUser) {
+      router.push('/portal')
+    } else {
+      router.push('/')
+    }
   }
 }
 </script>

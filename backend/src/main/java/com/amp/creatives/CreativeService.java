@@ -6,6 +6,8 @@ import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,21 +27,25 @@ public class CreativeService {
     private final CreativeAssetRepository assetRepository;
     private final CreativeAnalysisRepository analysisRepository;
     private final CreativePackageRepository packageRepository;
+    private final CopyVariantRepository copyVariantRepository;
     private final AuditService auditService;
 
     public CreativeService(CreativeAssetRepository assetRepository,
                            CreativeAnalysisRepository analysisRepository,
                            CreativePackageRepository packageRepository,
+                           CopyVariantRepository copyVariantRepository,
                            AuditService auditService) {
         this.assetRepository = assetRepository;
         this.analysisRepository = analysisRepository;
         this.packageRepository = packageRepository;
+        this.copyVariantRepository = copyVariantRepository;
         this.auditService = auditService;
     }
 
     // ---- Assets ----
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "creativeAssets", key = "#agencyId + '_' + #clientId")
     public List<AssetResponse> listAssets(UUID agencyId, UUID clientId) {
         return assetRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
                 .stream()
@@ -47,6 +53,7 @@ public class CreativeService {
                 .toList();
     }
 
+    @CacheEvict(value = "creativeAssets", key = "#agencyId + '_' + #request.clientId()")
     public AssetResponse createAsset(UUID agencyId, CreateAssetRequest request) {
         UUID userId = TenantContextHolder.require().getUserId();
         OffsetDateTime now = OffsetDateTime.now();
@@ -90,6 +97,7 @@ public class CreativeService {
     // ---- Packages ----
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "creativePackages", key = "#agencyId + '_' + #clientId")
     public List<PackageResponse> listPackages(UUID agencyId, UUID clientId) {
         return packageRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
                 .stream()
@@ -97,6 +105,7 @@ public class CreativeService {
                 .toList();
     }
 
+    @CacheEvict(value = "creativePackages", key = "#agencyId + '_' + #clientId")
     public PackageResponse createPackage(UUID agencyId, UUID clientId, CreatePackageRequest request) {
         log.info("Creating creative package: name={}, clientId={}", request.name(), clientId);
         UUID userId = TenantContextHolder.require().getUserId();
@@ -120,6 +129,7 @@ public class CreativeService {
         return PackageResponse.from(saved);
     }
 
+    @CacheEvict(value = "creativePackages", allEntries = true)
     public PackageResponse submitPackage(UUID agencyId, UUID packageId) {
         CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
@@ -140,6 +150,7 @@ public class CreativeService {
         return PackageResponse.from(saved);
     }
 
+    @CacheEvict(value = "creativePackages", allEntries = true)
     public PackageResponse approvePackage(UUID agencyId, UUID packageId) {
         CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
@@ -161,5 +172,51 @@ public class CreativeService {
                 before, "APPROVED", UUID.randomUUID().toString());
 
         return PackageResponse.from(saved);
+    }
+
+    // ---- Copy Variants ----
+
+    @Transactional(readOnly = true)
+    public List<CopyVariantResponse> listCopyVariants(UUID agencyId, UUID clientId) {
+        return copyVariantRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
+                .stream()
+                .map(CopyVariantResponse::from)
+                .toList();
+    }
+
+    public CopyVariantResponse createCopyVariant(UUID agencyId, UUID clientId,
+                                                  CreateCopyVariantRequest request) {
+        log.info("Creating copy variant: headline={}, clientId={}", request.headline(), clientId);
+        UUID userId = TenantContextHolder.require().getUserId();
+        OffsetDateTime now = OffsetDateTime.now();
+
+        CopyVariant cv = new CopyVariant();
+        cv.setAgencyId(agencyId);
+        cv.setClientId(clientId);
+        cv.setLanguage(request.language());
+        cv.setPrimaryText(request.primaryText());
+        cv.setHeadline(request.headline());
+        cv.setDescription(request.description());
+        cv.setCta(request.cta());
+        cv.setStatus("DRAFT");
+        cv.setCreatedBy(userId);
+        cv.setCreatedAt(now);
+        cv.setUpdatedAt(now);
+
+        CopyVariant saved = copyVariantRepository.save(cv);
+
+        auditService.log(agencyId, clientId, null, null,
+                AuditAction.CREATIVE_UPLOAD, "COPY_VARIANT", saved.getId(),
+                null, saved, UUID.randomUUID().toString());
+
+        return CopyVariantResponse.from(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public CopyVariantResponse getCopyVariant(UUID agencyId, UUID variantId) {
+        CopyVariant cv = copyVariantRepository.findById(variantId)
+                .filter(v -> v.getAgencyId().equals(agencyId))
+                .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId));
+        return CopyVariantResponse.from(cv);
     }
 }

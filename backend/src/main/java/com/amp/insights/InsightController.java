@@ -1,5 +1,6 @@
 package com.amp.insights;
 
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
@@ -26,6 +27,7 @@ public class InsightController {
             @PathVariable UUID clientId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return insightService.getClientInsights(agencyId, clientId, from, to);
     }
@@ -35,6 +37,7 @@ public class InsightController {
             @PathVariable UUID campaignId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return insightService.getCampaignInsights(agencyId, campaignId, from, to);
     }
@@ -44,6 +47,7 @@ public class InsightController {
             @PathVariable UUID clientId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        RoleGuard.requireAgencyRole();
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return insightService.getClientKpis(agencyId, clientId, from, to);
     }

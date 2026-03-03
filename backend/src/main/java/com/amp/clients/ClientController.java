@@ -1,5 +1,6 @@
 package com.amp.clients;
 
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import com.amp.tenancy.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -72,6 +73,15 @@ public class ClientController {
     @GetMapping
     public ResponseEntity<?> listClients(HttpServletRequest request,
                                          @org.springframework.web.bind.annotation.RequestParam(required = false) UUID agencyId) {
+        TenantContext tenant = TenantContextHolder.require();
+        if ("CLIENT_USER".equals(tenant.getRole())) {
+            if (tenant.getClientId() == null) {
+                return ResponseEntity.ok(List.of());
+            }
+            Client client = clientService.getClient(tenant.getAgencyId(), tenant.getClientId());
+            return ResponseEntity.ok(List.of(ClientResponse.from(client)));
+        }
+
         UUID targetAgencyId = resolveAgencyId(request, agencyId);
         if (targetAgencyId == null) {
             return ResponseEntity.ok(List.of());
@@ -88,6 +98,7 @@ public class ClientController {
     public ResponseEntity<ClientResponse> createClient(
             @Valid @RequestBody CreateClientRequest request) {
 
+        RoleGuard.requireAgencyRole();
         Client created = clientService.createClient(agencyId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ClientResponse.from(created));
@@ -95,6 +106,13 @@ public class ClientController {
 
     @GetMapping("/{clientId}")
     public ResponseEntity<ClientResponse> getClient(@PathVariable UUID clientId) {
+        TenantContext tenant = TenantContextHolder.require();
+        if ("CLIENT_USER".equals(tenant.getRole())) {
+            if (tenant.getClientId() == null || !tenant.getClientId().equals(clientId)) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "CLIENT_USER can only access their own client.");
+            }
+        }
         Client client = clientService.getClient(agencyId(), clientId);
         return ResponseEntity.ok(ClientResponse.from(client));
     }
@@ -104,18 +122,21 @@ public class ClientController {
             @PathVariable UUID clientId,
             @Valid @RequestBody UpdateClientRequest request) {
 
+        RoleGuard.requireAgencyRole();
         Client updated = clientService.updateClient(agencyId(), clientId, request);
         return ResponseEntity.ok(ClientResponse.from(updated));
     }
 
     @PostMapping("/{clientId}/pause")
     public ResponseEntity<ClientResponse> pauseClient(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         Client paused = clientService.pauseClient(agencyId(), clientId);
         return ResponseEntity.ok(ClientResponse.from(paused));
     }
 
     @PostMapping("/{clientId}/activate")
     public ResponseEntity<ClientResponse> activateClient(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
         Client activated = clientService.activateClient(agencyId(), clientId);
         return ResponseEntity.ok(ClientResponse.from(activated));
     }
@@ -133,6 +154,7 @@ public class ClientController {
             @PathVariable UUID clientId,
             @Valid @RequestBody ClientProfileRequest request) {
 
+        RoleGuard.requireAgencyRole();
         ClientProfile profile = profileService.upsertProfile(agencyId(), clientId, request);
         return ResponseEntity.ok(ClientProfileResponse.from(profile));
     }

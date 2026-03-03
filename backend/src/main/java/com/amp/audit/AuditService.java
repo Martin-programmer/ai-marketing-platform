@@ -6,11 +6,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -79,6 +81,20 @@ public class AuditService {
         entry.setCreatedAt(OffsetDateTime.now());
 
         repository.save(entry);
+    }
+
+    /**
+     * Queries audit logs for a given agency with optional filters.
+     */
+    @Transactional(readOnly = true)
+    public List<AuditLogResponse> queryLogs(UUID agencyId, String entityType,
+                                            String action, UUID entityId,
+                                            UUID clientId, int limit) {
+        return repository.findFiltered(agencyId, entityType, action, entityId,
+                        clientId, PageRequest.of(0, limit))
+                .stream()
+                .map(AuditLogResponse::from)
+                .toList();
     }
 
     private String toJson(Object obj) {

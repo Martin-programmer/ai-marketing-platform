@@ -18,6 +18,7 @@ const router = createRouter({
     { path: '/suggestions', name: 'suggestions', component: () => import('@/views/SuggestionsView.vue') },
     { path: '/reports', name: 'reports', component: () => import('@/views/ReportsView.vue') },
     { path: '/meta', name: 'meta', component: () => import('@/views/MetaView.vue') },
+    { path: '/audit', name: 'audit', component: () => import('@/views/AuditView.vue') },
     {
       path: '/team',
       name: 'team',
@@ -29,6 +30,37 @@ const router = createRouter({
       name: 'admin',
       component: () => import('@/views/AdminView.vue'),
       meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    // Client Portal routes (CLIENT_USER only)
+    {
+      path: '/portal',
+      name: 'portal-dashboard',
+      component: () => import('@/views/portal/PortalDashboardView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
+    },
+    {
+      path: '/portal/reports',
+      name: 'portal-reports',
+      component: () => import('@/views/portal/PortalReportsView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
+    },
+    {
+      path: '/portal/campaigns',
+      name: 'portal-campaigns',
+      component: () => import('@/views/portal/PortalCampaignsView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
+    },
+    {
+      path: '/portal/suggestions',
+      name: 'portal-suggestions',
+      component: () => import('@/views/portal/PortalSuggestionsView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
+    },
+    {
+      path: '/portal/profile',
+      name: 'portal-profile',
+      component: () => import('@/views/portal/PortalProfileView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
     },
   ]
 })
@@ -44,6 +76,26 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.path === '/login' && token) {
+    const userStr = localStorage.getItem('user')
+    const u = userStr ? JSON.parse(userStr) : null
+    if (u?.role === 'CLIENT_USER') {
+      next('/portal')
+    } else {
+      next('/')
+    }
+    return
+  }
+
+  // CLIENT_USER can only access /portal/* and /login
+  const userStr = localStorage.getItem('user')
+  const user = userStr ? JSON.parse(userStr) : null
+  if (token && user?.role === 'CLIENT_USER' && !to.path.startsWith('/portal') && to.path !== '/login') {
+    next('/portal')
+    return
+  }
+
+  // Agency users cannot access /portal/*
+  if (token && user && user.role !== 'CLIENT_USER' && to.path.startsWith('/portal')) {
     next('/')
     return
   }
@@ -51,11 +103,13 @@ router.beforeEach((to, _from, next) => {
   // Role-based guard
   const requiredRole = to.meta.requiredRole as string[] | undefined
   if (requiredRole && requiredRole.length > 0) {
-    const userStr = localStorage.getItem('user')
-    const user = userStr ? JSON.parse(userStr) : null
     const userRole = user?.role || ''
     if (!requiredRole.includes(userRole)) {
-      next('/')
+      if (userRole === 'CLIENT_USER') {
+        next('/portal')
+      } else {
+        next('/')
+      }
       return
     }
   }
