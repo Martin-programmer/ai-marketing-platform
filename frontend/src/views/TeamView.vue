@@ -72,6 +72,27 @@
       </template>
 
       <template v-slot:[`item.actions`]="{ item }">
+        <v-tooltip v-if="item.role === 'AGENCY_USER'" text="Manage Permissions" location="top">
+          <template v-slot:activator="{ props: tp }">
+            <v-btn
+              v-bind="tp"
+              icon="mdi-shield-key"
+              size="small"
+              variant="text"
+              color="purple"
+              @click="openPermissions(item)"
+            />
+          </template>
+        </v-tooltip>
+        <v-chip
+          v-if="item.role === 'AGENCY_ADMIN'"
+          size="x-small"
+          color="primary"
+          variant="tonal"
+          class="mr-1"
+        >
+          Full Access
+        </v-chip>
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEditDialog(item)" />
         <v-btn
           v-if="item.status === 'ACTIVE'"
@@ -183,6 +204,14 @@
       </v-card>
     </v-dialog>
 
+    <!-- Permission Management Dialog -->
+    <PermissionManagementDialog
+      v-model="showPermDialog"
+      :user-id="permDialogUserId"
+      :user-name="permDialogUserName"
+      @saved="showSnackbar('Permissions saved')"
+    />
+
     <!-- Success Snackbar -->
     <v-snackbar v-model="snackbar" color="success" :timeout="3000">
       {{ snackbarText }}
@@ -195,6 +224,7 @@ import { computed, ref, onMounted } from 'vue'
 import api from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useTeamStore } from '@/stores/team'
+import PermissionManagementDialog from '@/components/PermissionManagementDialog.vue'
 
 const authStore = useAuthStore()
 const teamStore = useTeamStore()
@@ -303,6 +333,17 @@ async function fetchUsersForContext() {
 
 async function onAgencyChange() {
   await Promise.all([fetchUsersForContext(), fetchClients()])
+}
+
+/* ── Permissions ── */
+const showPermDialog = ref(false)
+const permDialogUserId = ref('')
+const permDialogUserName = ref('')
+
+function openPermissions(user: TeamUser) {
+  permDialogUserId.value = user.id
+  permDialogUserName.value = user.displayName
+  showPermDialog.value = true
 }
 
 /* ── Edit ── */

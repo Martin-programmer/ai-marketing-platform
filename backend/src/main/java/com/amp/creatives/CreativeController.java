@@ -1,6 +1,7 @@
 package com.amp.creatives;
 
-import com.amp.common.RoleGuard;
+import com.amp.auth.AccessControl;
+import com.amp.auth.Permission;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,9 +24,11 @@ import java.util.UUID;
 public class CreativeController {
 
     private final CreativeService creativeService;
+    private final AccessControl accessControl;
 
-    public CreativeController(CreativeService creativeService) {
+    public CreativeController(CreativeService creativeService, AccessControl accessControl) {
         this.creativeService = creativeService;
+        this.accessControl = accessControl;
     }
 
     private UUID agencyId() {
@@ -36,7 +39,7 @@ public class CreativeController {
 
     @GetMapping("/clients/{clientId}/creatives")
     public ResponseEntity<List<AssetResponse>> listAssets(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.listAssets(agencyId(), clientId));
     }
 
@@ -45,20 +48,22 @@ public class CreativeController {
             @PathVariable UUID clientId,
             @Valid @RequestBody CreateAssetRequest request) {
 
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         AssetResponse created = creativeService.createAsset(agencyId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @GetMapping("/creatives/{assetId}")
     public ResponseEntity<AssetResponse> getAsset(@PathVariable UUID assetId) {
-        RoleGuard.requireAgencyRole();
+        UUID clientId = creativeService.resolveAssetClientId(agencyId(), assetId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.getAsset(agencyId(), assetId));
     }
 
     @GetMapping("/creatives/{assetId}/analysis")
     public ResponseEntity<CreativeAnalysis> getAnalysis(@PathVariable UUID assetId) {
-        RoleGuard.requireAgencyRole();
+        UUID clientId = creativeService.resolveAssetClientId(agencyId(), assetId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         CreativeAnalysis analysis = creativeService.getAnalysis(assetId);
         if (analysis == null) {
             return ResponseEntity.noContent().build();
@@ -70,7 +75,7 @@ public class CreativeController {
 
     @GetMapping("/clients/{clientId}/creative-packages")
     public ResponseEntity<List<PackageResponse>> listPackages(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.listPackages(agencyId(), clientId));
     }
 
@@ -79,20 +84,22 @@ public class CreativeController {
             @PathVariable UUID clientId,
             @Valid @RequestBody CreatePackageRequest request) {
 
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         PackageResponse created = creativeService.createPackage(agencyId(), clientId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PostMapping("/creative-packages/{packageId}/submit")
     public ResponseEntity<PackageResponse> submitPackage(@PathVariable UUID packageId) {
-        RoleGuard.requireAgencyRole();
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         return ResponseEntity.ok(creativeService.submitPackage(agencyId(), packageId));
     }
 
     @PostMapping("/creative-packages/{packageId}/approve")
     public ResponseEntity<PackageResponse> approvePackage(@PathVariable UUID packageId) {
-        RoleGuard.requireAgencyRole();
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         return ResponseEntity.ok(creativeService.approvePackage(agencyId(), packageId));
     }
 
@@ -100,7 +107,7 @@ public class CreativeController {
 
     @GetMapping("/clients/{clientId}/copy-variants")
     public ResponseEntity<List<CopyVariantResponse>> listCopyVariants(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.listCopyVariants(agencyId(), clientId));
     }
 
@@ -108,14 +115,15 @@ public class CreativeController {
     public ResponseEntity<CopyVariantResponse> createCopyVariant(
             @PathVariable UUID clientId,
             @Valid @RequestBody CreateCopyVariantRequest request) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         CopyVariantResponse created = creativeService.createCopyVariant(agencyId(), clientId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @GetMapping("/copy-variants/{variantId}")
     public ResponseEntity<CopyVariantResponse> getCopyVariant(@PathVariable UUID variantId) {
-        RoleGuard.requireAgencyRole();
+        UUID clientId = creativeService.resolveCopyVariantClientId(agencyId(), variantId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.getCopyVariant(agencyId(), variantId));
     }
 }

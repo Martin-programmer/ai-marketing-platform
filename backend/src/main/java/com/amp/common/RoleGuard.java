@@ -31,4 +31,24 @@ public final class RoleGuard {
                     "This endpoint requires an agency role. Use /api/v1/portal/* for client access.");
         }
     }
+
+    /**
+     * Requires OWNER_ADMIN role (platform superadmin).
+     */
+    public static void requireOwnerAdmin() {
+        String role = TenantContextHolder.require().getRole();
+        if (!"OWNER_ADMIN".equals(role)) {
+            throw new AccessDeniedException("Owner Admin access required");
+        }
+    }
+
+    /**
+     * Requires AGENCY_ADMIN or OWNER_ADMIN role.
+     */
+    public static void requireAgencyAdmin() {
+        String role = TenantContextHolder.require().getRole();
+        if (!Set.of("OWNER_ADMIN", "AGENCY_ADMIN").contains(role)) {
+            throw new AccessDeniedException("Agency Admin access required");
+        }
+    }
 }

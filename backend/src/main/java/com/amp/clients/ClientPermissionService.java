@@ -1,5 +1,6 @@
 package com.amp.clients;
 
+import com.amp.auth.Permission;
 import com.amp.auth.UserAccount;
 import com.amp.auth.UserAccountRepository;
 import org.springframework.stereotype.Service;
@@ -11,14 +12,12 @@ import java.util.stream.Collectors;
 
 /**
  * Service managing user-client permissions.
+ * <p>
+ * Permissions are granular values from {@link Permission} enum.
  */
 @Service
 @Transactional
 public class ClientPermissionService {
-
-    private static final Set<String> VALID_PERMISSIONS = Set.of(
-            "READ", "WRITE", "APPROVE", "ADMIN"
-    );
 
     private final UserClientPermissionRepository permissionRepository;
     private final UserAccountRepository userAccountRepository;
@@ -88,10 +87,30 @@ public class ClientPermissionService {
         permissionRepository.deleteByUserIdAndClientId(userId, clientId);
     }
 
+    /**
+     * Replace all permissions for a user-client pair.
+     * Called from PermissionController.
+     */
+    public void setUserClientPermissions(UUID userId, UUID clientId,
+                                         List<String> permissions, UUID grantedBy) {
+        for (String p : permissions) {
+            validatePermission(p);
+        }
+        permissionRepository.deleteByUserIdAndClientId(userId, clientId);
+        permissionRepository.flush();
+
+        for (String perm : permissions) {
+            UserClientPermission ucp = new UserClientPermission(userId, clientId, perm, grantedBy);
+            permissionRepository.save(ucp);
+        }
+    }
+
     private void validatePermission(String permission) {
-        if (!VALID_PERMISSIONS.contains(permission)) {
+        try {
+            Permission.valueOf(permission);
+        } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid permission: " + permission
-                    + ". Valid values: " + VALID_PERMISSIONS);
+                    + ". Valid values: " + Arrays.toString(Permission.values()));
         }
     }
 }

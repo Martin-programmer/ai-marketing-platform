@@ -31,6 +31,25 @@ const router = createRouter({
       component: () => import('@/views/AdminView.vue'),
       meta: { requiredRole: ['OWNER_ADMIN'] }
     },
+    // Owner routes
+    {
+      path: '/owner',
+      name: 'owner-dashboard',
+      component: () => import('@/views/owner/OwnerDashboardView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    {
+      path: '/owner/agencies',
+      name: 'owner-agencies',
+      component: () => import('@/views/owner/OwnerDashboardView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    {
+      path: '/owner/agencies/:id',
+      name: 'owner-agency-detail',
+      component: () => import('@/views/owner/OwnerAgencyDetailView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
     // Client Portal routes (CLIENT_USER only)
     {
       path: '/portal',
@@ -80,6 +99,8 @@ router.beforeEach((to, _from, next) => {
     const u = userStr ? JSON.parse(userStr) : null
     if (u?.role === 'CLIENT_USER') {
       next('/portal')
+    } else if (u?.role === 'OWNER_ADMIN') {
+      next('/owner')
     } else {
       next('/')
     }
@@ -94,8 +115,18 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // Agency users cannot access /portal/*
+  // OWNER_ADMIN: redirect / to /owner
+  if (token && user?.role === 'OWNER_ADMIN' && to.path === '/') {
+    next('/owner')
+    return
+  }
+
+  // Agency users cannot access /portal/* or /owner/*
   if (token && user && user.role !== 'CLIENT_USER' && to.path.startsWith('/portal')) {
+    next('/')
+    return
+  }
+  if (token && user && user.role !== 'OWNER_ADMIN' && to.path.startsWith('/owner')) {
     next('/')
     return
   }

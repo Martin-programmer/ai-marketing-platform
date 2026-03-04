@@ -28,10 +28,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
      executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 public abstract class BaseIntegrationTest {
 
-    protected static final String AGENCY_ID     = "00000000-0000-0000-0000-000000000001";
-    protected static final String OTHER_AGENCY   = "00000000-0000-0000-0000-000000000099";
-    protected static final String USER_ID        = "00000000-0000-0000-0000-000000000010";
-    protected static final String OTHER_USER_ID  = "00000000-0000-0000-0000-000000000099";
+    protected static final String AGENCY_ID       = "00000000-0000-0000-0000-000000000001";
+    protected static final String OTHER_AGENCY    = "00000000-0000-0000-0000-000000000099";
+    protected static final String USER_ID         = "00000000-0000-0000-0000-000000000010";
+    protected static final String OTHER_USER_ID   = "00000000-0000-0000-0000-000000000099";
+    protected static final String OWNER_USER_ID   = "00000000-0000-0000-0000-000000000020";
+    protected static final String AGENCY_USER_ID  = "00000000-0000-0000-0000-000000000011";
 
     static final PostgreSQLContainer<?> postgres;
 
@@ -78,6 +80,32 @@ public abstract class BaseIntegrationTest {
         h.set("X-Dev-User-Role", "AGENCY_ADMIN");
         h.set("X-Agency-Id", OTHER_AGENCY);
         h.set("X-Dev-User-Id", OTHER_USER_ID);
+        return h;
+    }
+
+    /**
+     * Headers that simulate an OWNER_ADMIN (platform super-admin, no agency).
+     */
+    protected HttpHeaders ownerAdminHeaders() {
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.set("X-Dev-User-Email", "owner_admin@local");
+        h.set("X-Dev-User-Role", "OWNER_ADMIN");
+        // OWNER_ADMIN has no agency — omit X-Agency-Id
+        h.set("X-Dev-User-Id", OWNER_USER_ID);
+        return h;
+    }
+
+    /**
+     * Headers that simulate an AGENCY_USER (limited permissions via user_client_permission).
+     */
+    protected HttpHeaders agencyUserHeaders() {
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.set("X-Dev-User-Email", "agency_user@local");
+        h.set("X-Dev-User-Role", "AGENCY_USER");
+        h.set("X-Agency-Id", AGENCY_ID);
+        h.set("X-Dev-User-Id", AGENCY_USER_ID);
         return h;
     }
 }

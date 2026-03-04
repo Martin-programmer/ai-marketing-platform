@@ -32,6 +32,12 @@ public class ClientService {
         return clientRepository.findAllByAgencyId(agencyId);
     }
 
+    @Transactional(readOnly = true)
+    public List<Client> listClientsByIds(UUID agencyId, List<UUID> clientIds) {
+        if (clientIds == null || clientIds.isEmpty()) return List.of();
+        return clientRepository.findByAgencyIdAndIdIn(agencyId, clientIds);
+    }
+
     @Transactional
     @CacheEvict(value = "clients", key = "#agencyId")
     public Client createClient(UUID agencyId, CreateClientRequest request) {

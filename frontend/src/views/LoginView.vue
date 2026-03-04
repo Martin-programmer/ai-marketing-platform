@@ -84,6 +84,8 @@ async function handleLogin() {
   if (success) {
     if (authStore.isClientUser) {
       router.push('/portal')
+    } else if (authStore.userRole === 'OWNER_ADMIN') {
+      router.push('/owner')
     } else {
       router.push('/')
     }

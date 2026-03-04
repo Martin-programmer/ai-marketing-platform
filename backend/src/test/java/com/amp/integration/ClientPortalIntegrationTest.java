@@ -163,14 +163,14 @@ class ClientPortalIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("CLIENT_USER GET /api/v1/clients/{clientId}/reports → 403 (agency report endpoint)")
+    @DisplayName("CLIENT_USER GET /api/v1/clients/{clientId}/reports → 200 (view own client reports)")
     @SuppressWarnings("unchecked")
-    void clientUser_listAgencyReports_403() {
-        ResponseEntity<Map> r = restTemplate.exchange(
+    void clientUser_listOwnClientReports_200() {
+        ResponseEntity<List> r = restTemplate.exchange(
                 "/api/v1/clients/" + CLIENT_ID + "/reports", HttpMethod.GET,
-                new HttpEntity<>(clientUserHeaders()), Map.class);
+                new HttpEntity<>(clientUserHeaders()), List.class);
 
-        assertThat(r.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

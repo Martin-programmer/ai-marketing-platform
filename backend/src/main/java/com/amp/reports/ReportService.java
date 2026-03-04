@@ -119,6 +119,14 @@ public class ReportService {
 
     // ──────── Helpers ────────
 
+    /**
+     * Resolves the clientId that owns a given report (used for permission checks).
+     */
+    @Transactional(readOnly = true)
+    public UUID resolveClientId(UUID agencyId, UUID reportId) {
+        return findReportOrThrow(agencyId, reportId).getClientId();
+    }
+
     private Report findReportOrThrow(UUID agencyId, UUID reportId) {
         return reportRepository.findByIdAndAgencyId(reportId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Report", reportId));

@@ -12,7 +12,9 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * JPA entity mapped to the {@code user_account} table (V001 + V007).
+ * JPA entity mapped to the {@code user_account} table (V001 + V007 + V008).
+ * <p>
+ * {@code agency_id} is nullable — OWNER_ADMIN users have no agency.
  */
 @Entity
 @Table(name = "user_account")
@@ -22,7 +24,7 @@ public class UserAccount {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "agency_id")
+    @Column(name = "agency_id", nullable = true)
     private UUID agencyId;
 
     @Column(name = "client_id")

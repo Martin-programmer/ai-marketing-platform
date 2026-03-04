@@ -219,4 +219,28 @@ public class CreativeService {
                 .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId));
         return CopyVariantResponse.from(cv);
     }
+
+    // ──────── Client-ID resolvers (for permission checks) ────────
+
+    @Transactional(readOnly = true)
+    public UUID resolveAssetClientId(UUID agencyId, UUID assetId) {
+        return assetRepository.findByIdAndAgencyId(assetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativeAsset", assetId))
+                .getClientId();
+    }
+
+    @Transactional(readOnly = true)
+    public UUID resolvePackageClientId(UUID agencyId, UUID packageId) {
+        return packageRepository.findByIdAndAgencyId(packageId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId))
+                .getClientId();
+    }
+
+    @Transactional(readOnly = true)
+    public UUID resolveCopyVariantClientId(UUID agencyId, UUID variantId) {
+        return copyVariantRepository.findById(variantId)
+                .filter(v -> v.getAgencyId().equals(agencyId))
+                .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId))
+                .getClientId();
+    }
 }

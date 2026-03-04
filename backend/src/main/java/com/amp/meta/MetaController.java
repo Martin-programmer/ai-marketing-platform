@@ -1,5 +1,7 @@
 package com.amp.meta;
 
+import com.amp.auth.AccessControl;
+import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import org.slf4j.Logger;
@@ -26,12 +28,14 @@ public class MetaController {
     private final MetaService metaService;
     private final MetaGraphApiClient metaGraphApiClient;
     private final MetaSyncService metaSyncService;
+    private final AccessControl accessControl;
 
     public MetaController(MetaService metaService, MetaGraphApiClient metaGraphApiClient,
-                          MetaSyncService metaSyncService) {
+                          MetaSyncService metaSyncService, AccessControl accessControl) {
         this.metaService = metaService;
         this.metaGraphApiClient = metaGraphApiClient;
         this.metaSyncService = metaSyncService;
+        this.accessControl = accessControl;
     }
 
     // ──────── helper ────────
@@ -45,13 +49,13 @@ public class MetaController {
     @PostMapping("/clients/{clientId}/meta/connect/start")
     @ResponseStatus(HttpStatus.CREATED)
     public ConnectStartResponse connectStart(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         return metaService.connectStart(agencyId(), clientId);
     }
 
     @PostMapping("/clients/{clientId}/meta/reconnect/start")
     public ResponseEntity<?> reconnectStart(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         // Same as connect — starts a new OAuth flow
         ConnectStartResponse response = metaService.connectStart(agencyId(), clientId);
         return ResponseEntity.ok(response);
@@ -59,13 +63,13 @@ public class MetaController {
 
     @GetMapping("/clients/{clientId}/meta/connection")
     public MetaConnectionResponse getConnection(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_VIEW);
         return metaService.getConnection(agencyId(), clientId);
     }
 
     @PostMapping("/clients/{clientId}/meta/disconnect")
     public void disconnect(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         metaService.disconnect(agencyId(), clientId);
     }
 
@@ -81,7 +85,7 @@ public class MetaController {
     public ResponseEntity<?> connectManual(
             @PathVariable UUID clientId,
             @RequestBody ManualConnectRequest request) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
 
         try {
             // Validate token by fetching ad accounts
@@ -145,7 +149,7 @@ public class MetaController {
      */
     @PostMapping("/meta/validate-token")
     public ResponseEntity<?> validateToken(@RequestBody Map<String, String> request) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireAgencyRole();
         String token = request.get("accessToken");
         if (token == null || token.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Token is required"));
@@ -242,7 +246,7 @@ public class MetaController {
 
     @PostMapping("/clients/{clientId}/meta/sync/initial")
     public ResponseEntity<?> triggerInitialSync(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         try {
             MetaSyncJob job = metaSyncService.runInitialSync(agencyId(), clientId);
             return ResponseEntity.ok(MetaSyncJobResponse.from(job));
@@ -254,7 +258,7 @@ public class MetaController {
 
     @PostMapping("/clients/{clientId}/meta/sync/daily")
     public ResponseEntity<?> triggerDailySync(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         try {
             MetaSyncJob job = metaSyncService.runDailySync(agencyId(), clientId);
             return ResponseEntity.ok(MetaSyncJobResponse.from(job));
@@ -266,7 +270,7 @@ public class MetaController {
 
     @PostMapping("/clients/{clientId}/meta/sync/manual")
     public ResponseEntity<?> triggerManualSync(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
         try {
             MetaSyncJob job = metaSyncService.runManualSync(agencyId(), clientId);
             return ResponseEntity.ok(MetaSyncJobResponse.from(job));
@@ -278,7 +282,7 @@ public class MetaController {
 
     @GetMapping("/clients/{clientId}/meta/sync/status")
     public ResponseEntity<List<MetaSyncJobResponse>> getSyncStatus(@PathVariable UUID clientId) {
-        RoleGuard.requireAgencyRole();
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_VIEW);
         List<MetaSyncJobResponse> jobs = metaSyncService.getRecentJobs(agencyId(), clientId);
         return ResponseEntity.ok(jobs);
     }

@@ -141,6 +141,14 @@ public class AiSuggestionService {
 
     // ──────── Helpers ────────
 
+    /**
+     * Resolves the clientId that owns a given suggestion (used for permission checks).
+     */
+    @Transactional(readOnly = true)
+    public UUID resolveClientId(UUID agencyId, UUID suggestionId) {
+        return findOrThrow(agencyId, suggestionId).getClientId();
+    }
+
     private AiSuggestion findOrThrow(UUID agencyId, UUID suggestionId) {
         return suggestionRepository.findByIdAndAgencyId(suggestionId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("AiSuggestion", suggestionId));

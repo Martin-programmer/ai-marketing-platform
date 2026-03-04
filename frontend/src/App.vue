@@ -20,8 +20,18 @@
       <v-divider />
 
       <v-list nav density="compact">
+        <!-- Owner Admin navigation -->
+        <template v-if="isOwnerAdmin">
+          <v-list-item prepend-icon="mdi-view-dashboard" title="Dashboard" to="/owner" />
+          <v-list-item prepend-icon="mdi-domain" title="Agencies" to="/owner/agencies" />
+          <v-divider class="my-2" />
+          <v-list-item prepend-icon="mdi-account-multiple" title="Team" to="/team" />
+          <v-list-item prepend-icon="mdi-history" title="Audit Log" to="/audit" />
+          <v-list-item prepend-icon="mdi-shield-crown" title="Admin" to="/admin" />
+        </template>
+
         <!-- Agency navigation -->
-        <template v-if="!isClientUser">
+        <template v-else-if="!isClientUser">
           <v-list-item prepend-icon="mdi-view-dashboard" title="Dashboard" to="/" />
           <v-list-item prepend-icon="mdi-account-group" title="Clients" to="/clients" />
           <v-list-item prepend-icon="mdi-image-multiple" title="Creatives" to="/creatives" />
@@ -33,7 +43,6 @@
 
           <v-divider v-if="isAgencyAdmin" class="my-2" />
           <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-account-multiple" title="Team" to="/team" />
-          <v-list-item v-if="isOwnerAdmin" prepend-icon="mdi-shield-crown" title="Admin" to="/admin" />
         </template>
 
         <!-- Client Portal navigation -->
@@ -56,7 +65,9 @@
     </v-navigation-drawer>
 
     <v-app-bar flat border>
-      <v-app-bar-title>{{ isClientUser ? 'Client Portal' : 'AI Marketing Platform' }}</v-app-bar-title>
+      <v-app-bar-title>
+        {{ isOwnerAdmin ? 'Platform Admin' : isClientUser ? 'Client Portal' : 'AI Marketing Platform' }}
+      </v-app-bar-title>
     </v-app-bar>
 
     <v-main>

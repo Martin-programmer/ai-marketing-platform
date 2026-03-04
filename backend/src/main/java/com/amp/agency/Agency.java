@@ -37,7 +37,7 @@ public class Agency {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected Agency() {}
+    public Agency() {}
 
     @PreUpdate
     private void onUpdate() { this.updatedAt = OffsetDateTime.now(); }
