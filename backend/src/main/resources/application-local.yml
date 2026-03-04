@@ -42,3 +42,5 @@ app:
     jwt-secret: local-dev-secret-key-that-is-at-least-32-bytes-long!!
     access-token-exp-ms: 3600000
     refresh-token-exp-ms: 604800000
+  cors:
+    allowed-origins: http://localhost:5173

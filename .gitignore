@@ -34,4 +34,8 @@ Thumbs.db
 
 # Env
 .env
-.env.local
+.env.localamp-api.tar 
+amp-frontend.tar 
+policy.json 
+*.tar 
+*.tar.gz 
