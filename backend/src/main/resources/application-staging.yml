@@ -24,6 +24,11 @@ logging:
     com.amp: INFO
     root: WARN
 
+meta:
+  app-id: ${META_APP_ID}
+  app-secret: ${META_APP_SECRET}
+  redirect-uri: ${META_REDIRECT_URI}
+
 app:
   security:
     dev-mode: false

@@ -36,6 +36,11 @@ springdoc:
   api-docs:
     path: /api-docs
 
+meta:
+  app-id: ${META_APP_ID:placeholder}
+  app-secret: ${META_APP_SECRET:placeholder}
+  redirect-uri: ${META_REDIRECT_URI:http://localhost:8080/api/v1/meta/oauth/callback}
+
 app:
   security:
     dev-mode: true

@@ -13,4 +13,6 @@ public interface AdsetRepository extends JpaRepository<Adset, UUID> {
     List<Adset> findAllByCampaignId(UUID campaignId);
 
     Optional<Adset> findByIdAndAgencyId(UUID id, UUID agencyId);
+
+    Optional<Adset> findByAgencyIdAndClientIdAndMetaAdsetId(UUID agencyId, UUID clientId, String metaAdsetId);
 }

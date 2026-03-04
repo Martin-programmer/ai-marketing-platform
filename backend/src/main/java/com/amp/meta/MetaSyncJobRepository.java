@@ -15,4 +15,6 @@ public interface MetaSyncJobRepository extends JpaRepository<MetaSyncJob, UUID> 
     Optional<MetaSyncJob> findByIdAndAgencyId(UUID id, UUID agencyId);
 
     Optional<MetaSyncJob> findFirstByClientIdOrderByRequestedAtDesc(UUID clientId);
+
+    List<MetaSyncJob> findTop10ByAgencyIdAndClientIdOrderByRequestedAtDesc(UUID agencyId, UUID clientId);
 }

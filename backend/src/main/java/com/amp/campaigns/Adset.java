@@ -57,7 +57,7 @@ public class Adset {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected Adset() {}
+    public Adset() {}
 
     @PreUpdate
     private void onUpdate() { this.updatedAt = OffsetDateTime.now(); }

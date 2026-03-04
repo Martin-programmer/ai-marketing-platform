@@ -52,7 +52,7 @@ public class Campaign {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected Campaign() {}
+    public Campaign() {}
 
     @PreUpdate
     private void onUpdate() { this.updatedAt = OffsetDateTime.now(); }

@@ -22,18 +22,19 @@ export interface MetaSyncJob {
   id: string
   agencyId: string
   clientId: string
-  connectionId: string
   jobType: string
-  status: string
+  jobStatus: string
+  idempotencyKey: string
+  requestedAt: string | null
   startedAt: string | null
-  completedAt: string | null
-  errorMessage: string | null
-  createdAt: string
+  finishedAt: string | null
+  statsJson: string | null
+  errorJson: string | null
 }
 
 export const useMetaStore = defineStore('meta', () => {
   const connection = ref<MetaConnection | null>(null)
-  const syncStatus = ref<MetaSyncJob | null>(null)
+  const syncJobs = ref<MetaSyncJob[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -51,35 +52,89 @@ export const useMetaStore = defineStore('meta', () => {
     }
   }
 
-  async function connectStart(clientId: string) {
-    const { data } = await api.post(`/clients/${clientId}/meta/connect/start`)
-    return data
-  }
-
-  async function disconnect(clientId: string) {
-    await api.post(`/clients/${clientId}/meta/disconnect`)
-    connection.value = null
-  }
-
-  async function fetchSyncStatus(clientId: string) {
+  /**
+   * Start Meta OAuth flow in a popup window.
+   * Returns a promise that resolves to true on success, false on failure.
+   */
+  async function startConnect(clientId: string): Promise<boolean> {
     loading.value = true
     error.value = null
     try {
-      const { data } = await api.get(`/clients/${clientId}/meta/sync/status`)
-      syncStatus.value = data
+      const res = await api.post(`/clients/${clientId}/meta/connect/start`)
+      const { authorizationUrl } = res.data
+
+      // Open Meta OAuth in popup
+      const popup = window.open(
+        authorizationUrl,
+        'meta_oauth',
+        'width=600,height=700,left=200,top=100'
+      )
+
+      // Listen for postMessage from callback page
+      return new Promise<boolean>((resolve) => {
+        const handler = (event: MessageEvent) => {
+          if (event.data?.type === 'META_OAUTH_RESULT') {
+            window.removeEventListener('message', handler)
+            if (event.data.success) {
+              fetchConnection(clientId)
+              resolve(true)
+            } else {
+              error.value = event.data.message || 'Connection failed'
+              resolve(false)
+            }
+          }
+        }
+        window.addEventListener('message', handler)
+
+        // Timeout after 5 minutes
+        setTimeout(() => {
+          window.removeEventListener('message', handler)
+          if (popup && !popup.closed) popup.close()
+          error.value = 'Connection timed out'
+          resolve(false)
+        }, 300_000)
+      })
     } catch (e: any) {
-      error.value = e.message
-      syncStatus.value = null
+      error.value = e.response?.data?.message || 'Failed to start connection'
+      return false
     } finally {
       loading.value = false
     }
   }
 
-  async function triggerSync(clientId: string, jobType: string) {
-    const { data } = await api.post(`/clients/${clientId}/meta/sync/${jobType.toLowerCase()}`)
-    syncStatus.value = data
-    return data
+  async function disconnect(clientId: string) {
+    await api.post(`/clients/${clientId}/meta/disconnect`)
+    connection.value = null
+    syncJobs.value = []
   }
 
-  return { connection, syncStatus, loading, error, fetchConnection, connectStart, disconnect, fetchSyncStatus, triggerSync }
+  async function fetchSyncJobs(clientId: string) {
+    try {
+      const { data } = await api.get(`/clients/${clientId}/meta/sync/status`)
+      syncJobs.value = data
+    } catch (e: any) {
+      console.error('Failed to fetch sync jobs', e)
+    }
+  }
+
+  async function triggerSync(clientId: string, type: 'initial' | 'daily' | 'manual') {
+    loading.value = true
+    error.value = null
+    try {
+      const { data } = await api.post(`/clients/${clientId}/meta/sync/${type}`)
+      await fetchSyncJobs(clientId)
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || 'Sync failed'
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return {
+    connection, syncJobs, loading, error,
+    fetchConnection, startConnect, disconnect,
+    fetchSyncJobs, triggerSync
+  }
 })

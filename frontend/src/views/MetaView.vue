@@ -17,7 +17,9 @@
 
     <v-progress-linear v-if="store.loading" indeterminate color="primary" class="mb-4" />
 
-    <v-alert v-if="store.error" type="error" class="mb-4">{{ store.error }}</v-alert>
+    <v-alert v-if="store.error" type="error" class="mb-4" closable @click:close="store.error = null">
+      {{ store.error }}
+    </v-alert>
 
     <v-alert v-if="!selectedClient" type="info" class="mb-4">
       Select a client to manage Meta integration.
@@ -77,72 +79,87 @@
           <v-btn
             v-if="!store.connection || store.connection.status === 'DISCONNECTED'"
             color="primary"
-            @click="onConnect"
+            :loading="store.loading"
+            @click="handleConnect"
           >
-            <v-icon start>mdi-link</v-icon> Connect
+            <v-icon start>mdi-link</v-icon> Connect to Meta
           </v-btn>
           <v-btn
             v-if="store.connection?.status === 'CONNECTED'"
             color="error"
             variant="outlined"
-            @click="onDisconnect"
+            @click="handleDisconnect"
           >
             <v-icon start>mdi-link-off</v-icon> Disconnect
           </v-btn>
           <v-btn
             v-if="store.connection?.status === 'ERROR'"
             color="warning"
-            @click="onConnect"
+            :loading="store.loading"
+            @click="handleConnect"
           >
             <v-icon start>mdi-refresh</v-icon> Reconnect
           </v-btn>
         </v-card-actions>
       </v-card>
 
-      <!-- Sync Section -->
-      <h2 class="mb-3">Sync</h2>
-
-      <v-card class="mb-4" v-if="store.syncStatus">
-        <v-card-title>Last Sync Job</v-card-title>
+      <!-- Sync Controls -->
+      <v-card class="mb-6" v-if="store.connection?.status === 'CONNECTED'">
+        <v-card-title>
+          <v-icon start>mdi-sync</v-icon>
+          Data Sync
+        </v-card-title>
         <v-card-text>
           <v-row>
-            <v-col cols="12" sm="3">
-              <div class="text-caption text-grey">Job Type</div>
-              <div>{{ store.syncStatus.jobType }}</div>
+            <v-col cols="auto">
+              <v-btn color="primary" @click="handleSync('initial')" :loading="store.loading">
+                <v-icon start>mdi-download</v-icon>
+                Initial Sync (90 days)
+              </v-btn>
             </v-col>
-            <v-col cols="12" sm="3">
-              <div class="text-caption text-grey">Status</div>
-              <v-chip :color="syncStatusColor(store.syncStatus.status)" size="small">
-                {{ store.syncStatus.status }}
-              </v-chip>
-            </v-col>
-            <v-col cols="12" sm="3">
-              <div class="text-caption text-grey">Started At</div>
-              <div>{{ store.syncStatus.startedAt ? new Date(store.syncStatus.startedAt).toLocaleString() : '—' }}</div>
-            </v-col>
-            <v-col cols="12" sm="3">
-              <div class="text-caption text-grey">Completed At</div>
-              <div>{{ store.syncStatus.completedAt ? new Date(store.syncStatus.completedAt).toLocaleString() : '—' }}</div>
+            <v-col cols="auto">
+              <v-btn color="secondary" @click="handleSync('manual')" :loading="store.loading">
+                <v-icon start>mdi-sync</v-icon>
+                Manual Sync (30 days)
+              </v-btn>
             </v-col>
           </v-row>
-          <v-alert v-if="store.syncStatus.errorMessage" type="error" class="mt-3">
-            {{ store.syncStatus.errorMessage }}
-          </v-alert>
+        </v-card-text>
+
+        <!-- Recent Sync Jobs -->
+        <v-card-text v-if="store.syncJobs.length > 0">
+          <div class="text-subtitle-2 mb-2">Recent Sync Jobs</div>
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Finished</th>
+                <th>Stats</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="job in store.syncJobs" :key="job.id">
+                <td>{{ job.jobType }}</td>
+                <td>
+                  <v-chip :color="syncStatusColor(job.jobStatus)" size="small">
+                    {{ job.jobStatus }}
+                  </v-chip>
+                </td>
+                <td>{{ job.startedAt ? new Date(job.startedAt).toLocaleString() : '—' }}</td>
+                <td>{{ job.finishedAt ? new Date(job.finishedAt).toLocaleString() : '—' }}</td>
+                <td>{{ formatStats(job.statsJson) }}</td>
+              </tr>
+            </tbody>
+          </v-table>
         </v-card-text>
       </v-card>
-
-      <div class="d-flex ga-3">
-        <v-btn color="primary" variant="outlined" @click="onSync('INITIAL')">
-          <v-icon start>mdi-download</v-icon> Initial Sync
-        </v-btn>
-        <v-btn color="primary" variant="outlined" @click="onSync('DAILY')">
-          <v-icon start>mdi-calendar-sync</v-icon> Daily Sync
-        </v-btn>
-        <v-btn color="primary" variant="outlined" @click="onSync('MANUAL')">
-          <v-icon start>mdi-sync</v-icon> Manual Sync
-        </v-btn>
-      </div>
     </template>
+
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
   </div>
 </template>
 
@@ -154,6 +171,7 @@ import { useClientStore } from '@/stores/clients'
 const store = useMetaStore()
 const clientStore = useClientStore()
 const selectedClient = ref<string | null>(null)
+const snackbar = ref({ show: false, text: '', color: 'success' })
 
 function connectionStatusColor(status: string | undefined) {
   const map: Record<string, string> = { CONNECTED: 'success', DISCONNECTED: 'error', PENDING: 'warning', ERROR: 'error' }
@@ -165,26 +183,55 @@ function syncStatusColor(status: string) {
   return map[status] || 'grey'
 }
 
-async function onClientChange(clientId: string) {
-  if (clientId) {
-    await Promise.all([store.fetchConnection(clientId), store.fetchSyncStatus(clientId)])
+function formatStats(stats: string | null) {
+  if (!stats) return '—'
+  try {
+    const parsed = typeof stats === 'string' ? JSON.parse(stats) : stats
+    const parts: string[] = []
+    if (parsed.campaigns) parts.push(`${parsed.campaigns} campaigns`)
+    if (parsed.adsets) parts.push(`${parsed.adsets} adsets`)
+    if (parsed.ads) parts.push(`${parsed.ads} ads`)
+    if (parsed.insights_days) parts.push(`${parsed.insights_days} insight records`)
+    return parts.join(', ') || '—'
+  } catch {
+    return '—'
   }
 }
 
-async function onConnect() {
-  if (!selectedClient.value) return
-  await store.connectStart(selectedClient.value)
-  await store.fetchConnection(selectedClient.value)
+async function onClientChange(clientId: string) {
+  if (!clientId) return
+  await store.fetchConnection(clientId)
+  if (store.connection?.status === 'CONNECTED') {
+    await store.fetchSyncJobs(clientId)
+  }
 }
 
-async function onDisconnect() {
+async function handleConnect() {
+  if (!selectedClient.value) return
+  const success = await store.startConnect(selectedClient.value)
+  if (success) {
+    snackbar.value = { show: true, text: 'Successfully connected to Meta!', color: 'success' }
+    // Also load sync jobs now that we're connected
+    await store.fetchSyncJobs(selectedClient.value)
+  }
+}
+
+async function handleDisconnect() {
   if (!selectedClient.value) return
   await store.disconnect(selectedClient.value)
+  snackbar.value = { show: true, text: 'Disconnected from Meta', color: 'info' }
 }
 
-async function onSync(jobType: string) {
+async function handleSync(type: 'initial' | 'daily' | 'manual') {
   if (!selectedClient.value) return
-  await store.triggerSync(selectedClient.value, jobType)
+  const result = await store.triggerSync(selectedClient.value, type)
+  if (result) {
+    snackbar.value = { show: true, text: `Sync completed: ${type}`, color: 'success' }
+    // Refresh connection to get updated lastSyncAt
+    await store.fetchConnection(selectedClient.value)
+  } else {
+    snackbar.value = { show: true, text: store.error || 'Sync failed', color: 'error' }
+  }
 }
 
 onMounted(() => clientStore.fetchClients())

@@ -13,4 +13,6 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     List<Campaign> findAllByAgencyIdAndClientId(UUID agencyId, UUID clientId);
 
     Optional<Campaign> findByIdAndAgencyId(UUID id, UUID agencyId);
+
+    Optional<Campaign> findByAgencyIdAndClientIdAndMetaCampaignId(UUID agencyId, UUID clientId, String metaCampaignId);
 }

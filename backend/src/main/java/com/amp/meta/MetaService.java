@@ -7,8 +7,11 @@ import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.UUID;
 
 /**
@@ -21,13 +24,16 @@ public class MetaService {
     private final MetaConnectionRepository connectionRepository;
     private final MetaSyncJobRepository syncJobRepository;
     private final AuditService auditService;
+    private final MetaProperties metaProps;
 
     public MetaService(MetaConnectionRepository connectionRepository,
                        MetaSyncJobRepository syncJobRepository,
-                       AuditService auditService) {
+                       AuditService auditService,
+                       MetaProperties metaProps) {
         this.connectionRepository = connectionRepository;
         this.syncJobRepository = syncJobRepository;
         this.auditService = auditService;
+        this.metaProps = metaProps;
     }
 
     // ──────── Connection ────────
@@ -40,33 +46,75 @@ public class MetaService {
     }
 
     /**
-     * Starts the Meta OAuth connect flow (stub).
-     * Creates a PENDING connection and returns a placeholder authorization URL.
+     * Starts the Meta OAuth connect flow.
+     * Generates a real Meta authorization URL with proper scopes and state.
+     * The connection is NOT created here — it will be created in the OAuth callback
+     * after successful token exchange.
      */
     public ConnectStartResponse connectStart(UUID agencyId, UUID clientId) {
-        TenantContext ctx = TenantContextHolder.require();
+        // Generate state containing agencyId, clientId, and nonce (Base64-encoded)
+        String nonce = UUID.randomUUID().toString();
+        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                (agencyId + ":" + clientId + ":" + nonce).getBytes(StandardCharsets.UTF_8)
+        );
 
-        String state = UUID.randomUUID().toString();
+        // Build Meta OAuth authorization URL
+        String scopes = "ads_management,ads_read,pages_read_engagement,business_management";
+        String authorizationUrl = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getOauthAuthorizeUrl())
+                .queryParam("client_id", metaProps.getAppId())
+                .queryParam("redirect_uri", metaProps.getRedirectUri())
+                .queryParam("state", state)
+                .queryParam("scope", scopes)
+                .queryParam("response_type", "code")
+                .toUriString();
+
+        return new ConnectStartResponse(authorizationUrl, state);
+    }
+
+    /**
+     * Completes the OAuth connect flow after successful token exchange.
+     * Creates (or replaces) the MetaConnection for the client.
+     * <p>
+     * MVP: stores access token as plain bytes. TODO: KMS envelope encryption.
+     */
+    public MetaConnection completeOAuthConnect(UUID agencyId, UUID clientId,
+                                               String accessToken, String adAccountId,
+                                               String pixelId, String pageId) {
+        // Delete any existing connection for this client
+        connectionRepository.findByAgencyIdAndClientId(agencyId, clientId)
+                .ifPresent(connectionRepository::delete);
 
         MetaConnection conn = new MetaConnection();
         conn.setAgencyId(agencyId);
         conn.setClientId(clientId);
-        conn.setAdAccountId("pending-" + state);
-        conn.setAccessTokenEnc(new byte[0]);
-        conn.setTokenKeyId("pending");
-        conn.setStatus("PENDING");
+        conn.setAdAccountId(adAccountId);
+        conn.setPixelId(pixelId);
+        conn.setPageId(pageId);
+        // MVP: store token as plain bytes. TODO: KMS envelope encryption
+        conn.setAccessTokenEnc(accessToken.getBytes(StandardCharsets.UTF_8));
+        conn.setTokenKeyId("plaintext-mvp");
+        conn.setStatus("CONNECTED");
         conn.setConnectedAt(OffsetDateTime.now());
         conn.setCreatedAt(OffsetDateTime.now());
         conn.setUpdatedAt(OffsetDateTime.now());
 
         MetaConnection saved = connectionRepository.save(conn);
 
+        TenantContext ctx = TenantContextHolder.require();
         auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),
                 AuditAction.META_CONNECT, "MetaConnection", saved.getId(),
                 null, saved.getStatus(), null);
 
-        String authorizationUrl = "https://www.facebook.com/v19.0/dialog/oauth?client_id=PLACEHOLDER&state=" + state;
-        return new ConnectStartResponse(authorizationUrl, state);
+        return saved;
+    }
+
+    /**
+     * Decrypt and return the access token for a connection.
+     * MVP: stored as plain bytes. TODO: KMS decrypt.
+     */
+    public String getAccessToken(MetaConnection conn) {
+        return new String(conn.getAccessTokenEnc(), StandardCharsets.UTF_8);
     }
 
     /**

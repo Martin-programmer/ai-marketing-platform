@@ -49,7 +49,7 @@ public class Ad {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected Ad() {}
+    public Ad() {}
 
     @PreUpdate
     private void onUpdate() { this.updatedAt = OffsetDateTime.now(); }

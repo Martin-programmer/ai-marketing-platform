@@ -81,7 +81,7 @@ public class InsightDaily {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    protected InsightDaily() {}
+    public InsightDaily() {}
 
     // ---- getters & setters ----
 

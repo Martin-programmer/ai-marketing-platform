@@ -7,10 +7,14 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface InsightDailyRepository extends JpaRepository<InsightDaily, UUID> {
+
+    Optional<InsightDaily> findByAgencyIdAndClientIdAndEntityTypeAndEntityIdAndDate(
+            UUID agencyId, UUID clientId, String entityType, UUID entityId, LocalDate date);
 
     List<InsightDaily> findAllByAgencyIdAndClientIdAndDateBetween(
             UUID agencyId, UUID clientId, LocalDate from, LocalDate to);

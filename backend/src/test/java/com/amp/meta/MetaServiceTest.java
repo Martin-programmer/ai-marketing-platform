@@ -33,6 +33,7 @@ class MetaServiceTest {
     @Mock private MetaConnectionRepository connectionRepository;
     @Mock private MetaSyncJobRepository syncJobRepository;
     @Mock private AuditService auditService;
+    @Mock private MetaProperties metaProps;
 
     @InjectMocks
     private MetaService metaService;
