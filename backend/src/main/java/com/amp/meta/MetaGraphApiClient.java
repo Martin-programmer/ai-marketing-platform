@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -137,21 +138,48 @@ public class MetaGraphApiClient {
     /**
      * Fetch insights (performance data) for an ad account.
      * Returns daily breakdowns for the specified date range.
+     * Splits large ranges into 30-day chunks to avoid cursor overflow errors.
      */
     public List<JsonNode> getAccountInsights(String accessToken, String adAccountId,
                                              String dateFrom, String dateTo) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/insights"))
-                .queryParam("access_token", accessToken)
-                .queryParam("fields", "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,"
-                        + "impressions,clicks,spend,cpc,cpm,ctr,actions,conversions,cost_per_action_type")
-                .queryParam("time_range", String.format("{\"since\":\"%s\",\"until\":\"%s\"}", dateFrom, dateTo))
-                .queryParam("time_increment", "1")
-                .queryParam("level", "ad")
-                .queryParam("limit", 500)
-                .toUriString();
+        List<JsonNode> allResults = new ArrayList<>();
 
-        return fetchPaginatedRaw(url);
+        // Split into monthly chunks to avoid cursor issues
+        LocalDate start = LocalDate.parse(dateFrom);
+        LocalDate end = LocalDate.parse(dateTo);
+
+        while (start.isBefore(end)) {
+            LocalDate chunkEnd = start.plusDays(30);
+            if (chunkEnd.isAfter(end)) {
+                chunkEnd = end;
+            }
+
+            String url = UriComponentsBuilder
+                    .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/insights"))
+                    .queryParam("access_token", accessToken)
+                    .queryParam("fields", "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,"
+                            + "impressions,clicks,spend,cpc,cpm,ctr,actions,conversions,cost_per_action_type")
+                    .queryParam("time_range[since]", start.toString())
+                    .queryParam("time_range[until]", chunkEnd.toString())
+                    .queryParam("time_increment", "1")
+                    .queryParam("level", "ad")
+                    .queryParam("limit", 500)
+                    .build(false)
+                    .toUriString();
+
+            try {
+                List<JsonNode> chunkResults = fetchPaginatedRaw(url);
+                allResults.addAll(chunkResults);
+                log.info("Fetched {} insight records for period {} to {}", chunkResults.size(), start, chunkEnd);
+            } catch (Exception e) {
+                log.warn("Failed to fetch insights for period {} to {}: {}", start, chunkEnd, e.getMessage());
+                // Continue with next chunk instead of failing entirely
+            }
+
+            start = chunkEnd.plusDays(1);
+        }
+
+        return allResults;
     }
 
     /**
@@ -195,20 +223,26 @@ public class MetaGraphApiClient {
         int maxPages = 20; // safety limit
 
         for (int page = 0; page < maxPages && url != null; page++) {
-            ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
-            JsonNode body = resp.getBody();
-            JsonNode data = body.get("data");
+            try {
+                ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+                JsonNode body = resp.getBody();
+                JsonNode data = body.get("data");
 
-            if (data != null && data.isArray()) {
-                for (JsonNode node : data) {
-                    allResults.add(node);
+                if (data != null && data.isArray()) {
+                    for (JsonNode node : data) {
+                        allResults.add(node);
+                    }
                 }
-            }
 
-            // Next page
-            url = null;
-            if (body.has("paging") && body.get("paging").has("next")) {
-                url = body.get("paging").get("next").asText();
+                // Next page
+                url = null;
+                if (body.has("paging") && body.get("paging").has("next")) {
+                    url = body.get("paging").get("next").asText();
+                }
+            } catch (Exception e) {
+                log.warn("Pagination error on page {}, returning {} results collected so far: {}",
+                        page, allResults.size(), e.getMessage());
+                break; // Return what we have so far
             }
         }
         return allResults;

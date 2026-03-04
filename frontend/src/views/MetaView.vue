@@ -75,30 +75,19 @@
         <v-card-text v-else>
           <p class="text-grey">No Meta connection found for this client.</p>
         </v-card-text>
-        <v-card-actions>
-          <v-btn
-            v-if="!store.connection || store.connection.status === 'DISCONNECTED'"
-            color="primary"
-            :loading="store.loading"
-            @click="handleConnect"
-          >
-            <v-icon start>mdi-link</v-icon> Connect to Meta
+        <v-card-actions v-if="!store.connection || store.connection.status === 'DISCONNECTED' || store.connection.status === 'ERROR'">
+          <v-btn color="primary" :loading="store.loading" @click="handleConnect" variant="flat">
+            <v-icon start>mdi-facebook</v-icon>
+            Connect with Facebook
           </v-btn>
-          <v-btn
-            v-if="store.connection?.status === 'CONNECTED'"
-            color="error"
-            variant="outlined"
-            @click="handleDisconnect"
-          >
+          <v-btn color="secondary" @click="showManualDialog = true" variant="outlined">
+            <v-icon start>mdi-key-variant</v-icon>
+            Connect with Token
+          </v-btn>
+        </v-card-actions>
+        <v-card-actions v-if="store.connection?.status === 'CONNECTED'">
+          <v-btn color="error" variant="outlined" @click="handleDisconnect">
             <v-icon start>mdi-link-off</v-icon> Disconnect
-          </v-btn>
-          <v-btn
-            v-if="store.connection?.status === 'ERROR'"
-            color="warning"
-            :loading="store.loading"
-            @click="handleConnect"
-          >
-            <v-icon start>mdi-refresh</v-icon> Reconnect
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -157,6 +146,93 @@
       </v-card>
     </template>
 
+    <!-- Manual Token Connect Dialog -->
+    <v-dialog v-model="showManualDialog" max-width="700" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon start>mdi-key-variant</v-icon>
+          Connect with Access Token
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" class="mb-4" density="compact">
+            <div class="font-weight-bold mb-1">How to get a token:</div>
+            <ol class="pl-4">
+              <li>Open <a href="https://developers.facebook.com/tools/explorer/" target="_blank">Graph API Explorer</a></li>
+              <li>Select your App from the dropdown (top right)</li>
+              <li>Click "Generate Access Token"</li>
+              <li>Grant these permissions: <strong>ads_management, ads_read, pages_read_engagement, business_management</strong></li>
+              <li>Copy the generated token and paste it below</li>
+            </ol>
+          </v-alert>
+
+          <v-textarea
+            v-model="manualToken"
+            label="Access Token"
+            placeholder="Paste your Meta access token here..."
+            rows="3"
+            variant="outlined"
+            class="mb-2"
+          />
+
+          <v-btn
+            color="primary"
+            variant="outlined"
+            @click="validateToken"
+            :loading="validating"
+            :disabled="!manualToken"
+            class="mb-4"
+          >
+            <v-icon start>mdi-check-circle-outline</v-icon>
+            Validate Token
+          </v-btn>
+
+          <v-alert v-if="tokenError" type="error" variant="tonal" class="mb-4" density="compact" closable @click:close="tokenError = null">
+            {{ tokenError }}
+          </v-alert>
+
+          <template v-if="tokenData">
+            <v-alert type="success" variant="tonal" class="mb-4" density="compact">
+              Token is valid! Found {{ tokenData.adAccounts?.length || 0 }} ad account(s) and {{ tokenData.pages?.length || 0 }} page(s).
+            </v-alert>
+
+            <v-select
+              v-model="selectedAdAccount"
+              :items="tokenData.adAccounts"
+              :item-title="(item: any) => `${item.name} (${item.id})`"
+              item-value="id"
+              label="Select Ad Account"
+              variant="outlined"
+              class="mb-2"
+            />
+
+            <v-select
+              v-model="selectedPage"
+              :items="tokenData.pages"
+              :item-title="(item: any) => item.name"
+              item-value="id"
+              label="Facebook Page (optional)"
+              variant="outlined"
+              clearable
+            />
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeManualDialog">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            @click="submitManualConnect"
+            :loading="store.loading"
+            :disabled="!manualToken || !selectedAdAccount"
+          >
+            <v-icon start>mdi-link</v-icon>
+            Connect
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
       {{ snackbar.text }}
     </v-snackbar>
@@ -167,11 +243,21 @@
 import { ref, onMounted } from 'vue'
 import { useMetaStore } from '@/stores/meta'
 import { useClientStore } from '@/stores/clients'
+import api from '@/api/client'
 
 const store = useMetaStore()
 const clientStore = useClientStore()
 const selectedClient = ref<string | null>(null)
 const snackbar = ref({ show: false, text: '', color: 'success' })
+
+// Manual token connect state
+const showManualDialog = ref(false)
+const manualToken = ref('')
+const validating = ref(false)
+const tokenData = ref<any>(null)
+const tokenError = ref<string | null>(null)
+const selectedAdAccount = ref<string | null>(null)
+const selectedPage = ref<string | null>(null)
 
 function connectionStatusColor(status: string | undefined) {
   const map: Record<string, string> = { CONNECTED: 'success', DISCONNECTED: 'error', PENDING: 'warning', ERROR: 'error' }
@@ -232,6 +318,58 @@ async function handleSync(type: 'initial' | 'daily' | 'manual') {
   } else {
     snackbar.value = { show: true, text: store.error || 'Sync failed', color: 'error' }
   }
+}
+
+async function validateToken() {
+  validating.value = true
+  tokenData.value = null
+  tokenError.value = null
+  try {
+    const res = await api.post('/meta/validate-token', { accessToken: manualToken.value })
+    tokenData.value = res.data
+    if (res.data.adAccounts?.length > 0) {
+      selectedAdAccount.value = res.data.adAccounts[0].id
+    }
+    if (res.data.pages?.length > 0) {
+      selectedPage.value = res.data.pages[0].id
+    }
+  } catch (e: any) {
+    tokenError.value = e.response?.data?.message || 'Token validation failed'
+  } finally {
+    validating.value = false
+  }
+}
+
+async function submitManualConnect() {
+  if (!selectedClient.value || !manualToken.value) return
+  store.loading = true
+  try {
+    await api.post(`/clients/${selectedClient.value}/meta/connect/manual`, {
+      accessToken: manualToken.value,
+      adAccountId: selectedAdAccount.value,
+      pageId: selectedPage.value,
+      pixelId: null
+    })
+    closeManualDialog()
+    snackbar.value = { show: true, text: 'Successfully connected to Meta!', color: 'success' }
+    await store.fetchConnection(selectedClient.value)
+    if (store.connection?.status === 'CONNECTED') {
+      await store.fetchSyncJobs(selectedClient.value)
+    }
+  } catch (e: any) {
+    tokenError.value = e.response?.data?.message || 'Connection failed'
+  } finally {
+    store.loading = false
+  }
+}
+
+function closeManualDialog() {
+  showManualDialog.value = false
+  manualToken.value = ''
+  tokenData.value = null
+  tokenError.value = null
+  selectedAdAccount.value = null
+  selectedPage.value = null
 }
 
 onMounted(() => clientStore.fetchClients())

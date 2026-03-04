@@ -69,6 +69,98 @@ public class MetaController {
         metaService.disconnect(agencyId(), clientId);
     }
 
+    // ──────── Manual Token Connect ────────
+
+    /**
+     * POST /api/v1/clients/{clientId}/meta/connect/manual
+     * Connects a client using a manually-pasted Graph API Explorer token.
+     * Validates the token, fetches ad accounts / pages, exchanges for long-lived
+     * token, and creates the connection.
+     */
+    @PostMapping("/clients/{clientId}/meta/connect/manual")
+    public ResponseEntity<?> connectManual(
+            @PathVariable UUID clientId,
+            @RequestBody ManualConnectRequest request) {
+        RoleGuard.requireAgencyRole();
+
+        try {
+            // Validate token by fetching ad accounts
+            var adAccounts = metaGraphApiClient.getAdAccounts(request.accessToken());
+            if (adAccounts.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("code", "NO_AD_ACCOUNTS",
+                                "message", "No ad accounts found for this token"));
+            }
+
+            // Find matching ad account if specified, otherwise use first
+            MetaGraphApiClient.AdAccountInfo selectedAccount;
+            if (request.adAccountId() != null && !request.adAccountId().isBlank()) {
+                selectedAccount = adAccounts.stream()
+                        .filter(a -> a.id().equals(request.adAccountId())
+                                || a.accountId().equals(request.adAccountId()))
+                        .findFirst()
+                        .orElse(adAccounts.get(0));
+            } else {
+                selectedAccount = adAccounts.get(0);
+            }
+
+            // Get pages
+            var pages = metaGraphApiClient.getPages(request.accessToken());
+            String pageId = request.pageId();
+            if (pageId == null && !pages.isEmpty()) {
+                pageId = pages.get(0).id();
+            }
+
+            // Try to exchange for long-lived token
+            String tokenToStore = request.accessToken();
+            try {
+                var longLived = metaGraphApiClient.exchangeForLongLivedToken(request.accessToken());
+                tokenToStore = longLived.accessToken();
+            } catch (Exception e) {
+                // Token might already be long-lived, continue with original
+                log.info("Could not exchange for long-lived token, using original: {}", e.getMessage());
+            }
+
+            // Save connection
+            MetaConnection conn = metaService.completeOAuthConnect(
+                    agencyId(), clientId, tokenToStore,
+                    selectedAccount.id(), request.pixelId(), pageId
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "connection", MetaConnectionResponse.from(conn),
+                    "adAccounts", adAccounts,
+                    "pages", pages
+            ));
+        } catch (Exception e) {
+            log.error("Manual connect failed for client {}: {}", clientId, e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", "CONNECT_FAILED", "message", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/v1/meta/validate-token
+     * Validates a token and returns the ad accounts / pages it has access to.
+     */
+    @PostMapping("/meta/validate-token")
+    public ResponseEntity<?> validateToken(@RequestBody Map<String, String> request) {
+        RoleGuard.requireAgencyRole();
+        String token = request.get("accessToken");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Token is required"));
+        }
+        try {
+            var adAccounts = metaGraphApiClient.getAdAccounts(token);
+            var pages = metaGraphApiClient.getPages(token);
+            return ResponseEntity.ok(Map.of("adAccounts", adAccounts, "pages", pages));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", "INVALID_TOKEN",
+                            "message", "Token validation failed: " + e.getMessage()));
+        }
+    }
+
     // ──────── OAuth Callback ────────
 
     /**
