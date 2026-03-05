@@ -6,7 +6,9 @@ import com.amp.tenancy.TenantContextHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,6 +29,21 @@ public class AccessControl {
 
     private static final Set<String> AGENCY_ROLES =
             Set.of("OWNER_ADMIN", "AGENCY_ADMIN", "AGENCY_USER");
+
+    /**
+     * Permission inheritance map.
+     * If a user has the KEY permission, they implicitly have all VALUE permissions too.
+     */
+    private static final Map<Permission, Set<Permission>> IMPLIES = Map.ofEntries(
+            Map.entry(Permission.CLIENT_EDIT, Set.of(Permission.CLIENT_VIEW)),
+            Map.entry(Permission.CAMPAIGNS_EDIT, Set.of(Permission.CAMPAIGNS_VIEW)),
+            Map.entry(Permission.CAMPAIGNS_PUBLISH, Set.of(Permission.CAMPAIGNS_VIEW, Permission.CAMPAIGNS_EDIT)),
+            Map.entry(Permission.CREATIVES_EDIT, Set.of(Permission.CREATIVES_VIEW)),
+            Map.entry(Permission.REPORTS_EDIT, Set.of(Permission.REPORTS_VIEW)),
+            Map.entry(Permission.REPORTS_SEND, Set.of(Permission.REPORTS_VIEW, Permission.REPORTS_EDIT)),
+            Map.entry(Permission.AI_APPROVE, Set.of(Permission.AI_VIEW)),
+            Map.entry(Permission.META_MANAGE, Set.of(Permission.CLIENT_VIEW))
+    );
 
     private final UserClientPermissionRepository permissionRepository;
 
@@ -94,6 +111,33 @@ public class AccessControl {
     // ── Client access ─────────────────────────────────────────
 
     /**
+     * Check if the user has a permission, considering inheritance.
+     * E.g., if user has CAMPAIGNS_EDIT, they also have CAMPAIGNS_VIEW.
+     */
+    private boolean hasPermissionWithInheritance(UUID userId, UUID clientId, Permission required) {
+        // Direct check
+        if (permissionRepository.existsByUserIdAndClientIdAndPermission(userId, clientId, required.name())) {
+            return true;
+        }
+
+        // Check if any of the user's permissions imply the required one
+        List<String> userPerms = permissionRepository.findPermissionsByUserIdAndClientId(userId, clientId);
+        if (userPerms == null) return false;
+        for (String perm : userPerms) {
+            try {
+                Permission p = Permission.valueOf(perm);
+                Set<Permission> implied = IMPLIES.getOrDefault(p, Set.of());
+                if (implied.contains(required)) {
+                    return true;
+                }
+            } catch (IllegalArgumentException e) {
+                // Unknown permission in DB, skip
+            }
+        }
+        return false;
+    }
+
+    /**
      * Check if current user can access a specific client with a specific permission.
      * <ul>
      *   <li>OWNER_ADMIN: always yes</li>
@@ -120,9 +164,7 @@ public class AccessControl {
         }
 
         if (isAgencyUser()) {
-            boolean has = permissionRepository.existsByUserIdAndClientIdAndPermission(
-                    ctx().getUserId(), clientId, permission.name()
-            );
+            boolean has = hasPermissionWithInheritance(ctx().getUserId(), clientId, permission);
             if (!has) {
                 throw new AccessDeniedException(
                         "You don't have " + permission + " permission for this client"
@@ -164,5 +206,26 @@ public class AccessControl {
         } catch (AccessDeniedException e) {
             return false;
         }
+    }
+
+    /**
+     * Get all effective permissions for a user on a client, including inherited ones.
+     */
+    public Set<String> getEffectivePermissions(UUID userId, UUID clientId) {
+        List<String> directPerms = permissionRepository.findPermissionsByUserIdAndClientId(userId, clientId);
+        Set<String> effective = new HashSet<>(directPerms);
+
+        for (String perm : directPerms) {
+            try {
+                Permission p = Permission.valueOf(perm);
+                Set<Permission> implied = IMPLIES.getOrDefault(p, Set.of());
+                for (Permission imp : implied) {
+                    effective.add(imp.name());
+                }
+            } catch (IllegalArgumentException e) {
+                // skip unknown
+            }
+        }
+        return effective;
     }
 }

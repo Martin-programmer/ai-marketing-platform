@@ -110,6 +110,18 @@ public class UserController {
                                         @RequestBody UpdateUserRequest req,
                                         @RequestParam(required = false) UUID agencyId) {
         RoleGuard.requireAgencyAdmin();
+        if (userId.equals(currentUserId())) {
+            if (req.role() != null && !req.role().equals(TenantContextHolder.require().getRole())) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("code", "SELF_ROLE_CHANGE",
+                                     "message", "You cannot change your own role."));
+            }
+            if ("DISABLED".equals(req.status())) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("code", "SELF_DEACTIVATION",
+                                     "message", "You cannot deactivate your own account. Ask another admin or the platform owner."));
+            }
+        }
         UUID agency = resolveTargetAgency(agencyId);
         if (agency == null) {
             return ResponseEntity.badRequest()
@@ -128,6 +140,11 @@ public class UserController {
     public ResponseEntity<?> disableUser(@PathVariable UUID userId,
                                          @RequestParam(required = false) UUID agencyId) {
         RoleGuard.requireAgencyAdmin();
+        if (userId.equals(currentUserId())) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", "SELF_DEACTIVATION",
+                                 "message", "You cannot deactivate your own account. Ask another admin or the platform owner."));
+        }
         UUID agency = resolveTargetAgency(agencyId);
         if (agency == null) {
             return ResponseEntity.badRequest()

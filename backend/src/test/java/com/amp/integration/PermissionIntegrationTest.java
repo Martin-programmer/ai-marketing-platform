@@ -357,4 +357,106 @@ class PermissionIntegrationTest extends BaseIntegrationTest {
             assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Effective permissions & inheritance
+    // ═══════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Effective permissions & inheritance")
+    class EffectivePermissions {
+
+        private void grantPermissions(String... permissions) {
+            for (String perm : permissions) {
+                jdbcTemplate.update("""
+                        INSERT INTO user_client_permission (id, user_id, client_id, permission, created_at)
+                        VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?, now())
+                        ON CONFLICT (user_id, client_id, permission) DO NOTHING
+                        """, AGENCY_USER_ID, clientId, perm);
+            }
+        }
+
+        private void clearPermissions() {
+            jdbcTemplate.update(
+                    "DELETE FROM user_client_permission WHERE user_id = ?::uuid",
+                    AGENCY_USER_ID);
+        }
+
+        @Test
+        @DisplayName("GET /effective — returns direct, effective, and inherited permissions")
+        @SuppressWarnings("unchecked")
+        void effectivePermissions_200() {
+            clearPermissions();
+            // Grant CAMPAIGNS_EDIT — should inherit CAMPAIGNS_VIEW
+            grantPermissions("CAMPAIGNS_EDIT", "REPORTS_SEND");
+
+            ResponseEntity<Map> r = restTemplate.exchange(
+                    "/api/v1/permissions/users/" + AGENCY_USER_ID + "/clients/" + clientId + "/effective",
+                    HttpMethod.GET,
+                    new HttpEntity<>(agencyAdminHeaders()), Map.class);
+            assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+            List<String> direct = (List<String>) r.getBody().get("directPermissions");
+            List<String> effective = (List<String>) r.getBody().get("effectivePermissions");
+            List<String> inherited = (List<String>) r.getBody().get("inheritedPermissions");
+
+            assertThat(direct).containsExactlyInAnyOrder("CAMPAIGNS_EDIT", "REPORTS_SEND");
+            assertThat(effective).containsExactlyInAnyOrder(
+                    "CAMPAIGNS_EDIT", "CAMPAIGNS_VIEW",
+                    "REPORTS_SEND", "REPORTS_VIEW", "REPORTS_EDIT");
+            assertThat(inherited).containsExactlyInAnyOrder(
+                    "CAMPAIGNS_VIEW", "REPORTS_VIEW", "REPORTS_EDIT");
+        }
+
+        @Test
+        @DisplayName("AGENCY_USER cannot call /effective — 403")
+        @SuppressWarnings("unchecked")
+        void effectivePermissions_agencyUser_403() {
+            ResponseEntity<Map> r = restTemplate.exchange(
+                    "/api/v1/permissions/users/" + AGENCY_USER_ID + "/clients/" + clientId + "/effective",
+                    HttpMethod.GET,
+                    new HttpEntity<>(agencyUserHeaders()), Map.class);
+            assertThat(r.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("AGENCY_USER with CAMPAIGNS_EDIT can view campaigns (inherited)")
+        @SuppressWarnings("unchecked")
+        void inheritance_campaignsEdit_impliesView() {
+            clearPermissions();
+            grantPermissions("CAMPAIGNS_EDIT");  // Does NOT have CAMPAIGNS_VIEW directly
+
+            ResponseEntity<List> r = restTemplate.exchange(
+                    "/api/v1/clients/" + clientId + "/campaigns", HttpMethod.GET,
+                    new HttpEntity<>(agencyUserHeaders()), List.class);
+            assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+
+        @Test
+        @DisplayName("AGENCY_USER with REPORTS_SEND can view reports (inherited)")
+        @SuppressWarnings("unchecked")
+        void inheritance_reportsSend_impliesView() {
+            clearPermissions();
+            grantPermissions("REPORTS_SEND");  // Does NOT have REPORTS_VIEW directly
+
+            ResponseEntity<List> r = restTemplate.exchange(
+                    "/api/v1/clients/" + clientId + "/reports", HttpMethod.GET,
+                    new HttpEntity<>(agencyUserHeaders()), List.class);
+            assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+
+        @Test
+        @DisplayName("AGENCY_USER with CLIENT_EDIT can view client (inherited)")
+        @SuppressWarnings("unchecked")
+        void inheritance_clientEdit_impliesView() {
+            clearPermissions();
+            grantPermissions("CLIENT_EDIT");  // Does NOT have CLIENT_VIEW directly
+
+            ResponseEntity<Map> r = restTemplate.exchange(
+                    "/api/v1/clients/" + clientId, HttpMethod.GET,
+                    new HttpEntity<>(agencyUserHeaders()), Map.class);
+            assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(r.getBody().get("id")).isEqualTo(clientId);
+        }
+    }
 }

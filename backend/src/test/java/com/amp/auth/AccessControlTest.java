@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -197,8 +198,8 @@ class AccessControlTest {
         void agencyUser_withoutCampaignsEdit() {
             setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
             when(permissionRepository.existsByUserIdAndClientIdAndPermission(
-                    USER_ID, CLIENT_ID, "CAMPAIGNS_EDIT")).thenReturn(false);
-
+                    USER_ID, CLIENT_ID, "CAMPAIGNS_EDIT")).thenReturn(false);            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of());
             assertThatThrownBy(() ->
                     accessControl.requireClientPermission(CLIENT_ID, Permission.CAMPAIGNS_EDIT))
                     .isInstanceOf(AccessDeniedException.class)
@@ -221,8 +222,8 @@ class AccessControlTest {
         void agencyUser_noPermission() {
             setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
             when(permissionRepository.existsByUserIdAndClientIdAndPermission(
-                    USER_ID, CLIENT_ID, "CLIENT_VIEW")).thenReturn(false);
-
+                    USER_ID, CLIENT_ID, "CLIENT_VIEW")).thenReturn(false);            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of());
             assertThatThrownBy(() ->
                     accessControl.requireClientPermission(CLIENT_ID, Permission.CLIENT_VIEW))
                     .isInstanceOf(AccessDeniedException.class);
@@ -281,6 +282,8 @@ class AccessControlTest {
             setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
             when(permissionRepository.existsByUserIdAndClientIdAndPermission(
                     USER_ID, CLIENT_ID, "CLIENT_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of());
 
             assertThat(accessControl.canAccessClient(CLIENT_ID)).isFalse();
         }
@@ -441,6 +444,201 @@ class AccessControlTest {
             Permission[] all = Permission.all();
             assertThat(all).hasSize(13);
             assertThat(all).containsExactlyInAnyOrder(Permission.values());
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Permission Inheritance
+    // ══════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Permission Inheritance")
+    class PermissionInheritanceTests {
+
+        @Test
+        @DisplayName("CAMPAIGNS_EDIT implies CAMPAIGNS_VIEW")
+        void campaignsEdit_impliesCampaignsView() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            // User does NOT have CAMPAIGNS_VIEW directly
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CAMPAIGNS_VIEW")).thenReturn(false);
+            // User has CAMPAIGNS_EDIT
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CAMPAIGNS_EDIT"));
+
+            // Should NOT throw — inherited from CAMPAIGNS_EDIT
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CAMPAIGNS_VIEW);
+        }
+
+        @Test
+        @DisplayName("CLIENT_EDIT implies CLIENT_VIEW")
+        void clientEdit_impliesClientView() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CLIENT_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CLIENT_EDIT"));
+
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CLIENT_VIEW);
+        }
+
+        @Test
+        @DisplayName("CAMPAIGNS_PUBLISH implies both CAMPAIGNS_VIEW and CAMPAIGNS_EDIT")
+        void campaignsPublish_impliesViewAndEdit() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+
+            // Check CAMPAIGNS_VIEW is implied
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CAMPAIGNS_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CAMPAIGNS_PUBLISH"));
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CAMPAIGNS_VIEW);
+
+            // Check CAMPAIGNS_EDIT is implied
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CAMPAIGNS_EDIT")).thenReturn(false);
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CAMPAIGNS_EDIT);
+        }
+
+        @Test
+        @DisplayName("REPORTS_SEND implies REPORTS_VIEW and REPORTS_EDIT")
+        void reportsSend_impliesViewAndEdit() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "REPORTS_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("REPORTS_SEND"));
+            accessControl.requireClientPermission(CLIENT_ID, Permission.REPORTS_VIEW);
+
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "REPORTS_EDIT")).thenReturn(false);
+            accessControl.requireClientPermission(CLIENT_ID, Permission.REPORTS_EDIT);
+        }
+
+        @Test
+        @DisplayName("AI_APPROVE implies AI_VIEW")
+        void aiApprove_impliesAiView() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "AI_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("AI_APPROVE"));
+
+            accessControl.requireClientPermission(CLIENT_ID, Permission.AI_VIEW);
+        }
+
+        @Test
+        @DisplayName("CREATIVES_EDIT implies CREATIVES_VIEW")
+        void creativesEdit_impliesCreativesView() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CREATIVES_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CREATIVES_EDIT"));
+
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CREATIVES_VIEW);
+        }
+
+        @Test
+        @DisplayName("META_MANAGE implies CLIENT_VIEW")
+        void metaManage_impliesClientView() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CLIENT_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("META_MANAGE"));
+
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CLIENT_VIEW);
+        }
+
+        @Test
+        @DisplayName("direct permission still takes precedence (no extra DB call)")
+        void directPermission_noInheritanceNeeded() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "CAMPAIGNS_VIEW")).thenReturn(true);
+
+            accessControl.requireClientPermission(CLIENT_ID, Permission.CAMPAIGNS_VIEW);
+
+            // findPermissionsByUserIdAndClientId should NOT be called when direct check passes
+            verify(permissionRepository, never()).findPermissionsByUserIdAndClientId(USER_ID, CLIENT_ID);
+        }
+
+        @Test
+        @DisplayName("inheritance does not grant unrelated permissions")
+        void inheritance_doesNotGrantUnrelated() {
+            setContext(AGENCY_ID, USER_ID, "AGENCY_USER");
+            // User has CAMPAIGNS_EDIT — should NOT imply REPORTS_VIEW
+            when(permissionRepository.existsByUserIdAndClientIdAndPermission(
+                    USER_ID, CLIENT_ID, "REPORTS_VIEW")).thenReturn(false);
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CAMPAIGNS_EDIT"));
+
+            assertThatThrownBy(() ->
+                    accessControl.requireClientPermission(CLIENT_ID, Permission.REPORTS_VIEW))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Effective Permissions (including inherited)
+    // ══════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Effective Permissions")
+    class EffectivePermissionsTests {
+
+        @Test
+        @DisplayName("getEffectivePermissions includes inherited permissions")
+        void effectivePermissions_includesInherited() {
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CAMPAIGNS_EDIT", "REPORTS_SEND"));
+
+            Set<String> effective = accessControl.getEffectivePermissions(USER_ID, CLIENT_ID);
+
+            assertThat(effective).containsExactlyInAnyOrder(
+                    "CAMPAIGNS_EDIT", "CAMPAIGNS_VIEW",     // CAMPAIGNS_EDIT → CAMPAIGNS_VIEW
+                    "REPORTS_SEND", "REPORTS_VIEW", "REPORTS_EDIT"  // REPORTS_SEND → VIEW + EDIT
+            );
+        }
+
+        @Test
+        @DisplayName("getEffectivePermissions with no permissions returns empty")
+        void effectivePermissions_empty() {
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of());
+
+            Set<String> effective = accessControl.getEffectivePermissions(USER_ID, CLIENT_ID);
+
+            assertThat(effective).isEmpty();
+        }
+
+        @Test
+        @DisplayName("getEffectivePermissions with non-inheriting permission returns only direct")
+        void effectivePermissions_noInheritance() {
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(List.of("CLIENT_VIEW"));
+
+            Set<String> effective = accessControl.getEffectivePermissions(USER_ID, CLIENT_ID);
+
+            // CLIENT_VIEW has no implications
+            assertThat(effective).containsExactly("CLIENT_VIEW");
+        }
+
+        @Test
+        @DisplayName("getEffectivePermissions deduplicates overlapping inherited")
+        void effectivePermissions_deduplicatesOverlap() {
+            // CAMPAIGNS_PUBLISH implies VIEW + EDIT; CAMPAIGNS_EDIT implies VIEW
+            when(permissionRepository.findPermissionsByUserIdAndClientId(
+                    USER_ID, CLIENT_ID)).thenReturn(
+                    List.of("CAMPAIGNS_PUBLISH", "CAMPAIGNS_EDIT"));
+
+            Set<String> effective = accessControl.getEffectivePermissions(USER_ID, CLIENT_ID);
+
+            assertThat(effective).containsExactlyInAnyOrder(
+                    "CAMPAIGNS_PUBLISH", "CAMPAIGNS_EDIT", "CAMPAIGNS_VIEW"
+            );
         }
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -144,6 +145,22 @@ public class PermissionController {
     /**
      * Get available permission types and presets.
      */
+    @GetMapping("/users/{userId}/clients/{clientId}/effective")
+    public ResponseEntity<?> getEffectivePermissions(@PathVariable UUID userId,
+                                                      @PathVariable UUID clientId) {
+        RoleGuard.requireAgencyAdmin();
+        Set<String> effective = accessControl.getEffectivePermissions(userId, clientId);
+        List<String> direct = permissionRepo.findPermissionsByUserIdAndClientId(userId, clientId);
+
+        return ResponseEntity.ok(Map.of(
+                "directPermissions", direct,
+                "effectivePermissions", effective,
+                "inheritedPermissions", effective.stream()
+                        .filter(p -> !direct.contains(p))
+                        .toList()
+        ));
+    }
+
     @GetMapping("/available")
     public ResponseEntity<?> availablePermissions() {
         return ResponseEntity.ok(Map.of(
