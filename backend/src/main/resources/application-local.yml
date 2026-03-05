@@ -36,6 +36,11 @@ springdoc:
   api-docs:
     path: /api-docs
 
+storage:
+  s3:
+    enabled: false
+    local-storage-path: ./uploads
+
 meta:
   app-id: ${META_APP_ID:placeholder}
   app-secret: ${META_APP_SECRET:placeholder}

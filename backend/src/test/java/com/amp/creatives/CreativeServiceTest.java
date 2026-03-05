@@ -34,7 +34,10 @@ class CreativeServiceTest {
     @Mock private CreativeAssetRepository assetRepository;
     @Mock private CreativeAnalysisRepository analysisRepository;
     @Mock private CreativePackageRepository packageRepository;
+    @Mock private CopyVariantRepository copyVariantRepository;
     @Mock private AuditService auditService;
+    @Mock private S3StorageService s3StorageService;
+    @Mock private S3Properties s3Properties;
 
     @InjectMocks
     private CreativeService creativeService;

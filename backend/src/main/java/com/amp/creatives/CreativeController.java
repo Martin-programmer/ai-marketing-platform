@@ -2,10 +2,12 @@ package com.amp.creatives;
 
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -69,6 +72,44 @@ public class CreativeController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(analysis);
+    }
+
+    // ---- S3 Upload Flow ----
+
+    /** Initiate a creative upload — returns presigned PUT URL. */
+    @PostMapping("/clients/{clientId}/creatives/uploads")
+    public ResponseEntity<UploadInitResponse> initiateUpload(
+            @PathVariable UUID clientId,
+            @Valid @RequestBody UploadInitRequest request) {
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        UploadInitResponse response = creativeService.initiateUpload(agencyId(), clientId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /** Complete a creative upload — marks asset as READY. */
+    @PostMapping("/creatives/{assetId}/uploads/complete")
+    public ResponseEntity<AssetResponse> completeUpload(
+            @PathVariable UUID assetId,
+            @RequestBody(required = false) UploadCompleteRequest request) {
+        RoleGuard.requireAgencyRole();
+        AssetResponse response = creativeService.completeUpload(agencyId(), assetId, request);
+        return ResponseEntity.ok(response);
+    }
+
+    /** Get presigned GET URL for viewing an asset. */
+    @GetMapping("/creatives/{assetId}/url")
+    public ResponseEntity<Map<String, Object>> getViewUrl(@PathVariable UUID assetId) {
+        RoleGuard.requireAgencyRole();
+        String url = creativeService.getPresignedViewUrl(agencyId(), assetId);
+        return ResponseEntity.ok(Map.of("url", url, "expiresInMinutes", 60));
+    }
+
+    /** Delete a creative asset and its S3 object. */
+    @DeleteMapping("/creatives/{assetId}")
+    public ResponseEntity<Map<String, String>> deleteAsset(@PathVariable UUID assetId) {
+        RoleGuard.requireAgencyRole();
+        creativeService.deleteAsset(agencyId(), assetId);
+        return ResponseEntity.ok(Map.of("message", "Asset deleted"));
     }
 
     // ---- Packages ----

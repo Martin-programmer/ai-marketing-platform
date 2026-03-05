@@ -24,6 +24,12 @@ logging:
     com.amp: INFO
     root: WARN
 
+storage:
+  s3:
+    enabled: true
+    bucket: amp-creatives-staging
+    region: eu-north-1
+
 meta:
   app-id: ${META_APP_ID}
   app-secret: ${META_APP_SECRET}

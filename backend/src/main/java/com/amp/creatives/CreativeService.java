@@ -29,17 +29,23 @@ public class CreativeService {
     private final CreativePackageRepository packageRepository;
     private final CopyVariantRepository copyVariantRepository;
     private final AuditService auditService;
+    private final S3StorageService s3StorageService;
+    private final S3Properties s3Properties;
 
     public CreativeService(CreativeAssetRepository assetRepository,
                            CreativeAnalysisRepository analysisRepository,
                            CreativePackageRepository packageRepository,
                            CopyVariantRepository copyVariantRepository,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           S3StorageService s3StorageService,
+                           S3Properties s3Properties) {
         this.assetRepository = assetRepository;
         this.analysisRepository = analysisRepository;
         this.packageRepository = packageRepository;
         this.copyVariantRepository = copyVariantRepository;
         this.auditService = auditService;
+        this.s3StorageService = s3StorageService;
+        this.s3Properties = s3Properties;
     }
 
     // ---- Assets ----
@@ -92,6 +98,114 @@ public class CreativeService {
     @Transactional(readOnly = true)
     public CreativeAnalysis getAnalysis(UUID assetId) {
         return analysisRepository.findByCreativeAssetId(assetId).orElse(null);
+    }
+
+    // ---- S3 Upload Flow ----
+
+    /**
+     * Initiate an upload: create UPLOADING record and return presigned PUT URL.
+     */
+    @CacheEvict(value = "creativeAssets", key = "#agencyId + '_' + #clientId")
+    public UploadInitResponse initiateUpload(UUID agencyId, UUID clientId, UploadInitRequest request) {
+        UUID userId = TenantContextHolder.require().getUserId();
+        OffsetDateTime now = OffsetDateTime.now();
+
+        CreativeAsset asset = new CreativeAsset();
+        asset.setAgencyId(agencyId);
+        asset.setClientId(clientId);
+        asset.setAssetType(request.assetType() != null ? request.assetType() : detectAssetType(request.mimeType()));
+        asset.setOriginalFilename(request.fileName());
+        asset.setMimeType(request.mimeType());
+        asset.setSizeBytes(request.sizeBytes());
+        asset.setChecksumSha256(request.checksumSha256() != null ? request.checksumSha256() : "pending");
+        asset.setS3Bucket("");
+        asset.setS3Key("");
+        asset.setStatus("UPLOADING");
+        asset.setCreatedBy(userId);
+        asset.setCreatedAt(now);
+        asset.setUpdatedAt(now);
+
+        // Save first to get ID, then generate S3 key
+        CreativeAsset saved = assetRepository.save(asset);
+        String s3Key = s3StorageService.generateS3Key(agencyId, clientId, saved.getId(), request.fileName());
+        saved.setS3Bucket(s3Properties.getBucket());
+        saved.setS3Key(s3Key);
+        saved = assetRepository.save(saved);
+
+        // Generate presigned PUT URL
+        String presignedPutUrl = s3StorageService.generatePresignedPutUrl(s3Key, request.mimeType(), request.sizeBytes());
+
+        auditService.log(agencyId, clientId, userId, null,
+                AuditAction.CREATIVE_UPLOAD, "CREATIVE_ASSET", saved.getId(),
+                null, saved.getStatus(), UUID.randomUUID().toString());
+
+        log.info("Initiated upload for asset {} ({}), s3Key={}", saved.getId(), request.fileName(), s3Key);
+        return new UploadInitResponse(saved.getId(), s3Key, presignedPutUrl, s3Properties.getBucket());
+    }
+
+    /**
+     * Complete an upload: validate file in S3 and mark as READY.
+     */
+    @CacheEvict(value = "creativeAssets", allEntries = true)
+    public AssetResponse completeUpload(UUID agencyId, UUID assetId, UploadCompleteRequest request) {
+        CreativeAsset asset = assetRepository.findByIdAndAgencyId(assetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativeAsset", assetId));
+
+        if (!"UPLOADING".equals(asset.getStatus())) {
+            throw new IllegalStateException("Asset is not in UPLOADING status: " + asset.getStatus());
+        }
+
+        // Verify file exists in S3
+        if (!s3StorageService.objectExists(asset.getS3Key())) {
+            throw new IllegalStateException("File not found in S3. Upload may not have completed.");
+        }
+
+        // Update checksum if provided
+        if (request != null && request.checksumSha256() != null) {
+            asset.setChecksumSha256(request.checksumSha256());
+        }
+
+        // Update dimensions if provided
+        if (request != null) {
+            if (request.widthPx() != null) asset.setWidthPx(request.widthPx());
+            if (request.heightPx() != null) asset.setHeightPx(request.heightPx());
+        }
+
+        asset.setStatus("READY");
+        asset.setUpdatedAt(OffsetDateTime.now());
+        CreativeAsset saved = assetRepository.save(asset);
+
+        log.info("Upload complete for asset {}, status=READY", assetId);
+        return AssetResponse.from(saved);
+    }
+
+    /**
+     * Get a presigned GET URL for viewing/downloading an asset.
+     */
+    @Transactional(readOnly = true)
+    public String getPresignedViewUrl(UUID agencyId, UUID assetId) {
+        CreativeAsset asset = assetRepository.findByIdAndAgencyId(assetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativeAsset", assetId));
+        return s3StorageService.generatePresignedGetUrl(asset.getS3Key());
+    }
+
+    /**
+     * Delete an asset and its S3 object.
+     */
+    @CacheEvict(value = "creativeAssets", allEntries = true)
+    public void deleteAsset(UUID agencyId, UUID assetId) {
+        CreativeAsset asset = assetRepository.findByIdAndAgencyId(assetId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativeAsset", assetId));
+        s3StorageService.deleteObject(asset.getS3Key());
+        assetRepository.delete(asset);
+        log.info("Deleted asset {} and S3 object {}", assetId, asset.getS3Key());
+    }
+
+    private String detectAssetType(String mimeType) {
+        if (mimeType == null) return "IMAGE";
+        if (mimeType.startsWith("video/")) return "VIDEO";
+        if (mimeType.startsWith("image/")) return "IMAGE";
+        return "DOC";
     }
 
     // ---- Packages ----
