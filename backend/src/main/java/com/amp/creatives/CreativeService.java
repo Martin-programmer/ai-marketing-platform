@@ -81,7 +81,7 @@ public class CreativeService {
 
         CreativeAsset saved = assetRepository.save(asset);
 
-        auditService.log(agencyId, request.clientId(), null, null,
+        auditService.log(agencyId, request.clientId(), null, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_UPLOAD, "CREATIVE_ASSET", saved.getId(),
                 null, saved, UUID.randomUUID().toString());
 
@@ -135,7 +135,7 @@ public class CreativeService {
         // Generate presigned PUT URL
         String presignedPutUrl = s3StorageService.generatePresignedPutUrl(s3Key, request.mimeType(), request.sizeBytes());
 
-        auditService.log(agencyId, clientId, userId, null,
+        auditService.log(agencyId, clientId, userId, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_UPLOAD, "CREATIVE_ASSET", saved.getId(),
                 null, saved.getStatus(), UUID.randomUUID().toString());
 
@@ -236,7 +236,7 @@ public class CreativeService {
 
         CreativePackage saved = packageRepository.save(pkg);
 
-        auditService.log(agencyId, clientId, null, null,
+        auditService.log(agencyId, clientId, null, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_UPLOAD, "CREATIVE_PACKAGE", saved.getId(),
                 null, saved, UUID.randomUUID().toString());
 
@@ -257,7 +257,7 @@ public class CreativeService {
         pkg.setStatus("IN_REVIEW");
         CreativePackage saved = packageRepository.save(pkg);
 
-        auditService.log(agencyId, pkg.getClientId(), null, null,
+        auditService.log(agencyId, pkg.getClientId(), null, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_APPROVE, "CREATIVE_PACKAGE", packageId,
                 before, "IN_REVIEW", UUID.randomUUID().toString());
 
@@ -281,7 +281,7 @@ public class CreativeService {
         pkg.setApprovedAt(OffsetDateTime.now());
         CreativePackage saved = packageRepository.save(pkg);
 
-        auditService.log(agencyId, pkg.getClientId(), null, null,
+        auditService.log(agencyId, pkg.getClientId(), null, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_APPROVE, "CREATIVE_PACKAGE", packageId,
                 before, "APPROVED", UUID.randomUUID().toString());
 
@@ -319,7 +319,7 @@ public class CreativeService {
 
         CopyVariant saved = copyVariantRepository.save(cv);
 
-        auditService.log(agencyId, clientId, null, null,
+        auditService.log(agencyId, clientId, null, TenantContextHolder.require().getRole(),
                 AuditAction.CREATIVE_UPLOAD, "COPY_VARIANT", saved.getId(),
                 null, saved, UUID.randomUUID().toString());
 
