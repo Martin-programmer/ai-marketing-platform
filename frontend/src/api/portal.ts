@@ -7,6 +7,12 @@ export const portalApi = {
   getReport: (id: string) => api.get(`/portal/reports/${id}`),
   getKpis: (params?: { from?: string; to?: string }) =>
     api.get('/portal/dashboard/kpis', { params }),
+  getKpiSummary: (params: { from: string; to: string }) =>
+    api.get('/portal/dashboard/kpis/summary', { params }),
+  getKpiDaily: (params: { from: string; to: string }) =>
+    api.get('/portal/dashboard/kpis/daily', { params }),
+  getTopCampaigns: (params: { from: string; to: string; limit?: number }) =>
+    api.get('/portal/dashboard/kpis/top-campaigns', { params }),
   getCampaigns: () => api.get('/portal/campaigns'),
   getSuggestions: () => api.get('/portal/suggestions'),
   submitFeedback: (reportId: string, data: { rating: number; comment?: string }) =>
