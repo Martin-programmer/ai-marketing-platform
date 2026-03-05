@@ -2,16 +2,19 @@ package com.amp.reports;
 
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
+import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * REST controller for report and feedback operations.
+ * REST controller for report, feedback, PDF/HTML and narrative operations.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -19,10 +22,17 @@ public class ReportController {
 
     private final ReportService reportService;
     private final AccessControl accessControl;
+    private final PdfGenerator pdfGenerator;
+    private final ReportRepository reportRepository;
 
-    public ReportController(ReportService reportService, AccessControl accessControl) {
+    public ReportController(ReportService reportService,
+                            AccessControl accessControl,
+                            PdfGenerator pdfGenerator,
+                            ReportRepository reportRepository) {
         this.reportService = reportService;
         this.accessControl = accessControl;
+        this.pdfGenerator = pdfGenerator;
+        this.reportRepository = reportRepository;
     }
 
     // ──────── Report ────────
@@ -83,5 +93,67 @@ public class ReportController {
         accessControl.requireClientPermission(clientId, Permission.REPORTS_VIEW);
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         return reportService.listFeedback(agencyId, clientId, entityType);
+    }
+
+    // ──────── PDF / HTML download ────────
+
+    @GetMapping("/reports/{reportId}/pdf")
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable UUID reportId) {
+        RoleGuard.requireAgencyRole();
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        UUID clientId = reportService.resolveClientId(agencyId, reportId);
+        accessControl.requireClientPermission(clientId, Permission.REPORTS_VIEW);
+
+        Report report = reportService.getReportEntity(reportId);
+        byte[] pdfBytes = pdfGenerator.generatePdf(report.getHtmlContent());
+
+        String filename = String.format("report_%s_%s.pdf",
+                report.getReportType().toLowerCase(),
+                report.getPeriodEnd().toString());
+
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/pdf")
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .body(pdfBytes);
+    }
+
+    @GetMapping("/reports/{reportId}/html")
+    public ResponseEntity<String> viewHtml(@PathVariable UUID reportId) {
+        RoleGuard.requireAgencyRole();
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        UUID clientId = reportService.resolveClientId(agencyId, reportId);
+        accessControl.requireClientPermission(clientId, Permission.REPORTS_VIEW);
+
+        Report report = reportService.getReportEntity(reportId);
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/html; charset=UTF-8")
+                .body(report.getHtmlContent());
+    }
+
+    // ──────── Narrative / Edit ────────
+
+    @PatchMapping("/reports/{reportId}")
+    public ResponseEntity<?> updateReport(@PathVariable UUID reportId,
+                                          @RequestBody Map<String, String> request) {
+        RoleGuard.requireAgencyRole();
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        UUID clientId = reportService.resolveClientId(agencyId, reportId);
+        accessControl.requireClientPermission(clientId, Permission.REPORTS_EDIT);
+
+        Report report = reportService.getReportEntity(reportId);
+
+        if (!"DRAFT".equals(report.getStatus()) && !"IN_REVIEW".equals(report.getStatus())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", "Can only edit DRAFT or IN_REVIEW reports"));
+        }
+
+        String narrative = request.get("narrative");
+        if (narrative != null) {
+            String newHtml = reportService.regenerateWithNarrative(report, narrative);
+            report.setHtmlContent(newHtml);
+            reportRepository.save(report);
+        }
+
+        return ResponseEntity.ok(ReportResponse.from(report));
     }
 }

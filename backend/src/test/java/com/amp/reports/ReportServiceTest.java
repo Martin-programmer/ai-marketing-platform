@@ -1,7 +1,11 @@
 package com.amp.reports;
 
+import com.amp.agency.AgencyRepository;
 import com.amp.audit.AuditService;
+import com.amp.clients.ClientRepository;
 import com.amp.common.exception.ResourceNotFoundException;
+import com.amp.insights.InsightDailyRepository;
+import com.amp.insights.KpiSummary;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
 import org.junit.jupiter.api.AfterEach;
@@ -13,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -22,6 +27,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +41,9 @@ class ReportServiceTest {
     @Mock private ReportRepository reportRepository;
     @Mock private FeedbackRepository feedbackRepository;
     @Mock private AuditService auditService;
+    @Mock private InsightDailyRepository insightDailyRepository;
+    @Mock private ClientRepository clientRepository;
+    @Mock private AgencyRepository agencyRepository;
 
     @InjectMocks
     private ReportService reportService;
@@ -82,10 +91,31 @@ class ReportServiceTest {
     // ──────── generateReport ────────
 
     @Test
-    @DisplayName("generateReport — success: status DRAFT, htmlContent not null, save called")
+    @DisplayName("generateReport — success: status DRAFT, htmlContent has real KPI data, save called")
     void generateReport_success() {
         GenerateReportRequest req = new GenerateReportRequest(
                 CLIENT_ID, "MONTHLY", LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 28));
+
+        // Stub client & agency name lookups
+        com.amp.clients.Client mockClient = mock(com.amp.clients.Client.class);
+        when(mockClient.getName()).thenReturn("Test Client");
+        when(clientRepository.findByIdAndAgencyId(CLIENT_ID, AGENCY_ID)).thenReturn(Optional.of(mockClient));
+
+        com.amp.agency.Agency mockAgency = mock(com.amp.agency.Agency.class);
+        when(mockAgency.getName()).thenReturn("Test Agency");
+        when(agencyRepository.findById(AGENCY_ID)).thenReturn(Optional.of(mockAgency));
+
+        // Stub KPI summaries
+        KpiSummary currentKpi = new KpiSummary(1000L, 100L, new BigDecimal("500.00"),
+                new BigDecimal("10.00"), 10.0, new BigDecimal("5.00"), BigDecimal.ZERO);
+        KpiSummary previousKpi = new KpiSummary(800L, 80L, new BigDecimal("400.00"),
+                new BigDecimal("8.00"), 10.0, new BigDecimal("5.00"), BigDecimal.ZERO);
+        when(insightDailyRepository.aggregateKpis(eq(AGENCY_ID), eq(CLIENT_ID), any(), any()))
+                .thenReturn(currentKpi, previousKpi);
+
+        // No daily insights (empty list for top campaigns)
+        when(insightDailyRepository.findAllByAgencyIdAndClientIdAndDateBetween(
+                eq(AGENCY_ID), eq(CLIENT_ID), any(), any())).thenReturn(List.of());
 
         when(reportRepository.save(any(Report.class))).thenAnswer(inv -> {
             Report r = inv.getArgument(0);
@@ -97,6 +127,10 @@ class ReportServiceTest {
 
         assertThat(result.status()).isEqualTo("DRAFT");
         assertThat(result.htmlContent()).isNotNull();
+        assertThat(result.htmlContent()).contains("Performance Report");
+        assertThat(result.htmlContent()).contains("Test Client");
+        assertThat(result.htmlContent()).contains("Test Agency");
+        assertThat(result.htmlContent()).contains("$500.00"); // total spend
         verify(reportRepository).save(any(Report.class));
         verify(auditService).log(eq(AGENCY_ID), eq(CLIENT_ID), any(), any(), any(), any(), any(), any(), any(), any());
     }

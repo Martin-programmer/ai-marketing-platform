@@ -1,269 +1,457 @@
 -- =============================================================
--- Seed data for local development. Safe to run multiple times.
--- All INSERTs use ON CONFLICT DO NOTHING for idempotency.
+-- Seed data for local development — REALISTIC multi-agency scenario.
+-- Safe to run multiple times (ON CONFLICT DO NOTHING / idempotent).
+-- Run: psql -h localhost -U amp -d amp -f scripts/db-seed.sql
 -- =============================================================
 
--- ──────── 1. Agency ────────
-INSERT INTO agency (id, name, status, plan_code, created_at, updated_at)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Demo Agency', 'ACTIVE', 'PRO', now(), now())
+-- ╔═══════════════════════════════════════════════════════════╗
+-- ║  0. CLEAN SLATE (optional — uncomment to wipe first)     ║
+-- ╚═══════════════════════════════════════════════════════════╝
+-- DELETE FROM feedback; DELETE FROM report; DELETE FROM ai_action_log;
+-- DELETE FROM ai_suggestion; DELETE FROM insight_daily; DELETE FROM ad;
+-- DELETE FROM adset; DELETE FROM campaign; DELETE FROM meta_sync_job;
+-- DELETE FROM meta_connection; DELETE FROM creative_package_item;
+-- DELETE FROM creative_package; DELETE FROM creative_analysis;
+-- DELETE FROM copy_variant; DELETE FROM creative_asset;
+-- DELETE FROM user_client_permission; DELETE FROM client_profile;
+-- DELETE FROM audit_log; DELETE FROM user_account WHERE role != 'OWNER_ADMIN';
+-- DELETE FROM client; DELETE FROM agency;
+
+-- BCrypt hash of 'admin123'
+-- $2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK
+
+-- ══════════════════════════════════════════════════════════════
+-- 1. AGENCIES (3)
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO agency (id, name, status, plan_code, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000001', 'BrightWave Digital', 'ACTIVE', 'PRO', now() - interval '6 months', now()),
+  ('a0000000-0000-0000-0000-000000000002', 'NexGen Marketing', 'ACTIVE', 'STARTER', now() - interval '3 months', now()),
+  ('a0000000-0000-0000-0000-000000000003', 'AdPulse Media', 'ACTIVE', 'PRO', now() - interval '1 month', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 2. Users (agency roles) ────────
--- BCrypt hash of 'admin123': $2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK
-INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-admin', 'agency_admin@local', 'AGENCY_ADMIN', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Agency Admin', now(), now()),
-  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'local-sub-agency-user',  'agency_user@local',  'AGENCY_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Agency User',  now(), now()),
-  ('00000000-0000-0000-0000-000000000020', NULL,                                   'local-sub-owner-admin',  'owner_admin@local',  'OWNER_ADMIN', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Owner Admin',  now(), now())
+-- ══════════════════════════════════════════════════════════════
+-- 2. USERS
+-- ══════════════════════════════════════════════════════════════
+
+-- Owner (platform superadmin — no agency)
+INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000001', NULL, 'local-owner', 'owner@local', 'OWNER_ADMIN', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Platform Owner', now() - interval '6 months', now())
+ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, agency_id = NULL;
+
+-- BrightWave Digital — team (3 users)
+INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'local-bw-admin', 'maria@brightwave.bg', 'AGENCY_ADMIN', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Maria Ivanova', now() - interval '6 months', now()),
+  ('a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000001', 'local-bw-user1', 'georgi@brightwave.bg', 'AGENCY_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Georgi Petrov', now() - interval '5 months', now()),
+  ('a0000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000001', 'local-bw-user2', 'elena@brightwave.bg', 'AGENCY_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Elena Dimitrova', now() - interval '3 months', now())
 ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
 
--- ──────── 3. Clients ────────
-INSERT INTO client (id, agency_id, name, industry, status, timezone, currency, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000001', 'Demo Client', 'ECOM', 'ACTIVE', 'Europe/Sofia', 'BGN', now(), now()),
-  ('00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000001', 'FitFood.bg', 'ECOM', 'ACTIVE', 'Europe/Sofia', 'BGN', now(), now())
-ON CONFLICT DO NOTHING;
-
--- ──────── 4. Client Profiles ────────
-INSERT INTO client_profile (id, agency_id, client_id, website, profile_json, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'https://democlient.bg',
-   '{"usp": "Premium quality products at affordable prices", "audiences": ["25-45 women", "parents"], "tone": "friendly and professional", "offers": ["Free shipping over 50 BGN", "10% first order"], "competitors": ["competitor1.bg", "competitor2.bg"], "restrictions": "No health claims"}',
-   now(), now()),
-  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'https://fitfood.bg',
-   '{"usp": "Healthy meal prep delivery in Sofia", "audiences": ["fitness enthusiasts", "busy professionals 25-40"], "tone": "energetic and motivational", "offers": ["First box -20%", "Subscribe & save 15%"], "competitors": ["healthbox.bg", "fitprep.bg"], "restrictions": "No before/after body images"}',
-   now(), now())
-ON CONFLICT DO NOTHING;
-
--- ──────── 4b. CLIENT_USER Users (must come after clients due to FK on client_id) ────────
-INSERT INTO user_account (id, agency_id, client_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000050', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'local-sub-client-user-1', 'client_user@local',  'CLIENT_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Demo Client User',    now(), now()),
-  ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'local-sub-client-user-2', 'client_user2@local', 'CLIENT_USER', 'ACTIVE', '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'FitFood Client User', now(), now())
+-- NexGen Marketing — team (2 users)
+INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000002', 'local-ng-admin', 'ivan@nexgen.bg', 'AGENCY_ADMIN', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Ivan Kolev', now() - interval '3 months', now()),
+  ('a0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000002', 'local-ng-user1', 'petya@nexgen.bg', 'AGENCY_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Petya Stoyanova', now() - interval '2 months', now())
 ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
 
--- ──────── 5. Meta Connections ────────
-INSERT INTO meta_connection (id, agency_id, client_id, ad_account_id, pixel_id, page_id, access_token_enc, token_key_id, status, connected_at, last_sync_at, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'act_1234567890', 'px_9876543210', 'page_111222333', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '30 days', now() - interval '1 hour', now() - interval '30 days', now()),
-  ('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'act_0987654321', 'px_1234509876', 'page_444555666', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '20 days', now() - interval '2 hours', now() - interval '20 days', now())
+-- AdPulse Media — team (2 users)
+INSERT INTO user_account (id, agency_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000030', 'a0000000-0000-0000-0000-000000000003', 'local-ap-admin', 'stefan@adpulse.bg', 'AGENCY_ADMIN', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Stefan Marinov', now() - interval '1 month', now()),
+  ('a0000000-0000-0000-0000-000000000031', 'a0000000-0000-0000-0000-000000000003', 'local-ap-user1', 'ana@adpulse.bg', 'AGENCY_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Ana Todorova', now() - interval '3 weeks', now())
+ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
+
+-- ══════════════════════════════════════════════════════════════
+-- 3. CLIENTS (7 across 3 agencies)
+-- ══════════════════════════════════════════════════════════════
+
+-- BrightWave Digital clients (3)
+INSERT INTO client (id, agency_id, name, industry, status, timezone, currency, created_at, updated_at) VALUES
+  ('b0000000-0000-0000-0000-000000000101', 'a0000000-0000-0000-0000-000000000001', 'StyleShop.bg', 'ECOM', 'ACTIVE', 'Europe/Sofia', 'BGN', now() - interval '5 months', now()),
+  ('b0000000-0000-0000-0000-000000000102', 'a0000000-0000-0000-0000-000000000001', 'TravelMood', 'TRAVEL', 'ACTIVE', 'Europe/Sofia', 'EUR', now() - interval '4 months', now()),
+  ('b0000000-0000-0000-0000-000000000103', 'a0000000-0000-0000-0000-000000000001', 'GreenHome BG', 'HOME', 'PAUSED', 'Europe/Sofia', 'BGN', now() - interval '2 months', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 6. Meta Sync Jobs ────────
-INSERT INTO meta_sync_job (id, agency_id, client_id, job_type, job_status, idempotency_key, requested_at, started_at, finished_at, stats_json)
-VALUES
-  ('00000000-0000-0000-0000-000000000311', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'DAILY', 'SUCCESS', 'sync-demo-100-daily-1', now() - interval '2 hours', now() - interval '2 hours', now() - interval '1 hour', '{"campaigns": 3, "adsets": 6, "ads": 12, "insights_days": 7}'),
-  ('00000000-0000-0000-0000-000000000312', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'DAILY', 'SUCCESS', 'sync-demo-200-daily-1', now() - interval '3 hours', now() - interval '3 hours', now() - interval '2 hours', '{"campaigns": 2, "adsets": 4, "ads": 8, "insights_days": 7}')
+-- NexGen Marketing clients (2)
+INSERT INTO client (id, agency_id, name, industry, status, timezone, currency, created_at, updated_at) VALUES
+  ('b0000000-0000-0000-0000-000000000201', 'a0000000-0000-0000-0000-000000000002', 'FitZone Gym', 'FITNESS', 'ACTIVE', 'Europe/Sofia', 'BGN', now() - interval '2 months', now()),
+  ('b0000000-0000-0000-0000-000000000202', 'a0000000-0000-0000-0000-000000000002', 'PetPlanet.bg', 'ECOM', 'ACTIVE', 'Europe/Sofia', 'BGN', now() - interval '6 weeks', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 7. Campaigns — Demo Client (3) ────────
-INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'META', 'mc_100001', 'Demo - Spring Sale 2026', 'SALES', 'PUBLISHED', '00000000-0000-0000-0000-000000000010', now() - interval '25 days', now()),
-  ('00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'META', 'mc_100002', 'Demo - Lead Gen Newsletter', 'LEADS', 'PUBLISHED', '00000000-0000-0000-0000-000000000010', now() - interval '20 days', now()),
-  ('00000000-0000-0000-0000-000000000403', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'META', NULL, 'Demo - Summer Awareness (Draft)', 'AWARENESS', 'DRAFT', '00000000-0000-0000-0000-000000000010', now() - interval '2 days', now())
+-- AdPulse Media clients (2)
+INSERT INTO client (id, agency_id, name, industry, status, timezone, currency, created_at, updated_at) VALUES
+  ('b0000000-0000-0000-0000-000000000301', 'a0000000-0000-0000-0000-000000000003', 'LuxDent Clinic', 'HEALTH', 'ACTIVE', 'Europe/Sofia', 'BGN', now() - interval '3 weeks', now()),
+  ('b0000000-0000-0000-0000-000000000302', 'a0000000-0000-0000-0000-000000000003', 'AutoElite BG', 'AUTO', 'ACTIVE', 'Europe/Sofia', 'BGN', now() - interval '2 weeks', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 8. Campaigns — FitFood.bg (2) ────────
-INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000411', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'META', 'mc_200001', 'FitFood - Meal Plans Promo', 'SALES', 'PUBLISHED', '00000000-0000-0000-0000-000000000010', now() - interval '15 days', now()),
-  ('00000000-0000-0000-0000-000000000412', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'META', 'mc_200002', 'FitFood - New Subscribers', 'LEADS', 'PAUSED', '00000000-0000-0000-0000-000000000010', now() - interval '10 days', now())
+-- ══════════════════════════════════════════════════════════════
+-- 4. CLIENT PROFILES
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO client_profile (id, agency_id, client_id, website, profile_json, created_at, updated_at) VALUES
+  ('b1000000-0000-0000-0000-000000000101', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'https://styleshop.bg',
+   '{"usp":"Модерни дрехи и аксесоари на достъпни цени","audiences":["жени 22-40","модни ентусиасти"],"tone":"стилен и вдъхновяващ","offers":["Безплатна доставка над 60 лв","10% при първа поръчка"],"competitors":["zara.bg","aboutyou.bg"]}', now() - interval '5 months', now()),
+  ('b1000000-0000-0000-0000-000000000102', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'https://travelmood.bg',
+   '{"usp":"Уникални пътувания и преживявания за млади хора","audiences":["25-38 авантюристи","двойки"],"tone":"вдъхновяващ и свободен","offers":["Early bird -15%","Групови отстъпки"],"competitors":["booking.com","lidl-travel.bg"]}', now() - interval '4 months', now()),
+  ('b1000000-0000-0000-0000-000000000201', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'https://fitzone.bg',
+   '{"usp":"Модерни фитнес зали в София с персонален подход","audiences":["мъже и жени 20-45","фитнес начинаещи"],"tone":"мотивиращ и енергичен","offers":["Първа тренировка безплатно","Месечен абонамент от 49 лв"],"competitors":["nextlevel.bg","pulse-fitness.bg"]}', now() - interval '2 months', now()),
+  ('b1000000-0000-0000-0000-000000000202', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'https://petplanet.bg',
+   '{"usp":"Всичко за домашните любимци - храна, аксесоари, ветеринарни съвети","audiences":["собственици на кучета и котки 25-55"],"tone":"грижовен и забавен","offers":["Абонамент с 20% отстъпка","Безплатна доставка над 50 лв"],"competitors":["zooplus.bg","mr.pet.bg"]}', now() - interval '6 weeks', now()),
+  ('b1000000-0000-0000-0000-000000000301', 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'https://luxdent.bg',
+   '{"usp":"Висок клас дентални услуги с модерно оборудване","audiences":["хора 30-60 с доходи","естетични процедури"],"tone":"професионален и доверителен","offers":["Безплатен преглед","Разсрочено плащане"],"competitors":["dentalclinic.bg","colgate.bg"]}', now() - interval '3 weeks', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 9. Adsets (2 per published campaign) ────────
-INSERT INTO adset (id, agency_id, client_id, campaign_id, meta_adset_id, name, daily_budget, targeting_json, status, created_at, updated_at)
-VALUES
-  -- Demo Spring Sale adsets
-  ('00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000401', 'mas_101', 'Spring Sale - Broad 25-45', 50.00, '{"age_min": 25, "age_max": 45, "genders": ["female"], "interests": ["shopping", "fashion"]}', 'PUBLISHED', now() - interval '25 days', now()),
-  ('00000000-0000-0000-0000-000000000502', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000401', 'mas_102', 'Spring Sale - Retargeting', 30.00, '{"custom_audience": "website_visitors_30d", "exclude": "purchasers_30d"}', 'PUBLISHED', now() - interval '25 days', now()),
-  -- Demo Lead Gen adsets
-  ('00000000-0000-0000-0000-000000000503', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000402', 'mas_103', 'Newsletter - Interest Based', 25.00, '{"age_min": 20, "age_max": 55, "interests": ["newsletters", "deals"]}', 'PUBLISHED', now() - interval '20 days', now()),
-  ('00000000-0000-0000-0000-000000000504', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000402', 'mas_104', 'Newsletter - Lookalike', 35.00, '{"lookalike_source": "subscribers", "lookalike_percent": 2}', 'PUBLISHED', now() - interval '20 days', now()),
-  -- FitFood Meal Plans adsets
-  ('00000000-0000-0000-0000-000000000511', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000411', 'mas_201', 'Meal Plans - Fitness Enthusiasts', 40.00, '{"age_min": 22, "age_max": 40, "interests": ["fitness", "healthy eating", "gym"]}', 'PUBLISHED', now() - interval '15 days', now()),
-  ('00000000-0000-0000-0000-000000000512', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000411', 'mas_202', 'Meal Plans - Busy Professionals', 35.00, '{"age_min": 28, "age_max": 45, "interests": ["meal prep", "time saving", "office lunch"]}', 'PUBLISHED', now() - interval '15 days', now())
+-- ══════════════════════════════════════════════════════════════
+-- 4b. CLIENT_USER accounts (after clients, due to FK)
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO user_account (id, agency_id, client_id, cognito_sub, email, role, status, password_hash, display_name, created_at, updated_at) VALUES
+  ('a0000000-0000-0000-0000-000000000050', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'local-client-ss', 'client@styleshop.bg', 'CLIENT_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Десислава (StyleShop)', now() - interval '4 months', now()),
+  ('a0000000-0000-0000-0000-000000000051', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'local-client-fz', 'client@fitzone.bg', 'CLIENT_USER', 'ACTIVE',
+   '$2a$10$x1Wfa1wyYW2/Ncor40PsH.UwIQRrCSHAuuVGLbue7GQvxs3f/uMJK', 'Николай (FitZone)', now() - interval '6 weeks', now())
+ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name;
+
+-- ══════════════════════════════════════════════════════════════
+-- 5. USER-CLIENT PERMISSIONS (for AGENCY_USER)
+-- ══════════════════════════════════════════════════════════════
+
+-- Georgi @ BrightWave → StyleShop (EDITOR), TravelMood (READ_ONLY)
+INSERT INTO user_client_permission (id, user_id, client_id, permission, granted_by, created_at) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CLIENT_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGNS_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CREATIVES_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'CREATIVES_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'REPORTS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'REPORTS_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'AI_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000101', 'AI_APPROVE', 'a0000000-0000-0000-0000-000000000010', now()),
+  -- TravelMood: read-only
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000102', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000102', 'REPORTS_VIEW', 'a0000000-0000-0000-0000-000000000010', now())
+ON CONFLICT ON CONSTRAINT uq_ucp_user_client_perm DO NOTHING;
+
+-- Elena @ BrightWave → TravelMood (FULL), GreenHome (READ_ONLY)
+INSERT INTO user_client_permission (id, user_id, client_id, permission, granted_by, created_at) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CLIENT_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGNS_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGNS_PUBLISH', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CREATIVES_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'CREATIVES_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'REPORTS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'REPORTS_EDIT', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'REPORTS_SEND', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'META_MANAGE', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'AI_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000102', 'AI_APPROVE', 'a0000000-0000-0000-0000-000000000010', now()),
+  -- GreenHome: read-only
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000103', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000103', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000010', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000103', 'REPORTS_VIEW', 'a0000000-0000-0000-0000-000000000010', now())
+ON CONFLICT ON CONSTRAINT uq_ucp_user_client_perm DO NOTHING;
+
+-- Petya @ NexGen → FitZone (EDITOR), PetPlanet (READ_ONLY)
+INSERT INTO user_client_permission (id, user_id, client_id, permission, granted_by, created_at) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'CLIENT_EDIT', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'CAMPAIGNS_EDIT', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'REPORTS_VIEW', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000201', 'AI_VIEW', 'a0000000-0000-0000-0000-000000000020', now()),
+  -- PetPlanet: read-only
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000202', 'CLIENT_VIEW', 'a0000000-0000-0000-0000-000000000020', now()),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000202', 'CAMPAIGNS_VIEW', 'a0000000-0000-0000-0000-000000000020', now())
+ON CONFLICT ON CONSTRAINT uq_ucp_user_client_perm DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════
+-- 6. META CONNECTIONS
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO meta_connection (id, agency_id, client_id, ad_account_id, pixel_id, page_id, access_token_enc, token_key_id, status, connected_at, last_sync_at, created_at, updated_at) VALUES
+  ('d0000000-0000-0000-0000-000000000101', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'act_ss_1234567', 'px_ss_001', 'page_ss_001', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '5 months', now() - interval '1 hour', now() - interval '5 months', now()),
+  ('d0000000-0000-0000-0000-000000000102', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'act_tm_2345678', 'px_tm_001', 'page_tm_001', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '4 months', now() - interval '2 hours', now() - interval '4 months', now()),
+  ('d0000000-0000-0000-0000-000000000103', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000103', 'act_gh_3456789', NULL, 'page_gh_001', E'\\x00', 'demo-key', 'DISCONNECTED', now() - interval '2 months', now() - interval '30 days', now() - interval '2 months', now()),
+  ('d0000000-0000-0000-0000-000000000201', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'act_fz_4567890', 'px_fz_001', 'page_fz_001', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '2 months', now() - interval '3 hours', now() - interval '2 months', now()),
+  ('d0000000-0000-0000-0000-000000000202', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'act_pp_5678901', 'px_pp_001', 'page_pp_001', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '6 weeks', now() - interval '4 hours', now() - interval '6 weeks', now()),
+  ('d0000000-0000-0000-0000-000000000301', 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'act_ld_6789012', NULL, 'page_ld_001', E'\\x00', 'demo-key', 'CONNECTED', now() - interval '3 weeks', now() - interval '5 hours', now() - interval '3 weeks', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 10. Ads (2 per adset) ────────
-INSERT INTO ad (id, agency_id, client_id, adset_id, meta_ad_id, name, status, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000501', 'mad_1001', 'Spring Sale - Image Ad A', 'PUBLISHED', now() - interval '25 days', now()),
-  ('00000000-0000-0000-0000-000000000602', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000501', 'mad_1002', 'Spring Sale - Video Ad B', 'PUBLISHED', now() - interval '25 days', now()),
-  ('00000000-0000-0000-0000-000000000603', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000502', 'mad_1003', 'Retargeting - Carousel', 'PUBLISHED', now() - interval '25 days', now()),
-  ('00000000-0000-0000-0000-000000000604', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000502', 'mad_1004', 'Retargeting - Dynamic', 'PAUSED', now() - interval '20 days', now()),
-  ('00000000-0000-0000-0000-000000000605', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000503', 'mad_1005', 'Newsletter - Lead Form', 'PUBLISHED', now() - interval '20 days', now()),
-  ('00000000-0000-0000-0000-000000000606', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000504', 'mad_1006', 'Newsletter - Lookalike Video', 'PUBLISHED', now() - interval '20 days', now()),
-  ('00000000-0000-0000-0000-000000000611', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000511', 'mad_2001', 'FitFood - Hero Image', 'PUBLISHED', now() - interval '15 days', now()),
-  ('00000000-0000-0000-0000-000000000612', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000511', 'mad_2002', 'FitFood - UGC Video', 'PUBLISHED', now() - interval '15 days', now()),
-  ('00000000-0000-0000-0000-000000000613', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000512', 'mad_2003', 'FitFood - Office Lunch Ad', 'PUBLISHED', now() - interval '15 days', now()),
-  ('00000000-0000-0000-0000-000000000614', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000512', 'mad_2004', 'FitFood - Testimonial', 'PUBLISHED', now() - interval '10 days', now())
+-- ══════════════════════════════════════════════════════════════
+-- 7. CAMPAIGNS (across agencies — realistic names & statuses)
+-- ══════════════════════════════════════════════════════════════
+
+-- BrightWave / StyleShop (4 campaigns)
+INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at) VALUES
+  ('e0000000-0000-0000-0000-000000000101', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'META', 'mc_ss_001', 'StyleShop — Winter Clearance 2025', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000010', now() - interval '120 days', now()),
+  ('e0000000-0000-0000-0000-000000000102', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'META', 'mc_ss_002', 'StyleShop — Spring Collection Launch', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000010', now() - interval '75 days', now()),
+  ('e0000000-0000-0000-0000-000000000103', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'META', 'mc_ss_003', 'StyleShop — Newsletter Signup', 'LEADS', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000011', now() - interval '60 days', now()),
+  ('e0000000-0000-0000-0000-000000000104', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'META', NULL, 'StyleShop — Summer Teaser (Draft)', 'AWARENESS', 'DRAFT', 'a0000000-0000-0000-0000-000000000011', now() - interval '5 days', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 11. Creative Assets (4 per client) ────────
-INSERT INTO creative_asset (id, agency_id, client_id, asset_type, s3_bucket, s3_key, original_filename, mime_type, size_bytes, width_px, height_px, checksum_sha256, status, created_by, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000701', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'IMAGE', 'demo-bucket', 'agencies/demo/clients/100/spring-sale-banner.jpg', 'spring-sale-banner.jpg', 'image/jpeg', 245000, 1080, 1080, 'sha256_demo_1', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '28 days', now()),
-  ('00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'VIDEO', 'demo-bucket', 'agencies/demo/clients/100/spring-sale-video.mp4', 'spring-sale-video.mp4', 'video/mp4', 5200000, 1080, 1920, 'sha256_demo_2', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '27 days', now()),
-  ('00000000-0000-0000-0000-000000000703', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'IMAGE', 'demo-bucket', 'agencies/demo/clients/100/newsletter-cta.png', 'newsletter-cta.png', 'image/png', 180000, 1200, 628, 'sha256_demo_3', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '22 days', now()),
-  ('00000000-0000-0000-0000-000000000704', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'IMAGE', 'demo-bucket', 'agencies/demo/clients/100/carousel-product.jpg', 'carousel-product.jpg', 'image/jpeg', 320000, 1080, 1080, 'sha256_demo_4', 'ANALYZING', '00000000-0000-0000-0000-000000000010', now() - interval '3 days', now()),
-  ('00000000-0000-0000-0000-000000000711', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'IMAGE', 'demo-bucket', 'agencies/demo/clients/200/hero-meal-box.jpg', 'hero-meal-box.jpg', 'image/jpeg', 410000, 1080, 1080, 'sha256_demo_5', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '18 days', now()),
-  ('00000000-0000-0000-0000-000000000712', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'VIDEO', 'demo-bucket', 'agencies/demo/clients/200/ugc-unboxing.mp4', 'ugc-unboxing.mp4', 'video/mp4', 8900000, 1080, 1920, 'sha256_demo_6', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '17 days', now()),
-  ('00000000-0000-0000-0000-000000000713', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'IMAGE', 'demo-bucket', 'agencies/demo/clients/200/office-lunch-flat.jpg', 'office-lunch-flat.jpg', 'image/jpeg', 290000, 1200, 628, 'sha256_demo_7', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '16 days', now()),
-  ('00000000-0000-0000-0000-000000000714', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'VIDEO', 'demo-bucket', 'agencies/demo/clients/200/testimonial-clip.mp4', 'testimonial-clip.mp4', 'video/mp4', 12300000, 1080, 1080, 'sha256_demo_8', 'READY', '00000000-0000-0000-0000-000000000010', now() - interval '12 days', now())
+-- BrightWave / TravelMood (3 campaigns)
+INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at) VALUES
+  ('e0000000-0000-0000-0000-000000000111', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'META', 'mc_tm_001', 'TravelMood — Early Bird Summer 2026', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000012', now() - interval '90 days', now()),
+  ('e0000000-0000-0000-0000-000000000112', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'META', 'mc_tm_002', 'TravelMood — Weekend Getaway Leads', 'LEADS', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000012', now() - interval '50 days', now()),
+  ('e0000000-0000-0000-0000-000000000113', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'META', 'mc_tm_003', 'TravelMood — Brand Awareness', 'AWARENESS', 'PAUSED', 'a0000000-0000-0000-0000-000000000012', now() - interval '30 days', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 12. Creative Packages (2 per client) ────────
-INSERT INTO creative_package (id, agency_id, client_id, name, objective, status, notes, created_by, approved_by, created_at, approved_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000751', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'Spring Sale Package A', 'SALES', 'APPROVED', 'Main creative set for spring campaign', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000010', now() - interval '26 days', now() - interval '25 days'),
-  ('00000000-0000-0000-0000-000000000752', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'Newsletter Creative Set', 'LEADS', 'IN_REVIEW', 'Lead gen focused creatives', '00000000-0000-0000-0000-000000000020', NULL, now() - interval '5 days', NULL),
-  ('00000000-0000-0000-0000-000000000761', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'FitFood Launch Bundle', 'SALES', 'APPROVED', 'Hero + UGC combination', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000010', now() - interval '16 days', now() - interval '15 days'),
-  ('00000000-0000-0000-0000-000000000762', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'FitFood Office Segment', 'SALES', 'DRAFT', 'Targeting office workers', '00000000-0000-0000-0000-000000000020', NULL, now() - interval '3 days', NULL)
+-- NexGen / FitZone (3 campaigns)
+INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at) VALUES
+  ('e0000000-0000-0000-0000-000000000201', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'META', 'mc_fz_001', 'FitZone — January Promo', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000020', now() - interval '60 days', now()),
+  ('e0000000-0000-0000-0000-000000000202', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'META', 'mc_fz_002', 'FitZone — Free Trial Leads', 'LEADS', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000020', now() - interval '45 days', now()),
+  ('e0000000-0000-0000-0000-000000000203', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'META', NULL, 'FitZone — Summer Body (Draft)', 'SALES', 'DRAFT', 'a0000000-0000-0000-0000-000000000021', now() - interval '3 days', now())
 ON CONFLICT DO NOTHING;
 
--- ──────── 13. Insight Daily — Demo Client: Spring Sale (30 days) ────────
+-- NexGen / PetPlanet (2 campaigns)
+INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at) VALUES
+  ('e0000000-0000-0000-0000-000000000211', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'META', 'mc_pp_001', 'PetPlanet — Spring Pet Essentials', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000020', now() - interval '40 days', now()),
+  ('e0000000-0000-0000-0000-000000000212', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'META', 'mc_pp_002', 'PetPlanet — Subscription Signup', 'LEADS', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000020', now() - interval '30 days', now())
+ON CONFLICT DO NOTHING;
+
+-- AdPulse / LuxDent (2 campaigns)
+INSERT INTO campaign (id, agency_id, client_id, platform, meta_campaign_id, name, objective, status, created_by, created_at, updated_at) VALUES
+  ('e0000000-0000-0000-0000-000000000301', 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'META', 'mc_ld_001', 'LuxDent — Free Consultation', 'LEADS', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000030', now() - interval '20 days', now()),
+  ('e0000000-0000-0000-0000-000000000302', 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'META', 'mc_ld_002', 'LuxDent — Teeth Whitening Promo', 'SALES', 'PUBLISHED', 'a0000000-0000-0000-0000-000000000030', now() - interval '14 days', now())
+ON CONFLICT DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════
+-- 8. INSIGHT_DAILY — 90+ days for main clients
+--    Generates realistic data with seasonal trends
+-- ══════════════════════════════════════════════════════════════
+
+-- StyleShop — Winter Clearance (90 days, high spend declining over time)
 INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
-SELECT
-  gen_random_uuid(),
-  '00000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000100',
-  'CAMPAIGN',
-  '00000000-0000-0000-0000-000000000401',
-  d::date,
-  round((random() * 40 + 60)::numeric, 2),
-  (random() * 8000 + 4000)::bigint,
-  (random() * 200 + 80)::bigint,
-  round((random() * 2 + 1)::numeric, 6),
-  round((random() * 0.5 + 0.2)::numeric, 6),
-  round((random() * 5 + 5)::numeric, 6),
-  round((random() * 8 + 2)::numeric, 6),
-  round((random() * 400 + 100)::numeric, 2),
-  round((random() * 4 + 1)::numeric, 6),
-  round((random() * 1.5 + 1)::numeric, 6),
-  (random() * 3000 + 2000)::bigint,
-  now()
-FROM generate_series(current_date - interval '30 days', current_date - interval '1 day', interval '1 day') AS d
-ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
-
--- ──────── 14. Insight Daily — Demo Client: Lead Gen (20 days) ────────
-INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
-SELECT
-  gen_random_uuid(),
-  '00000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000100',
-  'CAMPAIGN',
-  '00000000-0000-0000-0000-000000000402',
-  d::date,
-  round((random() * 30 + 40)::numeric, 2),
-  (random() * 6000 + 3000)::bigint,
-  (random() * 150 + 50)::bigint,
-  round((random() * 1.5 + 0.8)::numeric, 6),
-  round((random() * 0.4 + 0.3)::numeric, 6),
-  round((random() * 4 + 4)::numeric, 6),
-  round((random() * 5 + 1)::numeric, 6),
-  round((random() * 100 + 20)::numeric, 2),
-  round((random() * 2 + 0.5)::numeric, 6),
-  round((random() * 1.2 + 1)::numeric, 6),
-  (random() * 2500 + 1500)::bigint,
-  now()
-FROM generate_series(current_date - interval '20 days', current_date - interval '1 day', interval '1 day') AS d
-ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
-
--- ──────── 15. Insight Daily — FitFood: Meal Plans (15 days) ────────
-INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
-SELECT
-  gen_random_uuid(),
-  '00000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000200',
-  'CAMPAIGN',
-  '00000000-0000-0000-0000-000000000411',
-  d::date,
-  round((random() * 30 + 30)::numeric, 2),
-  (random() * 5000 + 2000)::bigint,
-  (random() * 120 + 40)::bigint,
-  round((random() * 2 + 1.2)::numeric, 6),
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000101', d::date,
+  round((random() * 30 + 40 + (120 - (current_date - d::date)) * 0.3)::numeric, 2),
+  (random() * 6000 + 3000 + (120 - (current_date - d::date)) * 20)::bigint,
+  (random() * 150 + 60)::bigint,
+  round((random() * 1.5 + 1.5)::numeric, 6),
   round((random() * 0.3 + 0.25)::numeric, 6),
-  round((random() * 3 + 6)::numeric, 6),
-  round((random() * 6 + 2)::numeric, 6),
-  round((random() * 300 + 80)::numeric, 2),
-  round((random() * 5 + 2)::numeric, 6),
-  round((random() * 1 + 1)::numeric, 6),
-  (random() * 2000 + 1000)::bigint,
-  now()
-FROM generate_series(current_date - interval '15 days', current_date - interval '1 day', interval '1 day') AS d
+  round((random() * 4 + 6)::numeric, 6),
+  round((random() * 6 + 3)::numeric, 6),
+  round((random() * 350 + 100)::numeric, 2),
+  round((random() * 3 + 2)::numeric, 6),
+  round((random() * 1.2 + 1)::numeric, 6),
+  (random() * 3000 + 2000)::bigint, now()
+FROM generate_series(current_date - interval '120 days', current_date - interval '1 day', '1 day') d
 ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
 
--- ──────── 16. AI Suggestions (mixed statuses & types) ────────
-INSERT INTO ai_suggestion (id, agency_id, client_id, scope_type, scope_id, suggestion_type, payload_json, rationale, confidence, risk_level, status, cooldown_until, created_by, created_at, reviewed_by, reviewed_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000801', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'ADSET', '00000000-0000-0000-0000-000000000501', 'BUDGET_ADJUST',
-   '{"current_budget": 50.00, "proposed_budget": 55.00, "change_percent": 10}',
-   'CTR is stable at 2.3% and CPA decreased 15% over the last 7 days. Increasing budget by 10% to capture more conversions while maintaining efficiency.', 0.820, 'MEDIUM', 'PENDING', NULL, 'AI', now() - interval '6 hours', NULL, NULL),
-  ('00000000-0000-0000-0000-000000000802', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'AD', '00000000-0000-0000-0000-000000000604', 'PAUSE',
-   '{"entity": "ad", "action": "pause", "reason": "high_spend_zero_conversions"}',
-   'This ad has spent 120 BGN in the last 7 days with 0 conversions. CTR is 0.4% which is well below the adset average of 1.8%. Recommend pausing to reallocate budget.', 0.910, 'MEDIUM', 'APPROVED', NULL, 'AI', now() - interval '2 days', '00000000-0000-0000-0000-000000000010', now() - interval '1 day'),
-  ('00000000-0000-0000-0000-000000000803', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'CAMPAIGN', '00000000-0000-0000-0000-000000000401', 'DIAGNOSTIC',
-   '{"alert": "frequency_rising", "current_frequency": 2.4, "threshold": 2.0}',
-   'Campaign frequency has risen to 2.4 (above 2.0 threshold) in the last 5 days while CTR dropped 18%. This indicates audience fatigue. Consider refreshing creatives or expanding audiences.', 0.880, 'LOW', 'PENDING', NULL, 'AI', now() - interval '12 hours', NULL, NULL),
-  ('00000000-0000-0000-0000-000000000804', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'ADSET', '00000000-0000-0000-0000-000000000503', 'CREATIVE_TEST',
-   '{"package_id": "00000000-0000-0000-0000-000000000752", "test_duration_days": 5}',
-   'The Newsletter adset has been running the same creative for 18 days. CTR has declined 22% from peak. Recommend testing the new Newsletter Creative Set package.', 0.750, 'LOW', 'REJECTED', NULL, 'AI', now() - interval '5 days', '00000000-0000-0000-0000-000000000010', now() - interval '4 days'),
-  ('00000000-0000-0000-0000-000000000805', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'ADSET', '00000000-0000-0000-0000-000000000502', 'BUDGET_ADJUST',
-   '{"current_budget": 30.00, "proposed_budget": 33.00, "change_percent": 10}',
-   'Retargeting adset ROAS is 4.2 over the last 14 days, consistently above target of 3.0. Budget increase of 10% recommended.', 0.850, 'MEDIUM', 'APPLIED', now() - interval '4 days', 'AI', now() - interval '8 days', '00000000-0000-0000-0000-000000000010', now() - interval '7 days'),
-  -- FitFood suggestions
-  ('00000000-0000-0000-0000-000000000811', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'CAMPAIGN', '00000000-0000-0000-0000-000000000412', 'ENABLE',
-   '{"entity": "campaign", "action": "enable", "reason": "issue_resolved"}',
-   'The New Subscribers campaign was paused due to ad rejection. The rejected ad has been fixed and re-approved by Meta. Recommend re-enabling the campaign.', 0.900, 'LOW', 'PENDING', NULL, 'AI', now() - interval '4 hours', NULL, NULL),
-  ('00000000-0000-0000-0000-000000000812', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'ADSET', '00000000-0000-0000-0000-000000000511', 'BUDGET_ADJUST',
-   '{"current_budget": 40.00, "proposed_budget": 44.00, "change_percent": 10}',
-   'Fitness Enthusiasts adset showing strong performance: CPA 8.50 BGN (target: 12 BGN), ROAS 3.8. Stable for 10+ days. Budget increase recommended.', 0.870, 'MEDIUM', 'PENDING', NULL, 'AI', now() - interval '3 hours', NULL, NULL)
+-- StyleShop — Spring Collection (75 days, growing spend)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000102', d::date,
+  round((random() * 25 + 50 + (d::date - (current_date - interval '75 days')::date) * 0.4)::numeric, 2),
+  (random() * 7000 + 4000)::bigint,
+  (random() * 180 + 80)::bigint,
+  round((random() * 1.8 + 1.2)::numeric, 6),
+  round((random() * 0.25 + 0.2)::numeric, 6),
+  round((random() * 3.5 + 5)::numeric, 6),
+  round((random() * 8 + 4)::numeric, 6),
+  round((random() * 500 + 150)::numeric, 2),
+  round((random() * 4 + 2.5)::numeric, 6),
+  round((random() * 1 + 1)::numeric, 6),
+  (random() * 4000 + 3000)::bigint, now()
+FROM generate_series(current_date - interval '75 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- StyleShop — Newsletter (60 days, low spend, high conversion rate)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000103', d::date,
+  round((random() * 15 + 20)::numeric, 2),
+  (random() * 4000 + 2000)::bigint,
+  (random() * 100 + 40)::bigint,
+  round((random() * 2.5 + 1.5)::numeric, 6),
+  round((random() * 0.2 + 0.15)::numeric, 6),
+  round((random() * 3 + 4)::numeric, 6),
+  round((random() * 12 + 5)::numeric, 6),
+  round((random() * 50 + 10)::numeric, 2),
+  round((random() * 1.5 + 0.5)::numeric, 6),
+  round((random() * 0.8 + 1)::numeric, 6),
+  (random() * 3500 + 1800)::bigint, now()
+FROM generate_series(current_date - interval '60 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- TravelMood — Early Bird (90 days)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000111', d::date,
+  round((random() * 50 + 70)::numeric, 2),
+  (random() * 10000 + 5000)::bigint,
+  (random() * 200 + 100)::bigint,
+  round((random() * 1.5 + 1)::numeric, 6),
+  round((random() * 0.4 + 0.3)::numeric, 6),
+  round((random() * 5 + 7)::numeric, 6),
+  round((random() * 4 + 1)::numeric, 6),
+  round((random() * 800 + 200)::numeric, 2),
+  round((random() * 5 + 2)::numeric, 6),
+  round((random() * 1.5 + 1)::numeric, 6),
+  (random() * 5000 + 3000)::bigint, now()
+FROM generate_series(current_date - interval '90 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- FitZone — January Promo (60 days)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000201', d::date,
+  round((random() * 30 + 35)::numeric, 2),
+  (random() * 5000 + 2500)::bigint,
+  (random() * 120 + 50)::bigint,
+  round((random() * 2 + 1.5)::numeric, 6),
+  round((random() * 0.35 + 0.2)::numeric, 6),
+  round((random() * 4 + 5)::numeric, 6),
+  round((random() * 5 + 2)::numeric, 6),
+  round((random() * 200 + 80)::numeric, 2),
+  round((random() * 4 + 1.5)::numeric, 6),
+  round((random() * 1.3 + 1)::numeric, 6),
+  (random() * 2500 + 1500)::bigint, now()
+FROM generate_series(current_date - interval '60 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- FitZone — Free Trial Leads (45 days)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000202', d::date,
+  round((random() * 20 + 25)::numeric, 2),
+  (random() * 4000 + 2000)::bigint,
+  (random() * 100 + 40)::bigint,
+  round((random() * 2.5 + 1.5)::numeric, 6),
+  round((random() * 0.25 + 0.18)::numeric, 6),
+  round((random() * 3 + 5)::numeric, 6),
+  round((random() * 8 + 3)::numeric, 6),
+  round((random() * 40 + 10)::numeric, 2),
+  round((random() * 1 + 0.3)::numeric, 6),
+  round((random() * 1 + 1)::numeric, 6),
+  (random() * 3000 + 1500)::bigint, now()
+FROM generate_series(current_date - interval '45 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- PetPlanet — Spring Essentials (40 days)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000211', d::date,
+  round((random() * 25 + 30)::numeric, 2),
+  (random() * 5500 + 2500)::bigint,
+  (random() * 130 + 50)::bigint,
+  round((random() * 2 + 1.3)::numeric, 6),
+  round((random() * 0.3 + 0.2)::numeric, 6),
+  round((random() * 3.5 + 5)::numeric, 6),
+  round((random() * 7 + 3)::numeric, 6),
+  round((random() * 300 + 90)::numeric, 2),
+  round((random() * 5 + 2)::numeric, 6),
+  round((random() * 1.2 + 1)::numeric, 6),
+  (random() * 3000 + 2000)::bigint, now()
+FROM generate_series(current_date - interval '40 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- LuxDent — Free Consultation (20 days, high CPC/low volume - medical niche)
+INSERT INTO insight_daily (id, agency_id, client_id, entity_type, entity_id, date, spend, impressions, clicks, ctr, cpc, cpm, conversions, conversion_value, roas, frequency, reach, created_at)
+SELECT gen_random_uuid(), 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000301', d::date,
+  round((random() * 20 + 40)::numeric, 2),
+  (random() * 2500 + 1000)::bigint,
+  (random() * 40 + 15)::bigint,
+  round((random() * 1 + 0.8)::numeric, 6),
+  round((random() * 1.2 + 0.8)::numeric, 6),
+  round((random() * 8 + 12)::numeric, 6),
+  round((random() * 3 + 1)::numeric, 6),
+  round((random() * 600 + 200)::numeric, 2),
+  round((random() * 6 + 3)::numeric, 6),
+  round((random() * 1 + 1)::numeric, 6),
+  (random() * 1500 + 800)::bigint, now()
+FROM generate_series(current_date - interval '20 days', current_date - interval '1 day', '1 day') d
+ON CONFLICT (entity_type, entity_id, date) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════
+-- 9. META SYNC JOBS
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO meta_sync_job (id, agency_id, client_id, job_type, job_status, idempotency_key, requested_at, started_at, finished_at, stats_json) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'INITIAL', 'SUCCESS', 'init-ss-001', now() - interval '5 months', now() - interval '5 months', now() - interval '5 months' + interval '3 minutes', '{"campaigns":4,"adsets":6,"ads":10,"insights_days":90}'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'DAILY', 'SUCCESS', 'daily-ss-today', now() - interval '1 hour', now() - interval '1 hour', now() - interval '55 minutes', '{"campaigns":4,"adsets":6,"ads":10,"insights_days":7}'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'INITIAL', 'SUCCESS', 'init-fz-001', now() - interval '2 months', now() - interval '2 months', now() - interval '2 months' + interval '2 minutes', '{"campaigns":3,"adsets":4,"ads":6,"insights_days":60}'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'DAILY', 'FAILED', 'daily-fz-fail', now() - interval '6 hours', now() - interval '6 hours', now() - interval '6 hours' + interval '30 seconds', NULL),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000301', 'INITIAL', 'SUCCESS', 'init-ld-001', now() - interval '3 weeks', now() - interval '3 weeks', now() - interval '3 weeks' + interval '1 minute', '{"campaigns":2,"adsets":3,"ads":5,"insights_days":20}')
 ON CONFLICT DO NOTHING;
 
--- ──────── 17. AI Action Log (for APPLIED suggestion) ────────
-INSERT INTO ai_action_log (id, agency_id, client_id, suggestion_id, executed_by, meta_request_json, meta_response_json, success, created_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000851', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000805', 'AI',
-   '{"endpoint": "adsets/mas_102", "method": "POST", "payload": {"daily_budget": 3300}}',
-   '{"success": true, "updated_budget": 3300}',
-   true, now() - interval '7 days')
+-- ══════════════════════════════════════════════════════════════
+-- 10. AI SUGGESTIONS
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO ai_suggestion (id, agency_id, client_id, scope_type, scope_id, suggestion_type, payload_json, rationale, confidence, risk_level, status, cooldown_until, created_by, created_at, reviewed_by, reviewed_at) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000101', 'BUDGET_ADJUST',
+   '{"current_budget":50,"proposed_budget":60,"change_percent":20}',
+   'Winter Clearance campaign has ROAS of 3.8 over the last 14 days with stable CPA. Budget increase of 20% is recommended to capture remaining demand before season ends.',
+   0.850, 'MEDIUM', 'PENDING', NULL, 'AI', now() - interval '4 hours', NULL, NULL),
+
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000102', 'DIAGNOSTIC',
+   '{"alert":"frequency_rising","current_frequency":2.6,"threshold":2.0}',
+   'Spring Collection campaign frequency is 2.6 (above 2.0 threshold). CTR dropped 22% in last 5 days suggesting audience fatigue. Consider refreshing creatives or expanding targeting.',
+   0.920, 'LOW', 'APPROVED', NULL, 'AI', now() - interval '2 days', 'a0000000-0000-0000-0000-000000000010', now() - interval '1 day'),
+
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000111', 'BUDGET_ADJUST',
+   '{"current_budget":80,"proposed_budget":95,"change_percent":18.75}',
+   'TravelMood Early Bird campaign has consistently high ROAS of 4.2+ and CPA well within target. Peak booking season is approaching. 18.75% budget increase recommended.',
+   0.880, 'MEDIUM', 'PENDING', NULL, 'AI', now() - interval '6 hours', NULL, NULL),
+
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000201', 'PAUSE',
+   '{"entity":"campaign","action":"pause","reason":"budget_exhaustion_low_roas"}',
+   'FitZone January Promo ROAS dropped to 1.2 in last 7 days while CPA increased 40%. Campaign may be past peak performance. Recommend pausing to preserve budget.',
+   0.780, 'HIGH', 'REJECTED', NULL, 'AI', now() - interval '5 days', 'a0000000-0000-0000-0000-000000000020', now() - interval '4 days'),
+
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000202', 'CAMPAIGN', 'e0000000-0000-0000-0000-000000000211', 'CREATIVE_TEST',
+   '{"suggestion":"test_video_creative","current_format":"image","proposed_format":"video"}',
+   'PetPlanet image ads have CTR of 1.8% while industry video average is 2.5%. Testing video creative could improve engagement. Current spend allows A/B testing.',
+   0.720, 'LOW', 'PENDING', NULL, 'AI', now() - interval '2 hours', NULL, NULL)
 ON CONFLICT DO NOTHING;
 
--- ──────── 18. Reports (1 sent, 1 draft/approved per client) ────────
-INSERT INTO report (id, agency_id, client_id, report_type, period_start, period_end, status, html_content, pdf_s3_key, created_by, approved_by, created_at, approved_at, sent_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'MONTHLY', '2026-01-01', '2026-01-31', 'SENT', '<h1>January 2026 Report - Demo Client</h1><p>Total spend: 2,340 BGN. Conversions: 187. ROAS: 3.2</p>', 'reports/demo/2026-01.pdf', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000010', now() - interval '30 days', now() - interval '29 days', now() - interval '28 days'),
-  ('00000000-0000-0000-0000-000000000902', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'MONTHLY', '2026-02-01', '2026-02-28', 'DRAFT', '<h1>February 2026 Report - Demo Client</h1><p>Total spend: 2,580 BGN. Conversions: 210. ROAS: 3.5</p>', NULL, '00000000-0000-0000-0000-000000000010', NULL, now() - interval '2 days', NULL, NULL),
-  ('00000000-0000-0000-0000-000000000911', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000200', 'MONTHLY', '2026-02-01', '2026-02-28', 'APPROVED', '<h1>February 2026 Report - FitFood.bg</h1><p>Total spend: 1,050 BGN. Conversions: 89. ROAS: 4.1</p>', 'reports/fitfood/2026-02.pdf', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000010', now() - interval '3 days', now() - interval '1 day', NULL)
+-- ══════════════════════════════════════════════════════════════
+-- 11. REPORTS
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO report (id, agency_id, client_id, report_type, period_start, period_end, status, html_content, pdf_s3_key, created_by, approved_by, created_at, approved_at, sent_at) VALUES
+  -- StyleShop: Jan sent, Feb approved, Mar draft
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'MONTHLY', '2025-12-01', '2025-12-31', 'SENT',
+   '<html><body><h1>Performance Report</h1><h2>StyleShop.bg — December 2025</h2><p>Spend: 2,450 BGN | Impressions: 185K | Clicks: 4,200 | CTR: 2.27% | Conversions: 312 | ROAS: 3.4</p><p>Winter season drove strong performance with clearance campaigns performing above target.</p></body></html>',
+   'reports/styleshop/2025-12.pdf', 'a0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000010', now() - interval '65 days', now() - interval '64 days', now() - interval '63 days'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'MONTHLY', '2026-01-01', '2026-01-31', 'SENT',
+   '<html><body><h1>Performance Report</h1><h2>StyleShop.bg — January 2026</h2><p>Spend: 2,780 BGN | Impressions: 210K | Clicks: 4,800 | CTR: 2.29% | Conversions: 345 | ROAS: 3.6</p><p>January clearance extended strong December performance. Spring collection prep started.</p></body></html>',
+   'reports/styleshop/2026-01.pdf', 'a0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000010', now() - interval '35 days', now() - interval '34 days', now() - interval '33 days'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'MONTHLY', '2026-02-01', '2026-02-28', 'APPROVED',
+   '<html><body><h1>Performance Report</h1><h2>StyleShop.bg — February 2026</h2><p>Spend: 3,120 BGN | Impressions: 240K | Clicks: 5,400 | CTR: 2.25% | Conversions: 398 | ROAS: 3.8</p><p>Spring Collection launch exceeded expectations. Newsletter campaign contributed strong lead gen numbers.</p></body></html>',
+   NULL, 'a0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000010', now() - interval '5 days', now() - interval '3 days', NULL),
+
+  -- TravelMood: Jan sent
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'MONTHLY', '2026-01-01', '2026-01-31', 'SENT',
+   '<html><body><h1>Performance Report</h1><h2>TravelMood — January 2026</h2><p>Spend: 3,500 EUR | Impressions: 310K | Clicks: 5,100 | CTR: 1.65% | Bookings: 42 | ROAS: 4.1</p><p>Early Bird Summer campaign delivered excellent booking numbers. CPC remains competitive.</p></body></html>',
+   'reports/travelmood/2026-01.pdf', 'a0000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000010', now() - interval '33 days', now() - interval '32 days', now() - interval '31 days'),
+
+  -- FitZone: Feb draft
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000201', 'MONTHLY', '2026-02-01', '2026-02-28', 'DRAFT',
+   '<html><body><h1>Performance Report</h1><h2>FitZone Gym — February 2026</h2><p>Spend: 1,890 BGN | Impressions: 145K | Clicks: 3,200 | CTR: 2.21% | Signups: 178 | CPA: 10.62 BGN</p><p>January promo continued momentum. Free trial leads campaign showed strong intent signals.</p></body></html>',
+   NULL, 'a0000000-0000-0000-0000-000000000020', NULL, now() - interval '4 days', NULL, NULL)
 ON CONFLICT DO NOTHING;
 
--- ──────── 19. Feedback ────────
-INSERT INTO feedback (id, agency_id, client_id, source_type, source_id, rating, comment, created_by, created_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000951', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'REPORT', '00000000-0000-0000-0000-000000000901', 5, 'Great report, very clear and detailed!', '00000000-0000-0000-0000-000000000010', now() - interval '27 days'),
-  ('00000000-0000-0000-0000-000000000952', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000100', 'SUGGESTION', '00000000-0000-0000-0000-000000000805', 4, 'Good suggestion, the budget increase worked well', '00000000-0000-0000-0000-000000000010', now() - interval '5 days')
+-- ══════════════════════════════════════════════════════════════
+-- 12. FEEDBACK
+-- ══════════════════════════════════════════════════════════════
+INSERT INTO feedback (id, agency_id, client_id, source_type, source_id, rating, comment, created_by, created_at) VALUES
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000101', 'REPORT', (SELECT id FROM report WHERE agency_id = 'a0000000-0000-0000-0000-000000000001' AND client_id = 'b0000000-0000-0000-0000-000000000101' AND status = 'SENT' LIMIT 1), 5, 'Отличен отчет, много ясен и подробен!', 'a0000000-0000-0000-0000-000000000050', now() - interval '60 days'),
+  (gen_random_uuid(), 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000102', 'REPORT', (SELECT id FROM report WHERE agency_id = 'a0000000-0000-0000-0000-000000000001' AND client_id = 'b0000000-0000-0000-0000-000000000102' LIMIT 1), 4, 'Good overview, would like more detail on booking sources next time.', 'a0000000-0000-0000-0000-000000000010', now() - interval '28 days')
 ON CONFLICT DO NOTHING;
 
--- ──────── 20. User-Client Permissions (AGENCY_USER granular access) ────────
--- Agency User gets EDITOR preset on Demo Client, READ_ONLY on FitFood.bg
-INSERT INTO user_client_permission (id, user_id, client_id, permission, granted_by, created_at)
-VALUES
-  -- EDITOR permissions for Demo Client (10 perms)
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CLIENT_VIEW',     '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CLIENT_EDIT',     '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CAMPAIGNS_VIEW',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CAMPAIGNS_EDIT',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CREATIVES_VIEW',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'CREATIVES_EDIT',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'REPORTS_VIEW',    '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'REPORTS_EDIT',    '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'AI_VIEW',         '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000100', 'AI_APPROVE',      '00000000-0000-0000-0000-000000000010', now()),
-  -- READ_ONLY permissions for FitFood.bg (5 perms)
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000200', 'CLIENT_VIEW',     '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000200', 'CAMPAIGNS_VIEW',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000200', 'CREATIVES_VIEW',  '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000200', 'REPORTS_VIEW',    '00000000-0000-0000-0000-000000000010', now()),
-  (gen_random_uuid(), '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000200', 'AI_VIEW',         '00000000-0000-0000-0000-000000000010', now())
-ON CONFLICT (user_id, client_id, permission) DO NOTHING;
+-- ══════════════════════════════════════════════════════════════
+-- DONE! Summary of test accounts:
+-- ══════════════════════════════════════════════════════════════
+-- All passwords: admin123
+--
+-- OWNER:          owner@local
+--
+-- BRIGHTWAVE:     maria@brightwave.bg   (AGENCY_ADMIN)
+--                 georgi@brightwave.bg  (AGENCY_USER — StyleShop editor, TravelMood read-only)
+--                 elena@brightwave.bg   (AGENCY_USER — TravelMood full, GreenHome read-only)
+--                 client@styleshop.bg   (CLIENT_USER)
+--
+-- NEXGEN:         ivan@nexgen.bg        (AGENCY_ADMIN)
+--                 petya@nexgen.bg       (AGENCY_USER — FitZone editor, PetPlanet read-only)
+--                 client@fitzone.bg     (CLIENT_USER)
+--
+-- ADPULSE:        stefan@adpulse.bg     (AGENCY_ADMIN)
+--                 ana@adpulse.bg        (AGENCY_USER)
+-- ══════════════════════════════════════════════════════════════

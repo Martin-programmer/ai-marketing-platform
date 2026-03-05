@@ -11,6 +11,8 @@ import com.amp.insights.InsightService;
 import com.amp.insights.KpiSummary;
 import com.amp.reports.CreateFeedbackRequest;
 import com.amp.reports.FeedbackResponse;
+import com.amp.reports.PdfGenerator;
+import com.amp.reports.Report;
 import com.amp.reports.ReportResponse;
 import com.amp.reports.ReportService;
 import com.amp.tenancy.TenantContext;
@@ -58,6 +60,7 @@ public class ClientPortalController {
     private final InsightDailyRepository insightDailyRepository;
     private final CampaignService campaignService;
     private final AiSuggestionService suggestionService;
+    private final PdfGenerator pdfGenerator;
 
     public ClientPortalController(ClientService clientService,
                                   ClientProfileService profileService,
@@ -65,7 +68,8 @@ public class ClientPortalController {
                                   InsightService insightService,
                                   InsightDailyRepository insightDailyRepository,
                                   CampaignService campaignService,
-                                  AiSuggestionService suggestionService) {
+                                  AiSuggestionService suggestionService,
+                                  PdfGenerator pdfGenerator) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.reportService = reportService;
@@ -73,6 +77,7 @@ public class ClientPortalController {
         this.insightDailyRepository = insightDailyRepository;
         this.campaignService = campaignService;
         this.suggestionService = suggestionService;
+        this.pdfGenerator = pdfGenerator;
     }
 
     // ── Request DTOs ────────────────────────────────────────────
@@ -140,6 +145,26 @@ public class ClientPortalController {
                 ctx.getClientId(), "REPORT", reportId, req.rating(), req.comment());
         FeedbackResponse feedback = reportService.createFeedback(ctx.getAgencyId(), feedbackReq);
         return ResponseEntity.status(HttpStatus.CREATED).body(feedback);
+    }
+
+    // ── Report PDF download ─────────────────────────────────────
+
+    @GetMapping("/reports/{reportId}/pdf")
+    public ResponseEntity<byte[]> portalDownloadPdf(@PathVariable UUID reportId) {
+        TenantContext ctx = requireClientUser();
+        Report report = reportService.getReportEntityForClient(reportId, ctx.getClientId());
+
+        if (!"SENT".equals(report.getStatus()) && report.getSentAt() == null) {
+            throw new IllegalStateException("Report not yet available");
+        }
+
+        byte[] pdfBytes = pdfGenerator.generatePdf(report.getHtmlContent());
+        String filename = String.format("report_%s.pdf", report.getPeriodEnd());
+
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/pdf")
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .body(pdfBytes);
     }
 
     // ── Dashboard KPIs ──────────────────────────────────────────

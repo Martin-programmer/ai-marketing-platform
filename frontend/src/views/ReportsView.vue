@@ -40,6 +40,8 @@
           item-value="id"
           hover
           no-data-text="No reports yet"
+          class="cursor-pointer"
+          @click:row="(_event: any, { item }: any) => openPreview(item)"
         >
           <template #item.status="{ item }">
             <v-chip :color="reportStatusColor(item.status)" size="small">
@@ -60,14 +62,13 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn
-              v-if="item.status === 'APPROVED'"
               size="small"
               variant="text"
               color="primary"
-              title="Send report"
-              @click="store.sendReport(item.id)"
+              title="Preview report"
+              @click.stop="openPreview(item)"
             >
-              <v-icon>mdi-send</v-icon>
+              <v-icon>mdi-eye</v-icon>
             </v-btn>
           </template>
         </v-data-table>
@@ -124,23 +125,112 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="showGenerate = false">Cancel</v-btn>
-          <v-btn color="primary" @click="onGenerate">Generate</v-btn>
+          <v-btn color="primary" :loading="generating" @click="onGenerate">Generate</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Report Preview Dialog -->
+    <v-dialog v-model="showPreview" max-width="1000" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <span>Report Preview</span>
+          <v-spacer />
+          <v-chip :color="reportStatusColor(previewReport?.status ?? '')" size="small" class="mr-2">
+            {{ previewReport?.status }}
+          </v-chip>
+          <v-btn icon size="small" @click="showPreview = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text style="height: 600px; padding: 0;">
+          <iframe
+            :srcdoc="previewReport?.htmlContent ?? undefined"
+            style="width: 100%; height: 100%; border: none;"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            variant="outlined"
+            @click="showNarrativeEditor = true"
+            :disabled="previewReport?.status !== 'DRAFT' && previewReport?.status !== 'IN_REVIEW'"
+          >
+            <v-icon start>mdi-pencil</v-icon> Edit Narrative
+          </v-btn>
+          <v-spacer />
+          <v-btn color="primary" variant="outlined" @click="downloadPdf">
+            <v-icon start>mdi-file-pdf-box</v-icon> Download PDF
+          </v-btn>
+          <v-btn
+            color="success"
+            @click="approveReport"
+            :disabled="previewReport?.status !== 'DRAFT' && previewReport?.status !== 'IN_REVIEW'"
+          >
+            <v-icon start>mdi-check</v-icon> Approve
+          </v-btn>
+          <v-btn
+            color="info"
+            @click="sendReport"
+            :disabled="previewReport?.status !== 'APPROVED'"
+          >
+            <v-icon start>mdi-send</v-icon> Send to Client
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Narrative Editor Dialog -->
+    <v-dialog v-model="showNarrativeEditor" max-width="600">
+      <v-card>
+        <v-card-title>Edit Executive Summary</v-card-title>
+        <v-card-text>
+          <v-textarea
+            v-model="narrative"
+            label="Executive Summary / Narrative"
+            hint="This text appears at the top of the report. Describe key highlights, changes, and recommendations."
+            rows="8"
+            variant="outlined"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showNarrativeEditor = false">Cancel</v-btn>
+          <v-btn color="primary" @click="saveNarrative" :loading="saving">Save &amp; Regenerate</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Snackbar -->
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useReportStore } from '@/stores/reports'
+import { useReportStore, type Report } from '@/stores/reports'
 import { useClientStore } from '@/stores/clients'
+import api from '@/api/client'
 
 const store = useReportStore()
 const clientStore = useClientStore()
 const selectedClient = ref<string | null>(null)
 const showGenerate = ref(false)
+const generating = ref(false)
 const genForm = ref({ reportType: 'WEEKLY', periodStart: '', periodEnd: '' })
+
+// Preview state
+const showPreview = ref(false)
+const previewReport = ref<Report | null>(null)
+
+// Narrative editor state
+const showNarrativeEditor = ref(false)
+const narrative = ref('')
+const saving = ref(false)
+
+// Snackbar
+const snackbar = ref({ show: false, text: '', color: 'success' })
 
 const reportHeaders = [
   { title: 'Type', key: 'reportType' },
@@ -149,7 +239,7 @@ const reportHeaders = [
   { title: 'Status', key: 'status' },
   { title: 'Created', key: 'createdAt' },
   { title: 'Sent At', key: 'sentAt' },
-  { title: 'Actions', key: 'actions', sortable: false },
+  { title: '', key: 'actions', sortable: false, width: 60 },
 ]
 
 function reportStatusColor(status: string) {
@@ -165,10 +255,92 @@ async function onClientChange(clientId: string) {
 
 async function onGenerate() {
   if (!selectedClient.value) return
-  await store.generateReport(selectedClient.value, genForm.value)
-  showGenerate.value = false
-  genForm.value = { reportType: 'WEEKLY', periodStart: '', periodEnd: '' }
+  generating.value = true
+  try {
+    const newReport = await store.generateReport(selectedClient.value, genForm.value)
+    showGenerate.value = false
+    genForm.value = { reportType: 'WEEKLY', periodStart: '', periodEnd: '' }
+    snackbar.value = { show: true, text: 'Report generated!', color: 'success' }
+    openPreview(newReport)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.response?.data?.message || 'Generation failed', color: 'error' }
+  } finally {
+    generating.value = false
+  }
+}
+
+function openPreview(report: Report) {
+  previewReport.value = { ...report }
+  narrative.value = ''
+  showPreview.value = true
+}
+
+async function downloadPdf() {
+  if (!previewReport.value) return
+  try {
+    const res = await api.get(`/reports/${previewReport.value.id}/pdf`, {
+      responseType: 'blob',
+    })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `report_${previewReport.value.periodEnd}.pdf`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: 'PDF download failed', color: 'error' }
+  }
+}
+
+async function approveReport() {
+  if (!previewReport.value) return
+  try {
+    await api.post(`/reports/${previewReport.value.id}/approve`)
+    previewReport.value.status = 'APPROVED'
+    snackbar.value = { show: true, text: 'Report approved!', color: 'success' }
+    if (selectedClient.value) await store.fetchReports(selectedClient.value)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.response?.data?.message || 'Approve failed', color: 'error' }
+  }
+}
+
+async function sendReport() {
+  if (!previewReport.value) return
+  try {
+    await api.post(`/reports/${previewReport.value.id}/send`)
+    previewReport.value.status = 'SENT'
+    snackbar.value = { show: true, text: 'Report sent to client!', color: 'success' }
+    if (selectedClient.value) await store.fetchReports(selectedClient.value)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.response?.data?.message || 'Send failed', color: 'error' }
+  }
+}
+
+async function saveNarrative() {
+  if (!previewReport.value) return
+  saving.value = true
+  try {
+    const { data } = await api.patch(`/reports/${previewReport.value.id}`, {
+      narrative: narrative.value,
+    })
+    previewReport.value = data
+    showNarrativeEditor.value = false
+    snackbar.value = { show: true, text: 'Report updated with new narrative!', color: 'success' }
+    if (selectedClient.value) await store.fetchReports(selectedClient.value)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.response?.data?.message || 'Save failed', color: 'error' }
+  } finally {
+    saving.value = false
+  }
 }
 
 onMounted(() => clientStore.fetchClients())
 </script>
+
+<style scoped>
+.cursor-pointer :deep(tbody tr) {
+  cursor: pointer;
+}
+</style>
