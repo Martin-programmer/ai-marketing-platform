@@ -7,6 +7,8 @@ import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
@@ -40,6 +42,8 @@ public class ReportService {
     private final ClientRepository clientRepository;
     private final AgencyRepository agencyRepository;
     private final AiReporterService aiReporterService;
+    private final NotificationHelper notificationHelper;
+    private final EmailProperties emailProperties;
 
     public ReportService(ReportRepository reportRepository,
                          FeedbackRepository feedbackRepository,
@@ -47,7 +51,9 @@ public class ReportService {
                          InsightDailyRepository insightDailyRepository,
                          ClientRepository clientRepository,
                          AgencyRepository agencyRepository,
-                         AiReporterService aiReporterService) {
+                         AiReporterService aiReporterService,
+                         NotificationHelper notificationHelper,
+                         EmailProperties emailProperties) {
         this.reportRepository = reportRepository;
         this.feedbackRepository = feedbackRepository;
         this.auditService = auditService;
@@ -55,6 +61,8 @@ public class ReportService {
         this.clientRepository = clientRepository;
         this.agencyRepository = agencyRepository;
         this.aiReporterService = aiReporterService;
+        this.notificationHelper = notificationHelper;
+        this.emailProperties = emailProperties;
     }
 
     // ──────── Report ────────
@@ -155,6 +163,13 @@ public class ReportService {
                 AuditAction.REPORT_SEND, "Report", reportId,
                 null, "SENT", null);
 
+        // Send report email to CLIENT_USERs
+        try {
+            sendReportNotifications(agencyId, r);
+        } catch (Exception e) {
+            log.warn("Failed to send report email notifications: {}", e.getMessage());
+        }
+
         return ReportResponse.from(saved);
     }
 
@@ -250,6 +265,47 @@ public class ReportService {
                 current, previous,
                 null, topCampaigns,
                 narrative);
+    }
+
+    // ──────── Email notifications ────────
+
+    private void sendReportNotifications(UUID agencyId, Report report) {
+        String clientName = clientRepository.findByIdAndAgencyId(report.getClientId(), agencyId)
+                .map(Client::getName).orElse("Client");
+        String period = report.getPeriodStart() + " – " + report.getPeriodEnd();
+
+        // Aggregate KPIs for the email
+        KpiSummary kpi = insightDailyRepository.aggregateKpis(
+                agencyId, report.getClientId(), report.getPeriodStart(), report.getPeriodEnd());
+
+        String spend = kpi != null && kpi.getTotalSpend() != null
+                ? "$" + kpi.getTotalSpend().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                : "$0.00";
+        String conversions = kpi != null && kpi.getTotalConversions() != null
+                ? kpi.getTotalConversions().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                : "0";
+        String roas = kpi != null && kpi.getAvgRoas() != null
+                ? kpi.getAvgRoas().setScale(2, RoundingMode.HALF_UP).toPlainString() + "x"
+                : "N/A";
+
+        String portalLink = emailProperties.getBaseUrl() + "/portal/reports";
+        String subject = "Performance Report — " + clientName + " (" + period + ")";
+
+        Map<String, String> vars = Map.of(
+                "clientName", clientName,
+                "period", period,
+                "spend", spend,
+                "conversions", conversions,
+                "roas", roas,
+                "portalLink", portalLink
+        );
+
+        List<String> recipients = notificationHelper.getClientUserEmails(report.getClientId());
+        for (String email : recipients) {
+            notificationHelper.sendTemplatedAsync(email, subject, "report-sent", vars);
+        }
+
+        log.info("Queued report-sent email to {} CLIENT_USER(s) for client {}", recipients.size(), report.getClientId());
     }
 
     // ──────── Top campaigns aggregation ────────

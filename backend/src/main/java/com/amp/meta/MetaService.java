@@ -2,6 +2,10 @@ package com.amp.meta;
 
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
@@ -25,15 +29,24 @@ public class MetaService {
     private final MetaSyncJobRepository syncJobRepository;
     private final AuditService auditService;
     private final MetaProperties metaProps;
+    private final NotificationHelper notificationHelper;
+    private final EmailProperties emailProperties;
+    private final ClientRepository clientRepository;
 
     public MetaService(MetaConnectionRepository connectionRepository,
                        MetaSyncJobRepository syncJobRepository,
                        AuditService auditService,
-                       MetaProperties metaProps) {
+                       MetaProperties metaProps,
+                       NotificationHelper notificationHelper,
+                       EmailProperties emailProperties,
+                       ClientRepository clientRepository) {
         this.connectionRepository = connectionRepository;
         this.syncJobRepository = syncJobRepository;
         this.auditService = auditService;
         this.metaProps = metaProps;
+        this.notificationHelper = notificationHelper;
+        this.emailProperties = emailProperties;
+        this.clientRepository = clientRepository;
     }
 
     // ──────── Connection ────────
@@ -143,8 +156,8 @@ public class MetaService {
 
         String before = conn.getStatus();
         conn.setStatus("DISCONNECTED");
-        // Clear linked account details so UI doesn't continue showing stale data.
-        conn.setAdAccountId(null);
+        // Keep ad_account_id because DB column is NOT NULL.
+        // UI should hide account details when status is DISCONNECTED.
         conn.setPixelId(null);
         conn.setPageId(null);
         conn.setLastSyncAt(null);
@@ -156,6 +169,31 @@ public class MetaService {
         auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),
                 AuditAction.META_DISCONNECT, "MetaConnection", conn.getId(),
                 before, "DISCONNECTED", null);
+
+        // Send Meta disconnected alert to AGENCY_ADMINs
+        try {
+            String clientName = clientRepository.findByIdAndAgencyId(clientId, agencyId)
+                    .map(Client::getName).orElse("Client");
+            String dashboardLink = emailProperties.getBaseUrl() + "/clients";
+            java.util.List<String> admins = notificationHelper.getAgencyAdminEmails(agencyId);
+            for (String email : admins) {
+                notificationHelper.sendTemplatedAsync(email,
+                        "Meta Connection Disconnected — " + clientName,
+                        "alert",
+                        java.util.Map.of(
+                                "alertTitle", "Meta Connection Needs Attention",
+                                "alertMessage", "Meta connection for " + clientName + " has been disconnected. Please reconnect to resume ad sync.",
+                                "clientName", clientName,
+                                "severity", "HIGH",
+                                "severityColor", "#D32F2F",
+                                "dashboardLink", dashboardLink
+                        ));
+            }
+        } catch (Exception e) {
+            // fire-and-forget — don't block disconnect
+            org.slf4j.LoggerFactory.getLogger(MetaService.class)
+                    .warn("Failed to send Meta disconnect alert: {}", e.getMessage());
+        }
     }
 
     // ──────── Sync Jobs ────────

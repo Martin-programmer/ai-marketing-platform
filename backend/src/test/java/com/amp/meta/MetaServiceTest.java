@@ -1,6 +1,9 @@
 package com.amp.meta;
 
 import com.amp.audit.AuditService;
+import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
@@ -34,6 +37,9 @@ class MetaServiceTest {
     @Mock private MetaSyncJobRepository syncJobRepository;
     @Mock private AuditService auditService;
     @Mock private MetaProperties metaProps;
+    @Mock private NotificationHelper notificationHelper;
+    @Mock private EmailProperties emailProperties;
+    @Mock private ClientRepository clientRepository;
 
     @InjectMocks
     private MetaService metaService;

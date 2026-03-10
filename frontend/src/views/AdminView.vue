@@ -86,17 +86,13 @@
             class="mb-2"
           />
           <v-text-field
-            v-model="form.adminPassword"
-            label="Admin Password"
-            type="password"
-            :rules="[v => !!v || 'Required', v => v.length >= 6 || 'Min 6 characters']"
-            class="mb-2"
-          />
-          <v-text-field
             v-model="form.adminDisplayName"
             label="Admin Display Name"
             class="mb-2"
           />
+          <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+            An invitation email will be sent to the admin. They will set their own password.
+          </v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -104,7 +100,7 @@
           <v-btn
             color="primary"
             :loading="adminStore.loading"
-            :disabled="!form.name || !form.adminEmail || !form.adminPassword"
+            :disabled="!form.name || !form.adminEmail"
             @click="onCreate"
           >
             Create
@@ -134,7 +130,6 @@ const form = reactive({
   name: '',
   planCode: 'FREE',
   adminEmail: '',
-  adminPassword: '',
   adminDisplayName: 'Agency Admin',
 })
 
@@ -150,7 +145,6 @@ function resetForm() {
   form.name = ''
   form.planCode = 'FREE'
   form.adminEmail = ''
-  form.adminPassword = ''
   form.adminDisplayName = 'Agency Admin'
 }
 

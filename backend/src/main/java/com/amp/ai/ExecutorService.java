@@ -2,6 +2,10 @@ package com.amp.ai;
 
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
 import com.amp.meta.MetaGraphApiClient;
@@ -51,6 +55,9 @@ public class ExecutorService {
     private final CampaignRepository campaignRepo;
     private final AdsetRepository adsetRepo;
     private final AdRepository adRepo;
+    private final NotificationHelper notificationHelper;
+    private final EmailProperties emailProperties;
+    private final ClientRepository clientRepo;
 
     public ExecutorService(AiSuggestionRepository suggestionRepo,
                            AiActionLogRepository actionLogRepo,
@@ -61,7 +68,10 @@ public class ExecutorService {
                            ObjectMapper objectMapper,
                            CampaignRepository campaignRepo,
                            AdsetRepository adsetRepo,
-                           AdRepository adRepo) {
+                           AdRepository adRepo,
+                           NotificationHelper notificationHelper,
+                           EmailProperties emailProperties,
+                           ClientRepository clientRepo) {
         this.suggestionRepo = suggestionRepo;
         this.actionLogRepo = actionLogRepo;
         this.metaConnRepo = metaConnRepo;
@@ -72,6 +82,9 @@ public class ExecutorService {
         this.campaignRepo = campaignRepo;
         this.adsetRepo = adsetRepo;
         this.adRepo = adRepo;
+        this.notificationHelper = notificationHelper;
+        this.emailProperties = emailProperties;
+        this.clientRepo = clientRepo;
     }
 
     // ──────── Public API ────────
@@ -310,6 +323,27 @@ public class ExecutorService {
             }
 
             log.info("Successfully published campaign {} to Meta", campaignId);
+
+            // Send campaign published notification
+            try {
+                String clientName = clientRepo.findByIdAndAgencyId(campaign.getClientId(), agencyId)
+                        .map(Client::getName).orElse("Client");
+                String dashboardLink = emailProperties.getBaseUrl() + "/campaigns";
+                java.util.List<String> recipients = notificationHelper.getAssignedUserEmails(agencyId, campaign.getClientId());
+                for (String email : recipients) {
+                    notificationHelper.sendTemplatedAsync(email,
+                            "Campaign Published \u2014 " + campaign.getName(),
+                            "campaign-published",
+                            java.util.Map.of(
+                                    "campaignName", campaign.getName(),
+                                    "clientName", clientName,
+                                    "dashboardLink", dashboardLink
+                            ));
+                }
+                log.info("Queued campaign-published notification to {} recipient(s)", recipients.size());
+            } catch (Exception notifEx) {
+                log.warn("Failed to send campaign-published notification: {}", notifEx.getMessage());
+            }
 
             return Map.of(
                     "status", "PUBLISHED",

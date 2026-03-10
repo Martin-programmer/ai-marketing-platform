@@ -24,6 +24,10 @@ spring:
 server:
   port: 8080
 
+email:
+  enabled: false
+  base-url: http://localhost:5173
+
 logging:
   level:
     com.amp: DEBUG

@@ -1,5 +1,9 @@
 package com.amp.ai;
 
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,13 +43,22 @@ public class AnomalyDetectorService {
     private final AiSuggestionRepository suggestionRepo;
     private final InsightDailyRepository insightRepo;
     private final ObjectMapper objectMapper;
+    private final NotificationHelper notificationHelper;
+    private final EmailProperties emailProperties;
+    private final ClientRepository clientRepo;
 
     public AnomalyDetectorService(AiSuggestionRepository suggestionRepo,
                                    InsightDailyRepository insightRepo,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   NotificationHelper notificationHelper,
+                                   EmailProperties emailProperties,
+                                   ClientRepository clientRepo) {
         this.suggestionRepo = suggestionRepo;
         this.insightRepo = insightRepo;
         this.objectMapper = objectMapper;
+        this.notificationHelper = notificationHelper;
+        this.emailProperties = emailProperties;
+        this.clientRepo = clientRepo;
     }
 
     // ══════════════════════════════════════════
@@ -190,6 +203,15 @@ public class AnomalyDetectorService {
 
         log.info("Anomaly Detector: found {} anomalies for client {}", anomalies.size(), clientId);
 
+        // Send alert emails for HIGH severity anomalies
+        if (!anomalies.isEmpty()) {
+            try {
+                sendHighSeverityAlerts(agencyId, clientId, anomalies);
+            } catch (Exception e) {
+                log.warn("Failed to send anomaly alert emails: {}", e.getMessage());
+            }
+        }
+
         // Convert anomaly maps into detail list for the response
         List<Map<String, Object>> details = anomalies.stream()
                 .map(a -> {
@@ -203,6 +225,46 @@ public class AnomalyDetectorService {
                 }).toList();
 
         return Map.of("anomaliesDetected", anomalies.size(), "details", details);
+    }
+
+    // ══════════════════════════════════════════
+    // ALERT NOTIFICATIONS
+    // ══════════════════════════════════════════
+
+    private void sendHighSeverityAlerts(UUID agencyId, UUID clientId,
+                                        List<Map<String, Object>> anomalies) {
+        List<Map<String, Object>> highSeverity = anomalies.stream()
+                .filter(a -> "HIGH".equals(a.get("_riskLevel")))
+                .toList();
+
+        if (highSeverity.isEmpty()) return;
+
+        String clientName = clientRepo.findByIdAndAgencyId(clientId, agencyId)
+                .map(Client::getName).orElse("Client");
+        String dashboardLink = emailProperties.getBaseUrl() + "/clients";
+        List<String> recipients = notificationHelper.getAssignedUserEmails(agencyId, clientId);
+
+        for (Map<String, Object> anomaly : highSeverity) {
+            String type = (String) anomaly.get("_type");
+            String rationale = (String) anomaly.get("_rationale");
+
+            for (String email : recipients) {
+                notificationHelper.sendTemplatedAsync(email,
+                        "Alert: " + type.replace("_", " ") + " — " + clientName,
+                        "alert",
+                        Map.of(
+                                "alertTitle", type.replace("_", " ") + " Detected",
+                                "alertMessage", rationale,
+                                "clientName", clientName,
+                                "severity", "HIGH",
+                                "severityColor", "#D32F2F",
+                                "dashboardLink", dashboardLink
+                        ));
+            }
+        }
+
+        log.info("Queued {} HIGH-severity alert(s) to {} recipient(s) for client {}",
+                highSeverity.size(), recipients.size(), clientId);
     }
 
     // ══════════════════════════════════════════

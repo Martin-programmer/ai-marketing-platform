@@ -4,6 +4,8 @@ import com.amp.agency.AgencyRepository;
 import com.amp.ai.AiReporterService;
 import com.amp.audit.AuditService;
 import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.insights.KpiSummary;
@@ -46,6 +48,8 @@ class ReportServiceTest {
     @Mock private ClientRepository clientRepository;
     @Mock private AgencyRepository agencyRepository;
     @Mock private AiReporterService aiReporterService;
+    @Mock private NotificationHelper notificationHelper;
+    @Mock private EmailProperties emailProperties;
 
     @InjectMocks
     private ReportService reportService;

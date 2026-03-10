@@ -39,7 +39,7 @@
             {{ store.connection?.status || 'NOT CONNECTED' }}
           </v-chip>
         </v-card-title>
-        <v-card-text v-if="store.connection">
+        <v-card-text v-if="store.connection && store.connection.status === 'CONNECTED'">
           <v-row>
             <v-col cols="12" sm="4">
               <div class="text-caption text-grey">Ad Account ID</div>
@@ -73,7 +73,12 @@
           </v-alert>
         </v-card-text>
         <v-card-text v-else>
-          <p class="text-grey">No Meta connection found for this client.</p>
+          <p class="text-grey" v-if="store.connection?.status === 'DISCONNECTED'">
+            Meta integration is disconnected for this client.
+          </p>
+          <p class="text-grey" v-else>
+            No Meta connection found for this client.
+          </p>
         </v-card-text>
         <v-card-actions v-if="!store.connection || store.connection.status === 'DISCONNECTED' || store.connection.status === 'ERROR'">
           <v-btn color="primary" :loading="store.loading" @click="handleConnect" variant="flat">

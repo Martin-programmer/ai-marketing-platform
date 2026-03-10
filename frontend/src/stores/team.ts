@@ -16,8 +16,6 @@ interface User {
 
 interface InvitePayload {
   email: string
-  password: string
-  displayName: string
   role: string
   clientId?: string
 }

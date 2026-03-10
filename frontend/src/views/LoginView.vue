@@ -49,6 +49,12 @@
           Sign In
         </v-btn>
 
+        <div class="text-center mt-3">
+          <router-link to="/forgot-password" class="text-primary text-body-2 text-decoration-none">
+            Forgot Password?
+          </router-link>
+        </div>
+
         <div class="text-center mt-6">
           <p class="text-caption text-grey">Demo credentials:</p>
           <v-chip size="small" class="ma-1" @click="fillDemo('agency_admin@local')">Agency Admin</v-chip>

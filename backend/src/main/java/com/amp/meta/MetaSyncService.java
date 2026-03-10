@@ -7,6 +7,10 @@ import com.amp.campaigns.Adset;
 import com.amp.campaigns.AdsetRepository;
 import com.amp.campaigns.Campaign;
 import com.amp.campaigns.CampaignRepository;
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.NotificationHelper;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.tenancy.TenantContextHolder;
@@ -45,6 +49,9 @@ public class MetaSyncService {
     private final AdRepository adRepository;
     private final InsightDailyRepository insightDailyRepository;
     private final AnomalyDetectorService anomalyDetector;
+    private final NotificationHelper notificationHelper;
+    private final EmailProperties emailProperties;
+    private final ClientRepository clientRepository;
 
     public MetaSyncService(MetaGraphApiClient graphApiClient,
                            MetaService metaService,
@@ -54,7 +61,10 @@ public class MetaSyncService {
                            AdsetRepository adsetRepository,
                            AdRepository adRepository,
                            InsightDailyRepository insightDailyRepository,
-                           AnomalyDetectorService anomalyDetector) {
+                           AnomalyDetectorService anomalyDetector,
+                           NotificationHelper notificationHelper,
+                           EmailProperties emailProperties,
+                           ClientRepository clientRepository) {
         this.graphApiClient = graphApiClient;
         this.metaService = metaService;
         this.connectionRepository = connectionRepository;
@@ -64,6 +74,9 @@ public class MetaSyncService {
         this.adRepository = adRepository;
         this.insightDailyRepository = insightDailyRepository;
         this.anomalyDetector = anomalyDetector;
+        this.notificationHelper = notificationHelper;
+        this.emailProperties = emailProperties;
+        this.clientRepository = clientRepository;
     }
 
     // ──────── Public entry points ────────
@@ -197,6 +210,30 @@ public class MetaSyncService {
             conn.setLastErrorMessage(e.getMessage());
             conn.setUpdatedAt(OffsetDateTime.now());
             connectionRepository.save(conn);
+
+            // Send sync-failed alert to AGENCY_ADMINs
+            try {
+                String clientName = clientRepository.findByIdAndAgencyId(clientId, agencyId)
+                        .map(Client::getName).orElse("Client");
+                String dashboardLink = emailProperties.getBaseUrl() + "/clients";
+                List<String> admins = notificationHelper.getAgencyAdminEmails(agencyId);
+                for (String email : admins) {
+                    notificationHelper.sendTemplatedAsync(email,
+                            "Sync Failed — " + clientName,
+                            "alert",
+                            Map.of(
+                                    "alertTitle", "Daily Sync Failed",
+                                    "alertMessage", "Daily sync failed for " + clientName + ". Error: " + e.getMessage(),
+                                    "clientName", clientName,
+                                    "severity", "HIGH",
+                                    "severityColor", "#D32F2F",
+                                    "dashboardLink", dashboardLink
+                            ));
+                }
+                log.info("Queued sync-failed alert to {} admin(s) for client {}", admins.size(), clientId);
+            } catch (Exception alertEx) {
+                log.warn("Failed to send sync-failed alert: {}", alertEx.getMessage());
+            }
 
             throw new RuntimeException("Sync failed: " + e.getMessage(), e);
         }

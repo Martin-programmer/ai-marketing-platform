@@ -1,6 +1,12 @@
 package com.amp.auth;
 
+import com.amp.agency.Agency;
+import com.amp.agency.AgencyRepository;
+import com.amp.common.EmailProperties;
+import com.amp.common.EmailService;
 import com.amp.common.exception.ResourceNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -8,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -18,15 +25,26 @@ import java.util.UUID;
 @Transactional
 public class UserService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+
     private static final Set<String> VALID_ROLES = Set.of(
             "AGENCY_ADMIN", "AGENCY_USER", "CLIENT_USER"
     );
 
     private final UserAccountRepository userAccountRepository;
+    private final AgencyRepository agencyRepository;
+    private final EmailService emailService;
+    private final EmailProperties emailProperties;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public UserService(UserAccountRepository userAccountRepository) {
+    public UserService(UserAccountRepository userAccountRepository,
+                       AgencyRepository agencyRepository,
+                       EmailService emailService,
+                       EmailProperties emailProperties) {
         this.userAccountRepository = userAccountRepository;
+        this.agencyRepository = agencyRepository;
+        this.emailService = emailService;
+        this.emailProperties = emailProperties;
     }
 
     @Transactional(readOnly = true)
@@ -35,6 +53,11 @@ public class UserService {
                 .stream().map(UserResponse::from).toList();
     }
 
+    /**
+     * Invite a user to the platform via email.
+     * Creates user with status INVITED (no password), generates invitation token,
+     * and sends an activation email.
+     */
     public UserResponse inviteUser(UUID agencyId, InviteUserRequest req) {
         if (!VALID_ROLES.contains(req.role())) {
             throw new IllegalArgumentException("Invalid role: " + req.role());
@@ -46,14 +69,20 @@ public class UserService {
             throw new IllegalArgumentException("Email already registered: " + req.email());
         }
 
+        // Generate invitation token
+        String invitationToken = UUID.randomUUID().toString();
+        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(72);
+
         UserAccount user = new UserAccount();
         user.setEmail(req.email());
-        user.setPasswordHash(passwordEncoder.encode(req.password()));
-        user.setDisplayName(req.displayName());
+        // No password — will be set on invitation acceptance
+        user.setDisplayName(req.email().split("@")[0]); // Placeholder display name
         user.setRole(req.role());
         user.setAgencyId(agencyId);
-        user.setStatus("ACTIVE");
+        user.setStatus("INVITED");
         user.setCognitoSub("local-" + UUID.randomUUID());
+        user.setInvitationToken(invitationToken);
+        user.setInvitationExpiresAt(expiresAt);
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
 
@@ -62,7 +91,47 @@ public class UserService {
         }
 
         user = userAccountRepository.save(user);
+        log.info("Created INVITED user {} with role {} for agency {}", user.getEmail(), req.role(), agencyId);
+
+        // Send invitation email (async-safe — doesn't throw on failure)
+        sendInvitationEmail(user, agencyId);
+
         return UserResponse.from(user);
+    }
+
+    /**
+     * Generate and send a password reset email.
+     */
+    public void generateAndSendPasswordReset(UserAccount user) {
+        String resetToken = UUID.randomUUID().toString();
+        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(1);
+
+        user.setPasswordResetToken(resetToken);
+        user.setPasswordResetExpiresAt(expiresAt);
+        user.setUpdatedAt(OffsetDateTime.now());
+        userAccountRepository.save(user);
+
+        String resetLink = emailProperties.getBaseUrl() + "/reset-password?token=" + resetToken;
+
+        emailService.sendTemplatedEmail(
+                user.getEmail(),
+                "Reset Your Password — AI Marketing Platform",
+                "password-reset",
+                Map.of("resetLink", resetLink)
+        );
+
+        log.info("Password reset email sent to {}", user.getEmail());
+    }
+
+    /**
+     * Resolve agency name from agency ID.
+     */
+    @Transactional(readOnly = true)
+    public String resolveAgencyName(UUID agencyId) {
+        if (agencyId == null) return "Platform";
+        return agencyRepository.findById(agencyId)
+                .map(Agency::getName)
+                .orElse("Unknown Agency");
     }
 
     @Transactional(readOnly = true)
@@ -132,6 +201,25 @@ public class UserService {
         user.setStatus("ACTIVE");
         user = userAccountRepository.save(user);
         return UserResponse.from(user);
+    }
+
+    // ── Private Helpers ────────────────────────────────────────
+
+    private void sendInvitationEmail(UserAccount user, UUID agencyId) {
+        String agencyName = resolveAgencyName(agencyId);
+        String activationLink = emailProperties.getBaseUrl()
+                + "/accept-invite?token=" + user.getInvitationToken();
+
+        emailService.sendTemplatedEmail(
+                user.getEmail(),
+                "You're Invited to AI Marketing Platform!",
+                "invitation",
+                Map.of(
+                        "agencyName", agencyName,
+                        "role", user.getRole(),
+                        "activationLink", activationLink
+                )
+        );
     }
 
     private UserAccount findOrThrow(UUID userId) {

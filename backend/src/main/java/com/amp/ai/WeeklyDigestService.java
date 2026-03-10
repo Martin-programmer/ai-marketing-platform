@@ -4,6 +4,7 @@ import com.amp.ai.ClaudeApiClient.ClaudeResponse;
 import com.amp.auth.UserAccountRepository;
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
+import com.amp.common.NotificationHelper;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.insights.KpiSummary;
 import com.amp.meta.MetaConnection;
@@ -36,6 +37,7 @@ public class WeeklyDigestService {
     private final UserAccountRepository userAccountRepo;
     private final InsightDailyRepository insightRepo;
     private final AiWeeklyDigestRepository digestRepo;
+    private final NotificationHelper notificationHelper;
 
     public WeeklyDigestService(ClaudeApiClient claudeClient,
                                 AiProperties aiProps,
@@ -43,7 +45,8 @@ public class WeeklyDigestService {
                                 ClientRepository clientRepo,
                                 UserAccountRepository userAccountRepo,
                                 InsightDailyRepository insightRepo,
-                                AiWeeklyDigestRepository digestRepo) {
+                                AiWeeklyDigestRepository digestRepo,
+                                NotificationHelper notificationHelper) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.metaConnectionRepo = metaConnectionRepo;
@@ -51,6 +54,7 @@ public class WeeklyDigestService {
         this.userAccountRepo = userAccountRepo;
         this.insightRepo = insightRepo;
         this.digestRepo = digestRepo;
+        this.notificationHelper = notificationHelper;
     }
 
     // ──────── Scheduled trigger ────────
@@ -209,9 +213,20 @@ public class WeeklyDigestService {
 
         AiWeeklyDigest saved = digestRepo.save(digest);
 
-        // For now just log — actual email sending is V2
-        log.info("Weekly Digest: saved digest {} for client {} — would send email with subject: {}",
-                saved.getId(), clientId, subjectLine);
+        // Send digest email to CLIENT_USERs
+        try {
+            List<String> recipients = notificationHelper.getClientUserEmails(clientId);
+            for (String email : recipients) {
+                notificationHelper.sendRawAsync(email, subjectLine, htmlContent);
+            }
+            saved.setSentAt(OffsetDateTime.now());
+            digestRepo.save(saved);
+            log.info("Weekly Digest: sent to {} CLIENT_USER(s) for client {} (id={})",
+                    recipients.size(), clientId, saved.getId());
+        } catch (Exception e) {
+            log.warn("Weekly Digest: failed to send emails for client {}: {}",
+                    clientId, e.getMessage());
+        }
 
         return saved;
     }

@@ -48,6 +48,18 @@ public class UserAccount {
     @Column(name = "display_name")
     private String displayName;
 
+    @Column(name = "invitation_token")
+    private String invitationToken;
+
+    @Column(name = "invitation_expires_at")
+    private OffsetDateTime invitationExpiresAt;
+
+    @Column(name = "password_reset_token")
+    private String passwordResetToken;
+
+    @Column(name = "password_reset_expires_at")
+    private OffsetDateTime passwordResetExpiresAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -87,6 +99,18 @@ public class UserAccount {
 
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
+
+    public String getInvitationToken() { return invitationToken; }
+    public void setInvitationToken(String invitationToken) { this.invitationToken = invitationToken; }
+
+    public OffsetDateTime getInvitationExpiresAt() { return invitationExpiresAt; }
+    public void setInvitationExpiresAt(OffsetDateTime invitationExpiresAt) { this.invitationExpiresAt = invitationExpiresAt; }
+
+    public String getPasswordResetToken() { return passwordResetToken; }
+    public void setPasswordResetToken(String passwordResetToken) { this.passwordResetToken = passwordResetToken; }
+
+    public OffsetDateTime getPasswordResetExpiresAt() { return passwordResetExpiresAt; }
+    public void setPasswordResetExpiresAt(OffsetDateTime passwordResetExpiresAt) { this.passwordResetExpiresAt = passwordResetExpiresAt; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

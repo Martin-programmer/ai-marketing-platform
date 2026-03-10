@@ -15,7 +15,6 @@ interface CreateAgencyPayload {
   name: string
   planCode: string
   adminEmail: string
-  adminPassword: string
   adminDisplayName: string
 }
 

@@ -4,6 +4,13 @@
 # Profile-specific files (application-local.yml, application-test.yml)
 # override these values.
 
+email:
+  from-address: ${EMAIL_FROM_ADDRESS:noreply@adverion.xyz}
+  from-name: AI Marketing Platform
+  region: ${AWS_REGION:eu-north-1}
+  enabled: ${EMAIL_ENABLED:true}
+  base-url: ${APP_BASE_URL:https://adverion.xyz}
+
 meta:
   app-id: ${META_APP_ID:placeholder}
   app-secret: ${META_APP_SECRET:placeholder}

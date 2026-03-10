@@ -19,6 +19,10 @@ spring:
 server:
   port: 8080
 
+email:
+  enabled: true
+  base-url: ${APP_BASE_URL:https://adverion.xyz}
+
 logging:
   level:
     com.amp: INFO

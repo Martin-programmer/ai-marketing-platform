@@ -126,19 +126,6 @@
               :rules="[rules.required, rules.email]"
               class="mb-2"
             />
-            <v-text-field
-              v-model="inviteForm.password"
-              label="Password"
-              type="password"
-              :rules="[rules.required, rules.minLength(6)]"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="inviteForm.displayName"
-              label="Display Name"
-              :rules="[rules.required]"
-              class="mb-2"
-            />
             <v-select
               v-model="inviteForm.role"
               label="Role"
@@ -157,6 +144,10 @@
               :rules="[rules.required]"
               hint="Select the client this user belongs to"
             />
+            <v-alert v-if="inviteForm.email" type="info" variant="tonal" class="mt-3" density="compact">
+              An invitation email will be sent to <strong>{{ inviteForm.email }}</strong>.
+              They will set their own password when accepting the invitation.
+            </v-alert>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -260,8 +251,6 @@ interface TeamUser {
 
 interface InvitePayload {
   email: string
-  password: string
-  displayName: string
   role: string
   clientId?: string
 }
@@ -272,15 +261,13 @@ const inviteFormRef = ref()
 const inviteFormValid = ref(false)
 const inviteForm = ref({
   email: '',
-  password: '',
-  displayName: '',
   role: 'AGENCY_USER',
   clientId: ''
 })
 
 function closeInviteDialog() {
   showInviteDialog.value = false
-  inviteForm.value = { email: '', password: '', displayName: '', role: 'AGENCY_USER', clientId: '' }
+  inviteForm.value = { email: '', role: 'AGENCY_USER', clientId: '' }
 }
 
 async function handleInvite() {

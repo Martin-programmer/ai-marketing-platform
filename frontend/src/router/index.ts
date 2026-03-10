@@ -10,6 +10,24 @@ const router = createRouter({
       component: LoginView,
       meta: { public: true }
     },
+    {
+      path: '/accept-invite',
+      name: 'accept-invite',
+      component: () => import('@/views/AcceptInviteView.vue'),
+      meta: { public: true }
+    },
+    {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: () => import('@/views/ForgotPasswordView.vue'),
+      meta: { public: true }
+    },
+    {
+      path: '/reset-password',
+      name: 'reset-password',
+      component: () => import('@/views/ResetPasswordView.vue'),
+      meta: { public: true }
+    },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
     { path: '/clients', name: 'clients', component: () => import('@/views/ClientsView.vue') },
     { path: '/clients/:id', name: 'client-detail', component: () => import('@/views/ClientDetailView.vue') },
