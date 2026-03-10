@@ -29,7 +29,7 @@ public class ReportHtmlBuilder {
      * @param previous      KPI summary for previous period (for comparison)
      * @param dailyData     daily breakdown data (list of maps with date, spend, impressions, clicks, conversions)
      * @param topCampaigns  top campaigns data (list of maps with entityId, spend, impressions, clicks, etc.)
-     * @param narrative     optional narrative/commentary from agency (nullable)
+     * @param narrative     optional AI narrative sections (nullable)
      */
     public static String buildHtml(
             String clientName,
@@ -40,7 +40,7 @@ public class ReportHtmlBuilder {
             KpiSummary previous,
             List<Map<String, Object>> dailyData,
             List<Map<String, Object>> topCampaigns,
-            String narrative) {
+            NarrativeSections narrative) {
 
         StringBuilder html = new StringBuilder();
 
@@ -62,11 +62,12 @@ public class ReportHtmlBuilder {
             .append("</div>");
         html.append("</div>");
 
-        // Executive Summary (narrative)
-        if (narrative != null && !narrative.isBlank()) {
+        // Executive Summary (AI narrative)
+        if (narrative != null && narrative.executiveSummary() != null
+                && !narrative.executiveSummary().isBlank()) {
             html.append("<div class='section'>");
             html.append("<h2>Executive Summary</h2>");
-            html.append("<p>").append(escapeHtml(narrative)).append("</p>");
+            html.append("<p>").append(narrativeHtml(narrative.executiveSummary())).append("</p>");
             html.append("</div>");
         }
 
@@ -109,6 +110,42 @@ public class ReportHtmlBuilder {
                 html.append("</tr>");
             }
             html.append("</tbody></table>");
+            html.append("</div>");
+        }
+
+        // Campaign Highlights (AI narrative)
+        if (narrative != null && narrative.campaignHighlights() != null
+                && !narrative.campaignHighlights().isBlank()) {
+            html.append("<div class='section'>");
+            html.append("<h2>Campaign Highlights</h2>");
+            html.append("<p>").append(narrativeHtml(narrative.campaignHighlights())).append("</p>");
+            html.append("</div>");
+        }
+
+        // Areas for Improvement (AI narrative)
+        if (narrative != null && narrative.areasForImprovement() != null
+                && !narrative.areasForImprovement().isBlank()) {
+            html.append("<div class='section'>");
+            html.append("<h2>Areas for Improvement</h2>");
+            html.append("<p>").append(narrativeHtml(narrative.areasForImprovement())).append("</p>");
+            html.append("</div>");
+        }
+
+        // Actions Taken (AI narrative)
+        if (narrative != null && narrative.actionsTaken() != null
+                && !narrative.actionsTaken().isBlank()) {
+            html.append("<div class='section'>");
+            html.append("<h2>Actions Taken</h2>");
+            html.append("<p>").append(narrativeHtml(narrative.actionsTaken())).append("</p>");
+            html.append("</div>");
+        }
+
+        // Recommendations (AI narrative)
+        if (narrative != null && narrative.recommendations() != null
+                && !narrative.recommendations().isBlank()) {
+            html.append("<div class='section'>");
+            html.append("<h2>Recommendations</h2>");
+            html.append("<p>").append(narrativeHtml(narrative.recommendations())).append("</p>");
             html.append("</div>");
         }
 
@@ -179,6 +216,11 @@ public class ReportHtmlBuilder {
     static Long toLong(Object val) {
         if (val == null) return 0L;
         return Long.parseLong(val.toString());
+    }
+
+    private static String narrativeHtml(String text) {
+        if (text == null) return "";
+        return escapeHtml(text).replace("\n", "<br>");
     }
 
     private static String escapeHtml(String text) {

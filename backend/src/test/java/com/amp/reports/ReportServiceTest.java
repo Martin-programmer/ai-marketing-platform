@@ -1,6 +1,7 @@
 package com.amp.reports;
 
 import com.amp.agency.AgencyRepository;
+import com.amp.ai.AiReporterService;
 import com.amp.audit.AuditService;
 import com.amp.clients.ClientRepository;
 import com.amp.common.exception.ResourceNotFoundException;
@@ -44,6 +45,7 @@ class ReportServiceTest {
     @Mock private InsightDailyRepository insightDailyRepository;
     @Mock private ClientRepository clientRepository;
     @Mock private AgencyRepository agencyRepository;
+    @Mock private AiReporterService aiReporterService;
 
     @InjectMocks
     private ReportService reportService;

@@ -149,7 +149,8 @@ public class ReportController {
 
         String narrative = request.get("narrative");
         if (narrative != null) {
-            String newHtml = reportService.regenerateWithNarrative(report, narrative);
+            String newHtml = reportService.regenerateWithNarrative(
+                    report, NarrativeSections.ofSummary(narrative));
             report.setHtmlContent(newHtml);
             reportRepository.save(report);
         }

@@ -1,10 +1,14 @@
 package com.amp.ai;
 
+import com.amp.auth.AccessControl;
+import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
+import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContextHolder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,13 +19,22 @@ public class AiController {
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
     private final PerformanceOptimizerService optimizerService;
+    private final WeeklyDigestService weeklyDigestService;
+    private final AiWeeklyDigestRepository digestRepo;
+    private final AccessControl accessControl;
 
     public AiController(ClaudeApiClient claudeClient,
                         AiProperties aiProps,
-                        PerformanceOptimizerService optimizerService) {
+                        PerformanceOptimizerService optimizerService,
+                        WeeklyDigestService weeklyDigestService,
+                        AiWeeklyDigestRepository digestRepo,
+                        AccessControl accessControl) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.optimizerService = optimizerService;
+        this.weeklyDigestService = weeklyDigestService;
+        this.digestRepo = digestRepo;
+        this.accessControl = accessControl;
     }
 
     /**
@@ -85,5 +98,44 @@ public class AiController {
         UUID agencyId = TenantContextHolder.require().getAgencyId();
         var result = optimizerService.runForClient(agencyId, clientId);
         return ResponseEntity.ok(result);
+    }
+
+    // ──────── Weekly Digest ────────
+
+    /**
+     * Manually trigger weekly digest generation for all connected clients.
+     */
+    @PostMapping("/digest/generate")
+    public ResponseEntity<?> generateDigests() {
+        RoleGuard.requireAgencyAdmin();
+        var result = weeklyDigestService.generateAndSendDigests();
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * List recent digests for a client.
+     */
+    @GetMapping("/clients/{clientId}/digests")
+    public ResponseEntity<List<DigestResponse>> listDigests(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.REPORTS_VIEW);
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        List<DigestResponse> digests = digestRepo
+                .findAllByAgencyIdAndClientIdOrderByCreatedAtDesc(agencyId, clientId)
+                .stream().map(DigestResponse::from).toList();
+        return ResponseEntity.ok(digests);
+    }
+
+    /**
+     * View a specific digest's HTML content.
+     */
+    @GetMapping("/digests/{digestId}/html")
+    public ResponseEntity<String> viewDigestHtml(@PathVariable UUID digestId) {
+        RoleGuard.requireAgencyRole();
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        AiWeeklyDigest digest = digestRepo.findByIdAndAgencyId(digestId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Digest", digestId));
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/html; charset=UTF-8")
+                .body(digest.getHtmlContent());
     }
 }

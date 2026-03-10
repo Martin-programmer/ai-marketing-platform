@@ -26,5 +26,6 @@ public enum AuditAction {
     CAMPAIGN_RESUME,
     CAMPAIGN_PUBLISH,
     ADSET_CREATE,
-    AD_CREATE
+    AD_CREATE,
+    DIGEST_GENERATE
 }

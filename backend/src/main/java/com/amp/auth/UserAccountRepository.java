@@ -14,4 +14,6 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
     Optional<UserAccount> findByEmail(String email);
 
     List<UserAccount> findAllByAgencyId(UUID agencyId);
+
+    boolean existsByClientId(UUID clientId);
 }

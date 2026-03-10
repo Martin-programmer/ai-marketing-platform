@@ -2,6 +2,7 @@ package com.amp.reports;
 
 import com.amp.agency.Agency;
 import com.amp.agency.AgencyRepository;
+import com.amp.ai.AiReporterService;
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
 import com.amp.clients.Client;
@@ -38,19 +39,22 @@ public class ReportService {
     private final InsightDailyRepository insightDailyRepository;
     private final ClientRepository clientRepository;
     private final AgencyRepository agencyRepository;
+    private final AiReporterService aiReporterService;
 
     public ReportService(ReportRepository reportRepository,
                          FeedbackRepository feedbackRepository,
                          AuditService auditService,
                          InsightDailyRepository insightDailyRepository,
                          ClientRepository clientRepository,
-                         AgencyRepository agencyRepository) {
+                         AgencyRepository agencyRepository,
+                         AiReporterService aiReporterService) {
         this.reportRepository = reportRepository;
         this.feedbackRepository = feedbackRepository;
         this.auditService = auditService;
         this.insightDailyRepository = insightDailyRepository;
         this.clientRepository = clientRepository;
         this.agencyRepository = agencyRepository;
+        this.aiReporterService = aiReporterService;
     }
 
     // ──────── Report ────────
@@ -79,6 +83,17 @@ public class ReportService {
         List<Map<String, Object>> topCampaigns = aggregateTopCampaigns(
                 agencyId, req.clientId(), req.periodStart(), req.periodEnd(), 10);
 
+        // Generate AI narrative (optional enhancement — falls back gracefully)
+        NarrativeSections narrative = null;
+        if (aiReporterService != null) {
+            try {
+                narrative = aiReporterService.generateNarrative(
+                        agencyId, req.clientId(), req.periodStart(), req.periodEnd());
+            } catch (Exception e) {
+                log.warn("AI narrative generation failed, continuing without it: {}", e.getMessage());
+            }
+        }
+
         // Build professional HTML
         String htmlContent = ReportHtmlBuilder.buildHtml(
                 clientName, agencyName,
@@ -86,7 +101,7 @@ public class ReportService {
                 current, previous,
                 null, // dailyData not rendered in report HTML table (charts only in frontend)
                 topCampaigns,
-                null  // no narrative on initial generation
+                narrative
         );
 
         Report r = new Report();
@@ -208,7 +223,7 @@ public class ReportService {
     /**
      * Regenerate the report HTML with an updated narrative and save it.
      */
-    public String regenerateWithNarrative(Report report, String narrative) {
+    public String regenerateWithNarrative(Report report, NarrativeSections narrative) {
         UUID agencyId = report.getAgencyId();
         UUID clientId = report.getClientId();
 
