@@ -1,5 +1,7 @@
 package com.amp.clients;
 
+import com.amp.ai.AudienceArchitectService;
+import com.amp.ai.ClientBrieferService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
@@ -9,17 +11,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -32,13 +27,19 @@ public class ClientController {
     private final ClientService clientService;
     private final ClientProfileService profileService;
     private final AccessControl accessControl;
+    private final ClientBrieferService brieferService;
+    private final AudienceArchitectService audienceService;
 
     public ClientController(ClientService clientService,
                             ClientProfileService profileService,
-                            AccessControl accessControl) {
+                            AccessControl accessControl,
+                            ClientBrieferService brieferService,
+                            AudienceArchitectService audienceService) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.accessControl = accessControl;
+        this.brieferService = brieferService;
+        this.audienceService = audienceService;
     }
 
     private UUID agencyId() {
@@ -139,5 +140,45 @@ public class ClientController {
         accessControl.requireClientPermission(clientId, Permission.CLIENT_EDIT);
         ClientProfile profile = profileService.upsertProfile(agencyId(), clientId, request);
         return ResponseEntity.ok(ClientProfileResponse.from(profile));
+    }
+
+    // ---- AI Client Briefer ----
+
+    /**
+     * Trigger AI website analysis to auto-fill client profile.
+     */
+    @PostMapping("/{clientId}/ai-brief")
+    public ResponseEntity<Map<String, Object>> analyzeWebsite(
+            @PathVariable UUID clientId,
+            @RequestBody Map<String, String> request) {
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_EDIT);
+        String websiteUrl = request.get("websiteUrl");
+        if (websiteUrl == null || websiteUrl.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "websiteUrl is required"));
+        }
+        Map<String, Object> result = brieferService.analyzeWebsite(agencyId(), clientId, websiteUrl);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Get last AI analysis result for a client.
+     */
+    @GetMapping("/{clientId}/ai-brief")
+    public ResponseEntity<Map<String, Object>> getLastBrief(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_VIEW);
+        Map<String, Object> result = brieferService.getLastAnalysis(agencyId(), clientId);
+        return ResponseEntity.ok(result);
+    }
+
+    // ---- AI Audience Architect ----
+
+    /**
+     * Generate AI audience targeting suggestions based on client profile and performance.
+     */
+    @PostMapping("/{clientId}/ai-audiences")
+    public ResponseEntity<Map<String, Object>> suggestAudiences(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
+        Map<String, Object> result = audienceService.suggestAudiences(agencyId(), clientId);
+        return ResponseEntity.ok(result);
     }
 }

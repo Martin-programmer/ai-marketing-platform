@@ -19,6 +19,12 @@ export const useClientStore = defineStore('clients', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  // AI state
+  const briefLoading = ref(false)
+  const briefResult = ref<Record<string, any> | null>(null)
+  const audienceLoading = ref(false)
+  const audienceResult = ref<Record<string, any> | null>(null)
+
   async function fetchClients() {
     loading.value = true
     error.value = null
@@ -50,5 +56,51 @@ export const useClientStore = defineStore('clients', () => {
     if (idx >= 0) clients.value[idx] = data
   }
 
-  return { clients, loading, error, fetchClients, createClient, pauseClient, activateClient }
+  async function analyzeWebsite(clientId: string, websiteUrl: string) {
+    briefLoading.value = true
+    briefResult.value = null
+    try {
+      const { data } = await api.post(`/clients/${clientId}/ai-brief`, { websiteUrl })
+      briefResult.value = data
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.message
+      return null
+    } finally {
+      briefLoading.value = false
+    }
+  }
+
+  async function getLastBrief(clientId: string) {
+    try {
+      const { data } = await api.get(`/clients/${clientId}/ai-brief`)
+      briefResult.value = data
+      return data
+    } catch {
+      briefResult.value = null
+      return null
+    }
+  }
+
+  async function suggestAudiences(clientId: string) {
+    audienceLoading.value = true
+    audienceResult.value = null
+    try {
+      const { data } = await api.post(`/clients/${clientId}/ai-audiences`)
+      audienceResult.value = data
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.message
+      return null
+    } finally {
+      audienceLoading.value = false
+    }
+  }
+
+  return {
+    clients, loading, error,
+    briefLoading, briefResult, audienceLoading, audienceResult,
+    fetchClients, createClient, pauseClient, activateClient,
+    analyzeWebsite, getLastBrief, suggestAudiences
+  }
 })
