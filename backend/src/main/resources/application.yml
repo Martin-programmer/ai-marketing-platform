@@ -5,11 +5,11 @@
 # override these values.
 
 email:
-  from-address: ${EMAIL_FROM_ADDRESS:noreply@adverion.xyz}
-  from-name: AI Marketing Platform
-  region: ${AWS_REGION:eu-north-1}
   enabled: ${EMAIL_ENABLED:true}
-  base-url: ${APP_BASE_URL:https://adverion.xyz}
+  from-address: ${EMAIL_FROM:noreply@adverion.xyz}
+  from-name: AI Marketing Platform
+  region: ${EMAIL_REGION:eu-north-1}
+  base-url: ${EMAIL_BASE_URL:https://adverion.xyz}
 
 meta:
   app-id: ${META_APP_ID:placeholder}

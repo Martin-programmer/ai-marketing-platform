@@ -20,8 +20,11 @@ server:
   port: 8080
 
 email:
-  enabled: true
-  base-url: ${APP_BASE_URL:https://adverion.xyz}
+  enabled: ${EMAIL_ENABLED:true}
+  from-address: ${EMAIL_FROM:noreply@adverion.xyz}
+  from-name: AI Marketing Platform
+  region: ${EMAIL_REGION:eu-north-1}
+  base-url: ${EMAIL_BASE_URL:https://adverion.xyz}
 
 logging:
   level:
