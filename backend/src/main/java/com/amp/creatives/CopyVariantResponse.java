@@ -10,6 +10,7 @@ public record CopyVariantResponse(
         UUID id,
         UUID agencyId,
         UUID clientId,
+        UUID creativeAssetId,
         String language,
         String primaryText,
         String headline,
@@ -23,6 +24,7 @@ public record CopyVariantResponse(
     public static CopyVariantResponse from(CopyVariant e) {
         return new CopyVariantResponse(
                 e.getId(), e.getAgencyId(), e.getClientId(),
+                e.getCreativeAssetId(),
                 e.getLanguage(), e.getPrimaryText(), e.getHeadline(),
                 e.getDescription(), e.getCta(), e.getStatus(),
                 e.getCreatedBy(), e.getCreatedAt(), e.getUpdatedAt()

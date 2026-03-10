@@ -29,6 +29,9 @@ public class CopyVariant {
     @Column(name = "client_id", nullable = false)
     private UUID clientId;
 
+    @Column(name = "creative_asset_id")
+    private UUID creativeAssetId;
+
     @Column(name = "language", nullable = false)
     private String language;
 
@@ -56,7 +59,7 @@ public class CopyVariant {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected CopyVariant() {}
+    public CopyVariant() {}
 
     @PreUpdate
     private void onUpdate() { this.updatedAt = OffsetDateTime.now(); }
@@ -71,6 +74,9 @@ public class CopyVariant {
 
     public UUID getClientId() { return clientId; }
     public void setClientId(UUID clientId) { this.clientId = clientId; }
+
+    public UUID getCreativeAssetId() { return creativeAssetId; }
+    public void setCreativeAssetId(UUID creativeAssetId) { this.creativeAssetId = creativeAssetId; }
 
     public String getLanguage() { return language; }
     public void setLanguage(String language) { this.language = language; }

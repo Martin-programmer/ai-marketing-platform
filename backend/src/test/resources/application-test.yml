@@ -26,3 +26,15 @@ app:
   security:
     dev-mode: true
     jwt-secret: test-secret-key-that-is-at-least-32-bytes-long!!
+
+ai:
+  anthropic:
+    api-key: placeholder
+    default-model: claude-sonnet-4-20250514
+  analyzer:
+    enabled: false
+  optimizer:
+    enabled: false
+  cost-limits:
+    max-daily-spend-usd: 0
+    max-monthly-spend-usd: 0

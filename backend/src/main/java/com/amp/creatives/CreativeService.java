@@ -1,5 +1,8 @@
 package com.amp.creatives;
 
+import com.amp.ai.AiProperties;
+import com.amp.ai.CopyFactoryService;
+import com.amp.ai.CreativeAnalyzerService;
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
 import com.amp.common.exception.ResourceNotFoundException;
@@ -14,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Business logic for creative assets, packages and their lifecycle.
@@ -31,6 +35,9 @@ public class CreativeService {
     private final AuditService auditService;
     private final S3StorageService s3StorageService;
     private final S3Properties s3Properties;
+    private final CreativeAnalyzerService creativeAnalyzerService;
+    private final CopyFactoryService copyFactoryService;
+    private final AiProperties aiProperties;
 
     public CreativeService(CreativeAssetRepository assetRepository,
                            CreativeAnalysisRepository analysisRepository,
@@ -38,7 +45,10 @@ public class CreativeService {
                            CopyVariantRepository copyVariantRepository,
                            AuditService auditService,
                            S3StorageService s3StorageService,
-                           S3Properties s3Properties) {
+                           S3Properties s3Properties,
+                           CreativeAnalyzerService creativeAnalyzerService,
+                           CopyFactoryService copyFactoryService,
+                           AiProperties aiProperties) {
         this.assetRepository = assetRepository;
         this.analysisRepository = analysisRepository;
         this.packageRepository = packageRepository;
@@ -46,6 +56,9 @@ public class CreativeService {
         this.auditService = auditService;
         this.s3StorageService = s3StorageService;
         this.s3Properties = s3Properties;
+        this.creativeAnalyzerService = creativeAnalyzerService;
+        this.copyFactoryService = copyFactoryService;
+        this.aiProperties = aiProperties;
     }
 
     // ---- Assets ----
@@ -176,6 +189,25 @@ public class CreativeService {
         CreativeAsset saved = assetRepository.save(asset);
 
         log.info("Upload complete for asset {}, status=READY", assetId);
+
+        // Trigger async AI analysis if enabled
+        if (aiProperties.getAnalyzer().isEnabled() && aiProperties.getAnalyzer().isAutoAnalyzeOnUpload()) {
+            final CreativeAsset assetCopy = saved;
+            final UUID userId = TenantContextHolder.require().getUserId();
+            CompletableFuture.runAsync(() -> {
+                try {
+                    log.info("Starting async creative analysis for asset {}", assetId);
+                    CreativeAnalysis analysis = creativeAnalyzerService.analyze(assetCopy);
+                    if (analysis != null && aiProperties.getAnalyzer().isAutoGenerateCopy()) {
+                        log.info("Auto-generating copy variants for asset {}", assetId);
+                        copyFactoryService.generateCopy(analysis, userId);
+                    }
+                } catch (Exception e) {
+                    log.error("Async creative analysis failed for asset {}: {}", assetId, e.getMessage(), e);
+                }
+            });
+        }
+
         return AssetResponse.from(saved);
     }
 
@@ -332,6 +364,14 @@ public class CreativeService {
                 .filter(v -> v.getAgencyId().equals(agencyId))
                 .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId));
         return CopyVariantResponse.from(cv);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CopyVariantResponse> listCopyVariantsForAsset(UUID assetId) {
+        return copyVariantRepository.findByCreativeAssetId(assetId)
+                .stream()
+                .map(CopyVariantResponse::from)
+                .toList();
     }
 
     // ──────── Client-ID resolvers (for permission checks) ────────

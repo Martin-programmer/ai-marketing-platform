@@ -43,3 +43,31 @@ app:
     refresh-token-exp-ms: 604800000
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+
+ai:
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY:placeholder}
+    default-model: claude-sonnet-4-20250514
+    complex-model: claude-opus-4-20250115
+    max-tokens: 4096
+    timeout-seconds: 60
+  analyzer:
+    enabled: true
+    auto-analyze-on-upload: true
+    auto-generate-copy: true
+  optimizer:
+    enabled: true
+    schedule-cron: "0 0 5 * * *"
+    min-data-days: 7
+    min-conversions: 30
+    frequency-threshold: 2.0
+    ctr-drop-threshold: 0.15
+    cpa-spike-threshold: 0.40
+    budget-change-max-percent: 10
+    budget-cumulative-max-percent: 25
+    cooldown-budget-hours: 72
+    cooldown-pause-hours: 48
+  cost-limits:
+    max-daily-spend-usd: 5.0
+    max-monthly-spend-usd: 100.0
+    alert-threshold-percent: 80

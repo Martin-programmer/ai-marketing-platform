@@ -45,7 +45,7 @@ public class CreativeAnalysis {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    protected CreativeAnalysis() {}
+    public CreativeAnalysis() {}
 
     // ---- getters & setters ----
 

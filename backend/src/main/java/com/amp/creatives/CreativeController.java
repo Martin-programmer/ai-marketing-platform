@@ -1,5 +1,7 @@
 package com.amp.creatives;
 
+import com.amp.ai.CopyFactoryService;
+import com.amp.ai.CreativeAnalyzerService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
@@ -28,10 +30,23 @@ public class CreativeController {
 
     private final CreativeService creativeService;
     private final AccessControl accessControl;
+    private final CreativeAnalyzerService creativeAnalyzerService;
+    private final CopyFactoryService copyFactoryService;
+    private final CreativeAssetRepository assetRepository;
+    private final CreativeAnalysisRepository analysisRepository;
 
-    public CreativeController(CreativeService creativeService, AccessControl accessControl) {
+    public CreativeController(CreativeService creativeService,
+                               AccessControl accessControl,
+                               CreativeAnalyzerService creativeAnalyzerService,
+                               CopyFactoryService copyFactoryService,
+                               CreativeAssetRepository assetRepository,
+                               CreativeAnalysisRepository analysisRepository) {
         this.creativeService = creativeService;
         this.accessControl = accessControl;
+        this.creativeAnalyzerService = creativeAnalyzerService;
+        this.copyFactoryService = copyFactoryService;
+        this.assetRepository = assetRepository;
+        this.analysisRepository = analysisRepository;
     }
 
     private UUID agencyId() {
@@ -166,5 +181,45 @@ public class CreativeController {
         UUID clientId = creativeService.resolveCopyVariantClientId(agencyId(), variantId);
         accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
         return ResponseEntity.ok(creativeService.getCopyVariant(agencyId(), variantId));
+    }
+
+    // ---- AI Endpoints ----
+
+    /** Manually trigger AI analysis on a creative asset. */
+    @PostMapping("/creatives/{assetId}/analyze")
+    public ResponseEntity<Map<String, Object>> analyzeAsset(@PathVariable UUID assetId) {
+        UUID clientId = creativeService.resolveAssetClientId(agencyId(), assetId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        CreativeAnalysis analysis = creativeAnalyzerService.analyzeById(agencyId(), assetId, assetRepository);
+        if (analysis == null) {
+            return ResponseEntity.ok(Map.of("status", "skipped",
+                    "message", "Analysis not performed (disabled or not an image)"));
+        }
+        return ResponseEntity.ok(Map.of(
+                "status", "completed",
+                "analysisId", analysis.getId(),
+                "qualityScore", analysis.getQualityScore()));
+    }
+
+    /** Manually trigger AI copy generation for a creative asset (requires analysis first). */
+    @PostMapping("/creatives/{assetId}/generate-copy")
+    public ResponseEntity<List<CopyVariantResponse>> generateCopy(@PathVariable UUID assetId) {
+        UUID clientId = creativeService.resolveAssetClientId(agencyId(), assetId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        List<CopyVariant> variants = copyFactoryService.generateCopyForAsset(
+                agencyId(), assetId, analysisRepository);
+        List<CopyVariantResponse> response = variants.stream()
+                .map(CopyVariantResponse::from)
+                .toList();
+        return ResponseEntity.ok(response);
+    }
+
+    /** Get copy variants generated for a specific creative asset. */
+    @GetMapping("/creatives/{assetId}/copy-variants")
+    public ResponseEntity<List<CopyVariantResponse>> getCopyVariantsForAsset(@PathVariable UUID assetId) {
+        UUID clientId = creativeService.resolveAssetClientId(agencyId(), assetId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
+        List<CopyVariantResponse> response = creativeService.listCopyVariantsForAsset(assetId);
+        return ResponseEntity.ok(response);
     }
 }

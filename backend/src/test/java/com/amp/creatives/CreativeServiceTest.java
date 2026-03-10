@@ -1,5 +1,9 @@
 package com.amp.creatives;
 
+import com.amp.ai.AiProperties;
+import com.amp.ai.CopyFactoryService;
+import com.amp.ai.CreativeAnalyzerService;
+import com.amp.creatives.CreativeAsset;
 import com.amp.audit.AuditService;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.tenancy.TenantContext;
@@ -38,6 +42,9 @@ class CreativeServiceTest {
     @Mock private AuditService auditService;
     @Mock private S3StorageService s3StorageService;
     @Mock private S3Properties s3Properties;
+    @Mock private CreativeAnalyzerService creativeAnalyzerService;
+    @Mock private CopyFactoryService copyFactoryService;
+    @Mock private AiProperties aiProperties;
 
     @InjectMocks
     private CreativeService creativeService;
