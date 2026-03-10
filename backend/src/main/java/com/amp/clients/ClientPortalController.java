@@ -1,6 +1,7 @@
 package com.amp.clients;
 
 import com.amp.ai.AiSuggestionService;
+import com.amp.ai.ClientPortalAiService;
 import com.amp.ai.SuggestionResponse;
 import com.amp.campaigns.CampaignResponse;
 import com.amp.campaigns.CampaignService;
@@ -20,6 +21,7 @@ import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -61,6 +63,7 @@ public class ClientPortalController {
     private final CampaignService campaignService;
     private final AiSuggestionService suggestionService;
     private final PdfGenerator pdfGenerator;
+    private final ClientPortalAiService portalAiService;
 
     public ClientPortalController(ClientService clientService,
                                   ClientProfileService profileService,
@@ -69,7 +72,8 @@ public class ClientPortalController {
                                   InsightDailyRepository insightDailyRepository,
                                   CampaignService campaignService,
                                   AiSuggestionService suggestionService,
-                                  PdfGenerator pdfGenerator) {
+                                  PdfGenerator pdfGenerator,
+                                  ClientPortalAiService portalAiService) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.reportService = reportService;
@@ -78,6 +82,7 @@ public class ClientPortalController {
         this.campaignService = campaignService;
         this.suggestionService = suggestionService;
         this.pdfGenerator = pdfGenerator;
+        this.portalAiService = portalAiService;
     }
 
     // ── Request DTOs ────────────────────────────────────────────
@@ -85,6 +90,23 @@ public class ClientPortalController {
     public record PortalFeedbackRequest(
             @NotNull(message = "rating is required") @Min(1) @Max(5) Integer rating,
             String comment) {}
+
+    public record PortalChatRequest(
+            @NotBlank(message = "question is required") String question) {}
+
+    // ── AI Chat ─────────────────────────────────────────────────
+
+    @PostMapping("/ai-chat")
+    public ResponseEntity<?> aiChat(@Valid @RequestBody PortalChatRequest req) {
+        TenantContext ctx = requireClientUser();
+        ClientPortalAiService.ChatAnswer answer = portalAiService.answerQuestion(
+                ctx.getAgencyId(), ctx.getClientId(), req.question());
+        return ResponseEntity.ok(Map.of(
+                "answer", answer.answer(),
+                "tokensUsed", answer.tokensUsed(),
+                "cost", answer.cost()
+        ));
+    }
 
     // ── Client info ─────────────────────────────────────────────
 

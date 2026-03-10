@@ -17,6 +17,8 @@ export const portalApi = {
   getSuggestions: () => api.get('/portal/suggestions'),
   submitFeedback: (reportId: string, data: { rating: number; comment?: string }) =>
     api.post(`/portal/reports/${reportId}/feedback`, data),
+  aiChat: (question: string) =>
+    api.post('/portal/ai-chat', { question }),
 }
 
 export default portalApi

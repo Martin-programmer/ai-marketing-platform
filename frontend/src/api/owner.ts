@@ -9,4 +9,5 @@ export const ownerApi = {
     api.patch(`/owner/agencies/${id}`, data),
   listAgencyUsers: (agencyId: string) =>
     api.get(`/owner/agencies/${agencyId}/users`),
+  getIntelligence: () => api.get('/owner/intelligence'),
 }

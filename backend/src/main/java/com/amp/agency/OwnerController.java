@@ -1,5 +1,6 @@
 package com.amp.agency;
 
+import com.amp.ai.AgencyIntelligenceService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.UserAccountRepository;
 import com.amp.common.RoleGuard;
@@ -22,13 +23,16 @@ public class OwnerController {
     private final AgencyRepository agencyRepository;
     private final UserAccountRepository userAccountRepository;
     private final AccessControl accessControl;
+    private final AgencyIntelligenceService intelligenceService;
 
     public OwnerController(AgencyRepository agencyRepository,
                            UserAccountRepository userAccountRepository,
-                           AccessControl accessControl) {
+                           AccessControl accessControl,
+                           AgencyIntelligenceService intelligenceService) {
         this.agencyRepository = agencyRepository;
         this.userAccountRepository = userAccountRepository;
         this.accessControl = accessControl;
+        this.intelligenceService = intelligenceService;
     }
 
     @GetMapping("/agencies")
@@ -101,5 +105,12 @@ public class OwnerController {
                 "totalAgencies", agencyCount,
                 "totalUsers", userCount
         ));
+    }
+
+    @GetMapping("/intelligence")
+    public ResponseEntity<?> intelligence() {
+        RoleGuard.requireOwnerAdmin();
+        AgencyIntelligenceService.IntelligenceReport report = intelligenceService.generateIntelligence();
+        return ResponseEntity.ok(report);
     }
 }

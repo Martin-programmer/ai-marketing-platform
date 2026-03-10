@@ -136,6 +136,73 @@
     <v-alert v-if="!loading && !summary && !error" type="info" variant="tonal" class="mt-4">
       No KPI data available for the selected period.
     </v-alert>
+
+    <!-- AI Chat Assistant -->
+    <v-card class="mt-6">
+      <v-card-title class="d-flex align-center">
+        <v-icon color="purple" class="mr-2">mdi-robot-outline</v-icon>
+        <span class="text-subtitle-1 font-weight-bold">AI Assistant</span>
+      </v-card-title>
+      <v-card-subtitle class="pb-0">
+        Ask questions about your campaign performance — powered by AI.
+      </v-card-subtitle>
+      <v-card-text>
+        <!-- Chat history -->
+        <div
+          v-if="chatHistory.length > 0"
+          class="chat-history mb-4 pa-3 rounded-lg"
+          style="max-height: 400px; overflow-y: auto; background: rgb(var(--v-theme-surface-variant))"
+        >
+          <div v-for="(msg, idx) in chatHistory" :key="idx" class="mb-3">
+            <div v-if="msg.role === 'user'" class="d-flex justify-end">
+              <v-chip color="primary" variant="flat" class="pa-3" style="white-space: normal; height: auto; max-width: 80%">
+                {{ msg.text }}
+              </v-chip>
+            </div>
+            <div v-else class="d-flex justify-start">
+              <v-card variant="outlined" class="pa-3" style="max-width: 80%">
+                <div class="text-body-2" style="white-space: pre-wrap">{{ msg.text }}</div>
+                <div v-if="msg.tokens" class="text-caption text-medium-emphasis mt-1">
+                  {{ msg.tokens }} tokens · ${{ msg.cost?.toFixed(4) }}
+                </div>
+              </v-card>
+            </div>
+          </div>
+          <div v-if="chatLoading" class="d-flex justify-start">
+            <v-card variant="outlined" class="pa-3">
+              <v-progress-circular indeterminate size="20" width="2" color="purple" />
+              <span class="ml-2 text-body-2 text-medium-emphasis">Thinking…</span>
+            </v-card>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <v-row no-gutters align="center">
+          <v-col>
+            <v-text-field
+              v-model="chatQuestion"
+              placeholder="Ask about your campaigns, spend, conversions…"
+              variant="outlined"
+              density="compact"
+              hide-details
+              :disabled="chatLoading"
+              @keyup.enter="sendChat"
+            />
+          </v-col>
+          <v-col cols="auto" class="ml-2">
+            <v-btn
+              color="purple"
+              variant="flat"
+              :loading="chatLoading"
+              :disabled="!chatQuestion.trim()"
+              @click="sendChat"
+            >
+              <v-icon>mdi-send</v-icon>
+            </v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
   </div>
 </template>
 
@@ -222,6 +289,45 @@ onMounted(() => {
   loadClient()
   loadAll()
 })
+
+// ── AI Chat ──
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+  tokens?: number
+  cost?: number
+}
+
+const chatQuestion = ref('')
+const chatLoading = ref(false)
+const chatHistory = ref<ChatMessage[]>([])
+
+async function sendChat() {
+  const question = chatQuestion.value.trim()
+  if (!question || chatLoading.value) return
+
+  chatHistory.value.push({ role: 'user', text: question })
+  chatQuestion.value = ''
+  chatLoading.value = true
+
+  try {
+    const res = await portalApi.aiChat(question)
+    chatHistory.value.push({
+      role: 'assistant',
+      text: res.data.answer,
+      tokens: res.data.tokensUsed,
+      cost: res.data.cost,
+    })
+  } catch (e: any) {
+    chatHistory.value.push({
+      role: 'assistant',
+      text: e.response?.data?.message || 'Sorry, something went wrong. Please try again.',
+    })
+  } finally {
+    chatLoading.value = false
+  }
+}
 
 // ── KPI Cards ──
 

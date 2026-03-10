@@ -111,6 +111,127 @@
       </v-card>
     </v-dialog>
 
+    <!-- Agency Intelligence Section -->
+    <v-divider class="my-6" />
+    <div class="d-flex align-center mb-4">
+      <v-icon color="deep-purple" size="28" class="mr-2">mdi-brain</v-icon>
+      <h2 class="text-h5 font-weight-bold">Agency Intelligence</h2>
+      <v-spacer />
+      <v-btn
+        color="deep-purple"
+        variant="tonal"
+        :loading="intelLoading"
+        @click="fetchIntelligence"
+        prepend-icon="mdi-refresh"
+      >
+        {{ intelReport ? 'Refresh' : 'Generate' }}
+      </v-btn>
+    </div>
+
+    <v-alert v-if="intelError" type="error" variant="tonal" class="mb-4" closable @click:close="intelError = null">
+      {{ intelError }}
+    </v-alert>
+
+    <v-progress-linear v-if="intelLoading" indeterminate color="deep-purple" class="mb-4" />
+
+    <template v-if="intelReport">
+      <!-- AI Narrative -->
+      <v-card class="mb-4" color="deep-purple-lighten-5" variant="flat">
+        <v-card-text>
+          <div class="d-flex align-center mb-2">
+            <v-icon color="deep-purple" class="mr-2">mdi-robot-outline</v-icon>
+            <span class="text-subtitle-2 font-weight-bold">AI Executive Briefing</span>
+          </div>
+          <div class="text-body-2" style="white-space: pre-wrap">{{ intelReport.aiNarrative }}</div>
+        </v-card-text>
+      </v-card>
+
+      <!-- Industry Benchmarks -->
+      <v-card class="mb-4" v-if="intelReport.benchmarks.length > 0">
+        <v-card-title class="text-subtitle-1">
+          <v-icon class="mr-2">mdi-chart-bar</v-icon>
+          Industry Benchmarks (30 days)
+        </v-card-title>
+        <v-data-table
+          :headers="benchmarkHeaders"
+          :items="intelReport.benchmarks"
+          density="compact"
+          no-data-text="No benchmark data"
+        >
+          <template #item.avgCtr="{ item }">{{ item.avgCtr.toFixed(2) }}%</template>
+          <template #item.avgCpc="{ item }">${{ Number(item.avgCpc).toFixed(2) }}</template>
+          <template #item.avgRoas="{ item }">{{ Number(item.avgRoas).toFixed(2) }}x</template>
+          <template #item.totalSpend="{ item }">${{ Number(item.totalSpend).toLocaleString() }}</template>
+        </v-data-table>
+      </v-card>
+
+      <!-- Agency Health Scores -->
+      <v-card class="mb-4" v-if="intelReport.agencyScores.length > 0">
+        <v-card-title class="text-subtitle-1">
+          <v-icon class="mr-2">mdi-heart-pulse</v-icon>
+          Agency Health Scores
+        </v-card-title>
+        <v-data-table
+          :headers="healthHeaders"
+          :items="intelReport.agencyScores"
+          density="compact"
+          no-data-text="No agency data"
+        >
+          <template #item.healthScore="{ item }">
+            <v-chip
+              :color="item.healthScore >= 70 ? 'success' : item.healthScore >= 40 ? 'warning' : 'error'"
+              size="small"
+              variant="flat"
+            >
+              {{ item.healthScore }}
+            </v-chip>
+          </template>
+          <template #item.activeClientPct="{ item }">{{ item.activeClientPct }}%</template>
+          <template #item.avgRoas="{ item }">{{ Number(item.avgRoas).toFixed(2) }}x</template>
+          <template #item.syncFreshnessPct="{ item }">{{ item.syncFreshnessPct }}%</template>
+          <template #item.suggestionAdoptionPct="{ item }">{{ item.suggestionAdoptionPct }}%</template>
+          <template #item.status="{ item }">
+            <v-chip :color="item.status === 'ACTIVE' ? 'success' : 'grey'" size="small" label>
+              {{ item.status }}
+            </v-chip>
+          </template>
+        </v-data-table>
+      </v-card>
+
+      <!-- Churn Risks -->
+      <v-card v-if="intelReport.churnRisks.length > 0">
+        <v-card-title class="text-subtitle-1">
+          <v-icon color="error" class="mr-2">mdi-alert-circle-outline</v-icon>
+          Churn Risk Signals ({{ intelReport.churnRisks.length }} clients)
+        </v-card-title>
+        <v-list density="compact">
+          <v-list-item v-for="risk in intelReport.churnRisks" :key="risk.clientId">
+            <template #prepend>
+              <v-chip
+                :color="risk.riskLevel === 'HIGH' ? 'error' : risk.riskLevel === 'MEDIUM' ? 'warning' : 'info'"
+                size="small"
+                variant="flat"
+                class="mr-2"
+              >
+                {{ risk.riskLevel }}
+              </v-chip>
+            </template>
+            <v-list-item-title class="text-body-2">
+              {{ risk.clientName }}
+              <span v-if="risk.industry" class="text-medium-emphasis"> · {{ risk.industry }}</span>
+            </v-list-item-title>
+            <v-list-item-subtitle class="text-caption">
+              {{ risk.signals.join(' · ') }}
+            </v-list-item-subtitle>
+          </v-list-item>
+        </v-list>
+      </v-card>
+
+      <v-alert v-if="intelReport.churnRisks.length === 0" type="success" variant="tonal" class="mt-2">
+        No clients currently flagged for churn risk.
+      </v-alert>
+    </template>
+
     <v-snackbar v-model="snackbar" color="success" :timeout="3000">{{ snackbarText }}</v-snackbar>
   </v-container>
 </template>
@@ -218,6 +339,83 @@ async function fetchAll() {
     error.value = e.response?.data?.message || 'Failed to load data'
   } finally {
     loading.value = false
+  }
+}
+
+/* ── Agency Intelligence ── */
+
+interface IndustryBenchmark {
+  industry: string
+  totalClients: number
+  clientsWithData: number
+  avgCtr: number
+  avgCpc: number
+  avgRoas: number
+  totalSpend: number
+}
+
+interface AgencyScore {
+  agencyId: string
+  agencyName: string
+  status: string
+  totalClients: number
+  activeClientPct: number
+  avgRoas: number
+  syncFreshnessPct: number
+  suggestionAdoptionPct: number
+  healthScore: number
+}
+
+interface ChurnRiskItem {
+  clientId: string
+  agencyId: string
+  clientName: string
+  industry: string | null
+  riskLevel: string
+  signals: string[]
+}
+
+interface IntelligenceReport {
+  benchmarks: IndustryBenchmark[]
+  agencyScores: AgencyScore[]
+  churnRisks: ChurnRiskItem[]
+  aiNarrative: string
+}
+
+const intelReport = ref<IntelligenceReport | null>(null)
+const intelLoading = ref(false)
+const intelError = ref<string | null>(null)
+
+const benchmarkHeaders = [
+  { title: 'Industry', key: 'industry' },
+  { title: 'Clients', key: 'clientsWithData', align: 'end' as const },
+  { title: 'Avg CTR', key: 'avgCtr', align: 'end' as const },
+  { title: 'Avg CPC', key: 'avgCpc', align: 'end' as const },
+  { title: 'Avg ROAS', key: 'avgRoas', align: 'end' as const },
+  { title: 'Total Spend', key: 'totalSpend', align: 'end' as const },
+]
+
+const healthHeaders = [
+  { title: 'Agency', key: 'agencyName' },
+  { title: 'Status', key: 'status' },
+  { title: 'Health', key: 'healthScore', align: 'center' as const },
+  { title: 'Clients', key: 'totalClients', align: 'end' as const },
+  { title: 'Active %', key: 'activeClientPct', align: 'end' as const },
+  { title: 'Avg ROAS', key: 'avgRoas', align: 'end' as const },
+  { title: 'Sync Fresh', key: 'syncFreshnessPct', align: 'end' as const },
+  { title: 'Adoption', key: 'suggestionAdoptionPct', align: 'end' as const },
+]
+
+async function fetchIntelligence() {
+  intelLoading.value = true
+  intelError.value = null
+  try {
+    const res = await ownerApi.getIntelligence()
+    intelReport.value = res.data
+  } catch (e: any) {
+    intelError.value = e.response?.data?.message || 'Failed to generate intelligence report'
+  } finally {
+    intelLoading.value = false
   }
 }
 
