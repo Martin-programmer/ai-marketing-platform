@@ -1,6 +1,8 @@
 package com.amp.clients;
 
+import com.amp.ai.AnomalyDetectorService;
 import com.amp.ai.AudienceArchitectService;
+import com.amp.ai.BudgetStrategistService;
 import com.amp.ai.ClientBrieferService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
@@ -29,17 +31,23 @@ public class ClientController {
     private final AccessControl accessControl;
     private final ClientBrieferService brieferService;
     private final AudienceArchitectService audienceService;
+    private final BudgetStrategistService budgetStrategist;
+    private final AnomalyDetectorService anomalyDetector;
 
     public ClientController(ClientService clientService,
                             ClientProfileService profileService,
                             AccessControl accessControl,
                             ClientBrieferService brieferService,
-                            AudienceArchitectService audienceService) {
+                            AudienceArchitectService audienceService,
+                            BudgetStrategistService budgetStrategist,
+                            AnomalyDetectorService anomalyDetector) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.accessControl = accessControl;
         this.brieferService = brieferService;
         this.audienceService = audienceService;
+        this.budgetStrategist = budgetStrategist;
+        this.anomalyDetector = anomalyDetector;
     }
 
     private UUID agencyId() {
@@ -179,6 +187,30 @@ public class ClientController {
     public ResponseEntity<Map<String, Object>> suggestAudiences(@PathVariable UUID clientId) {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
         Map<String, Object> result = audienceService.suggestAudiences(agencyId(), clientId);
+        return ResponseEntity.ok(result);
+    }
+
+    // ---- AI Budget Strategist ----
+
+    /**
+     * Advanced budget analysis: pacing, day-of-week, campaign ranking, diminishing returns.
+     */
+    @GetMapping("/{clientId}/ai-budget-analysis")
+    public ResponseEntity<Map<String, Object>> analyzeBudget(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        Map<String, Object> result = budgetStrategist.analyzeBudget(agencyId(), clientId);
+        return ResponseEntity.ok(result);
+    }
+
+    // ---- AI Anomaly Detector ----
+
+    /**
+     * Manually trigger anomaly detection for a client.
+     */
+    @PostMapping("/{clientId}/ai-anomaly-check")
+    public ResponseEntity<Map<String, Object>> checkAnomalies(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        Map<String, Object> result = anomalyDetector.detectAnomalies(agencyId(), clientId);
         return ResponseEntity.ok(result);
     }
 }

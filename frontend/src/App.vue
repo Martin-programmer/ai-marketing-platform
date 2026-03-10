@@ -36,7 +36,16 @@
           <v-list-item prepend-icon="mdi-account-group" title="Clients" to="/clients" />
           <v-list-item prepend-icon="mdi-image-multiple" title="Creatives" to="/creatives" />
           <v-list-item prepend-icon="mdi-bullhorn" title="Campaigns" to="/campaigns" />
-          <v-list-item prepend-icon="mdi-lightbulb-on" title="Suggestions" to="/suggestions" />
+          <v-list-item prepend-icon="mdi-lightbulb-on" title="Suggestions" to="/suggestions">
+            <template #append>
+              <v-badge
+                v-if="dashStore.highAnomalyCount > 0"
+                :content="dashStore.highAnomalyCount"
+                color="error"
+                inline
+              />
+            </template>
+          </v-list-item>
           <v-list-item prepend-icon="mdi-file-chart" title="Reports" to="/reports" />
           <v-list-item prepend-icon="mdi-facebook" title="Meta" to="/meta" />
           <v-list-item prepend-icon="mdi-history" title="Audit Log" to="/audit" />
@@ -81,9 +90,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useDashboardStore } from '@/stores/dashboard'
 import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
+const dashStore = useDashboardStore()
 const router = useRouter()
 
 const isAgencyAdmin = computed(() =>

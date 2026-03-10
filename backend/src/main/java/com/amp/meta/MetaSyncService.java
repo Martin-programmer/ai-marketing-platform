@@ -1,5 +1,6 @@
 package com.amp.meta;
 
+import com.amp.ai.AnomalyDetectorService;
 import com.amp.campaigns.Ad;
 import com.amp.campaigns.AdRepository;
 import com.amp.campaigns.Adset;
@@ -43,6 +44,7 @@ public class MetaSyncService {
     private final AdsetRepository adsetRepository;
     private final AdRepository adRepository;
     private final InsightDailyRepository insightDailyRepository;
+    private final AnomalyDetectorService anomalyDetector;
 
     public MetaSyncService(MetaGraphApiClient graphApiClient,
                            MetaService metaService,
@@ -51,7 +53,8 @@ public class MetaSyncService {
                            CampaignRepository campaignRepository,
                            AdsetRepository adsetRepository,
                            AdRepository adRepository,
-                           InsightDailyRepository insightDailyRepository) {
+                           InsightDailyRepository insightDailyRepository,
+                           AnomalyDetectorService anomalyDetector) {
         this.graphApiClient = graphApiClient;
         this.metaService = metaService;
         this.connectionRepository = connectionRepository;
@@ -60,6 +63,7 @@ public class MetaSyncService {
         this.adsetRepository = adsetRepository;
         this.adRepository = adRepository;
         this.insightDailyRepository = insightDailyRepository;
+        this.anomalyDetector = anomalyDetector;
     }
 
     // ──────── Public entry points ────────
@@ -169,6 +173,14 @@ public class MetaSyncService {
             conn.setLastErrorMessage(null);
             conn.setUpdatedAt(OffsetDateTime.now());
             connectionRepository.save(conn);
+
+            // Run anomaly detection on fresh data (no-fail — don't break the sync)
+            try {
+                anomalyDetector.detectAnomalies(agencyId, clientId);
+            } catch (Exception anomalyEx) {
+                log.warn("Anomaly detection failed for client {} (sync still OK): {}",
+                        clientId, anomalyEx.getMessage());
+            }
 
             return job;
 

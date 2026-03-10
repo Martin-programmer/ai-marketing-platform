@@ -19,6 +19,15 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  // Budget Strategist
+  const budgetAnalysis = ref<any>(null)
+  const budgetLoading = ref(false)
+
+  // Anomaly Detector
+  const anomalies = ref<any>(null)
+  const anomalyLoading = ref(false)
+  const highAnomalyCount = ref(0)
+
   async function fetchDashboard(clientId: string) {
     loading.value = true
     error.value = null
@@ -45,5 +54,35 @@ export const useDashboardStore = defineStore('dashboard', () => {
     clients.value = data
   }
 
-  return { kpis, clients, campaigns, loading, error, fetchDashboard, fetchClients }
+  async function fetchBudgetAnalysis(clientId: string) {
+    budgetLoading.value = true
+    try {
+      const { data } = await api.get(`/clients/${clientId}/ai-budget-analysis`)
+      budgetAnalysis.value = data
+    } catch (e: any) {
+      budgetAnalysis.value = { error: e.response?.data?.message || e.message }
+    } finally {
+      budgetLoading.value = false
+    }
+  }
+
+  async function runAnomalyCheck(clientId: string) {
+    anomalyLoading.value = true
+    try {
+      const { data } = await api.post(`/clients/${clientId}/ai-anomaly-check`)
+      anomalies.value = data
+      highAnomalyCount.value = (data.details || []).filter((d: any) => d.riskLevel === 'HIGH').length
+    } catch (e: any) {
+      anomalies.value = { error: e.response?.data?.message || e.message }
+    } finally {
+      anomalyLoading.value = false
+    }
+  }
+
+  return {
+    kpis, clients, campaigns, loading, error,
+    budgetAnalysis, budgetLoading,
+    anomalies, anomalyLoading, highAnomalyCount,
+    fetchDashboard, fetchClients, fetchBudgetAnalysis, runAnomalyCheck,
+  }
 })

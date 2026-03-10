@@ -57,6 +57,43 @@
       {{ error }}
     </v-alert>
 
+    <!-- Anomaly Alert Banner -->
+    <v-alert
+      v-if="dashStore.highAnomalyCount > 0"
+      type="error"
+      variant="tonal"
+      prominent
+      class="mb-4"
+      closable
+    >
+      <div class="d-flex align-center">
+        <v-icon class="mr-2" size="24">mdi-alert-circle</v-icon>
+        <div>
+          <strong>{{ dashStore.highAnomalyCount }} high-severity anomal{{ dashStore.highAnomalyCount === 1 ? 'y' : 'ies' }} detected!</strong>
+          <div class="text-body-2" v-if="dashStore.anomalies?.details">
+            {{ dashStore.anomalies.details.filter((d: any) => d.riskLevel === 'HIGH').map((d: any) => d.description).join(' · ') }}
+          </div>
+        </div>
+        <v-spacer />
+        <v-btn size="small" variant="outlined" color="error" to="/suggestions">
+          View Suggestions
+        </v-btn>
+      </div>
+    </v-alert>
+
+    <!-- Medium Anomaly Info -->
+    <v-alert
+      v-if="dashStore.anomalies?.anomaliesDetected > 0 && dashStore.highAnomalyCount === 0"
+      type="warning"
+      variant="tonal"
+      class="mb-4"
+      density="compact"
+      closable
+    >
+      <v-icon class="mr-1" size="16">mdi-alert</v-icon>
+      {{ dashStore.anomalies.anomaliesDetected }} anomal{{ dashStore.anomalies.anomaliesDetected === 1 ? 'y' : 'ies' }} detected — check Suggestions for details.
+    </v-alert>
+
     <!-- No client selected -->
     <v-alert v-if="!selectedClient && !loading" type="info" variant="tonal" class="mb-4">
       Select a client to view dashboard data.
@@ -138,13 +175,196 @@
           </template>
         </v-data-table>
       </v-card>
+
+      <!-- ══════════════════════════════════════ -->
+      <!-- ── Budget Analysis Section ── -->
+      <!-- ══════════════════════════════════════ -->
+      <v-divider class="my-6" />
+
+      <div class="d-flex align-center mb-4">
+        <h2 class="text-h6">Budget Analysis</h2>
+        <v-spacer />
+        <v-btn
+          color="deep-purple"
+          :loading="dashStore.budgetLoading"
+          @click="loadBudgetAnalysis"
+        >
+          <v-icon start>mdi-chart-areaspline</v-icon>
+          Analyse Budget
+        </v-btn>
+      </div>
+
+      <template v-if="dashStore.budgetAnalysis && !dashStore.budgetAnalysis.error">
+        <!-- AI Narrative -->
+        <v-card variant="tonal" color="deep-purple" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            <v-icon class="mr-2">mdi-robot</v-icon>AI Recommendation
+          </v-card-title>
+          <v-card-text class="text-body-2" style="white-space: pre-line">
+            {{ dashStore.budgetAnalysis.narrative }}
+          </v-card-text>
+        </v-card>
+
+        <!-- Pacing Gauge -->
+        <v-row class="mb-4">
+          <v-col cols="12" md="4">
+            <v-card variant="outlined">
+              <v-card-title class="text-subtitle-2">Monthly Pacing</v-card-title>
+              <v-card-text>
+                <div class="d-flex justify-space-between mb-2">
+                  <span class="text-caption">Month Elapsed</span>
+                  <span class="text-caption font-weight-bold">
+                    {{ dashStore.budgetAnalysis.pacing?.pctMonthElapsed?.toFixed(0) }}%
+                  </span>
+                </div>
+                <v-progress-linear
+                  :model-value="dashStore.budgetAnalysis.pacing?.pctMonthElapsed || 0"
+                  color="grey"
+                  height="8"
+                  rounded
+                  class="mb-3"
+                />
+                <div class="d-flex justify-space-between mb-2">
+                  <span class="text-caption">Budget Spent</span>
+                  <span class="text-caption font-weight-bold">
+                    {{ formatCurrency(dashStore.budgetAnalysis.pacing?.currentMonthSpend) }}
+                  </span>
+                </div>
+                <v-progress-linear
+                  :model-value="dashStore.budgetAnalysis.pacing?.projectedMonthSpend > 0
+                    ? (dashStore.budgetAnalysis.pacing.currentMonthSpend / dashStore.budgetAnalysis.pacing.projectedMonthSpend) * 100
+                    : 0"
+                  :color="pacingColor"
+                  height="8"
+                  rounded
+                  class="mb-3"
+                />
+                <v-chip
+                  :color="pacingColor"
+                  size="small"
+                  variant="tonal"
+                >
+                  {{ dashStore.budgetAnalysis.pacing?.pacingStatus?.replace('_', ' ') }}
+                </v-chip>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  Projected: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.projectedMonthSpend) }}
+                  · Daily avg: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.dailyAvg30d) }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+
+          <!-- Day-of-Week Performance -->
+          <v-col cols="12" md="8">
+            <v-card variant="outlined">
+              <v-card-title class="text-subtitle-2">Day-of-Week Performance</v-card-title>
+              <v-card-text>
+                <v-table density="compact">
+                  <thead>
+                    <tr>
+                      <th>Day</th>
+                      <th class="text-end">Spend</th>
+                      <th class="text-end">Conversions</th>
+                      <th class="text-end">ROAS</th>
+                      <th class="text-end">CTR %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="d in dashStore.budgetAnalysis.dayOfWeek?.days || []"
+                      :key="d.day"
+                      :class="{
+                        'bg-green-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.bestDay,
+                        'bg-red-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.worstDay,
+                      }"
+                    >
+                      <td>{{ d.day?.substring(0, 3) }}</td>
+                      <td class="text-end">{{ formatCurrency(d.spend) }}</td>
+                      <td class="text-end">{{ formatDecimal(d.conversions) }}</td>
+                      <td class="text-end">{{ formatDecimal(d.roas) }}×</td>
+                      <td class="text-end">{{ formatPercent(d.ctr) }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  {{ dashStore.budgetAnalysis.dayOfWeek?.recommendation }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <!-- Campaign Ranking -->
+        <v-card v-if="dashStore.budgetAnalysis.campaignRanking?.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">Campaign Budget Ranking</v-card-title>
+          <v-data-table
+            :headers="budgetRankHeaders"
+            :items="dashStore.budgetAnalysis.campaignRanking"
+            density="compact"
+          >
+            <template #item.spend30d="{ item }">
+              {{ formatCurrency(item.spend30d) }}
+            </template>
+            <template #item.roas30d="{ item }">
+              {{ formatDecimal(item.roas30d) }}×
+            </template>
+            <template #item.dailyBudget="{ item }">
+              {{ formatCurrency(item.dailyBudget) }}
+            </template>
+            <template #item.suggestion="{ item }">
+              <v-chip
+                :color="item.suggestion === 'INCREASE_BUDGET' ? 'success'
+                  : item.suggestion === 'DECREASE_BUDGET' ? 'warning'
+                  : item.suggestion === 'PAUSE_OR_RESTRUCTURE' ? 'error'
+                  : 'grey'"
+                size="x-small"
+              >
+                {{ item.suggestion?.replace(/_/g, ' ') }}
+              </v-chip>
+            </template>
+          </v-data-table>
+        </v-card>
+
+        <!-- Diminishing Returns -->
+        <v-card v-if="dashStore.budgetAnalysis.diminishingReturns?.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">
+            <v-icon color="warning" class="mr-2" size="20">mdi-trending-down</v-icon>
+            Diminishing Returns Detected
+          </v-card-title>
+          <v-card-text>
+            <v-alert
+              v-for="(dr, i) in dashStore.budgetAnalysis.diminishingReturns"
+              :key="i"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-2"
+            >
+              <strong>{{ dr.entityType }} {{ dr.entityId?.substring(0, 8) }}…</strong>
+              — {{ dr.description }}
+            </v-alert>
+          </v-card-text>
+        </v-card>
+      </template>
+
+      <v-alert
+        v-else-if="dashStore.budgetAnalysis?.error"
+        type="warning"
+        variant="tonal"
+        class="mb-4"
+      >
+        {{ dashStore.budgetAnalysis.error }}
+      </v-alert>
     </template>
+  </div>
+</template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import api from '@/api/client'
+import { useDashboardStore } from '@/stores/dashboard'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -204,12 +424,17 @@ async function loadDashboard() {
     summary.value = summaryRes.data
     dailyData.value = dailyRes.data
     topCampaigns.value = topRes.data
+
+    // Auto-run anomaly detection in background (non-blocking)
+    dashStore.runAnomalyCheck(selectedClient.value).catch(() => {})
   } catch (e: any) {
     error.value = e.response?.data?.message || 'Failed to load dashboard data'
   } finally {
     loading.value = false
   }
 }
+
+const dashStore = useDashboardStore()
 
 onMounted(async () => {
   try {
@@ -223,6 +448,28 @@ onMounted(async () => {
     error.value = e.response?.data?.message || 'Failed to load clients'
   }
 })
+
+// Budget analysis
+async function loadBudgetAnalysis() {
+  if (!selectedClient.value) return
+  await dashStore.fetchBudgetAnalysis(selectedClient.value)
+}
+
+const pacingColor = computed(() => {
+  const status = dashStore.budgetAnalysis?.pacing?.pacingStatus
+  if (status === 'ON_TRACK') return 'success'
+  if (status === 'OVERSPENDING') return 'error'
+  return 'warning'
+})
+
+const budgetRankHeaders = [
+  { title: 'Campaign', key: 'campaignName' },
+  { title: 'Status', key: 'status', width: '100px' },
+  { title: 'Spend (30d)', key: 'spend30d', align: 'end' as const },
+  { title: 'ROAS', key: 'roas30d', align: 'end' as const },
+  { title: 'Daily Budget', key: 'dailyBudget', align: 'end' as const },
+  { title: 'Suggestion', key: 'suggestion' },
+]
 
 // ── Computed: has any data? ──
 
