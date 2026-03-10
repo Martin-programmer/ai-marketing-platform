@@ -12,6 +12,8 @@ public interface MetaConnectionRepository extends JpaRepository<MetaConnection, 
 
     Optional<MetaConnection> findByAgencyIdAndClientId(UUID agencyId, UUID clientId);
 
+    Optional<MetaConnection> findByClientId(UUID clientId);
+
     Optional<MetaConnection> findByIdAndAgencyId(UUID id, UUID agencyId);
 
     /** Find all connections by status (e.g. "CONNECTED"). */

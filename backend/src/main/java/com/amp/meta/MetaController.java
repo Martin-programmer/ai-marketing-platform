@@ -115,6 +115,13 @@ public class MetaController {
                 pageId = pages.get(0).id();
             }
 
+            // Get pixels for selected ad account
+            var pixels = metaGraphApiClient.getAdAccountPixels(request.accessToken(), selectedAccount.id());
+            String pixelId = request.pixelId();
+            if (pixelId == null && !pixels.isEmpty()) {
+                pixelId = pixels.get(0).id();
+            }
+
             // Try to exchange for long-lived token
             String tokenToStore = request.accessToken();
             try {
@@ -128,12 +135,13 @@ public class MetaController {
             // Save connection
             MetaConnection conn = metaService.completeOAuthConnect(
                     agencyId(), clientId, tokenToStore,
-                    selectedAccount.id(), request.pixelId(), pageId
+                    selectedAccount.id(), pixelId, pageId
             );
 
             return ResponseEntity.ok(Map.of(
                     "connection", MetaConnectionResponse.from(conn),
                     "adAccounts", adAccounts,
+                    "pixels", pixels,
                     "pages", pages
             ));
         } catch (Exception e) {
@@ -213,12 +221,16 @@ public class MetaController {
             var pages = metaGraphApiClient.getPages(longLivedResult.accessToken());
             String pageId = pages.isEmpty() ? null : pages.get(0).id();
 
+                // Get pixels for selected ad account
+                var pixels = metaGraphApiClient.getAdAccountPixels(longLivedResult.accessToken(), selectedAccount.id());
+                String pixelId = pixels.isEmpty() ? null : pixels.get(0).id();
+
             // Save connection
             metaService.completeOAuthConnect(
                     agencyId, clientId,
                     longLivedResult.accessToken(),
                     selectedAccount.id(),
-                    null, // pixel — can be set later
+                    pixelId,
                     pageId
             );
 

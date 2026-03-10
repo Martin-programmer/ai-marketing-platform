@@ -81,13 +81,22 @@ public class MetaService {
     public MetaConnection completeOAuthConnect(UUID agencyId, UUID clientId,
                                                String accessToken, String adAccountId,
                                                String pixelId, String pageId) {
-        // Delete any existing connection for this client
-        connectionRepository.findByAgencyIdAndClientId(agencyId, clientId)
-                .ifPresent(connectionRepository::delete);
+        // Upsert existing connection to avoid delete/insert ordering issues on reconnect
+        MetaConnection conn = connectionRepository.findByAgencyIdAndClientId(agencyId, clientId)
+            .or(() -> connectionRepository.findByClientId(clientId))
+            .orElseGet(MetaConnection::new);
 
-        MetaConnection conn = new MetaConnection();
-        conn.setAgencyId(agencyId);
-        conn.setClientId(clientId);
+        boolean isNew = conn.getId() == null;
+        if (isNew) {
+            conn.setAgencyId(agencyId);
+            conn.setClientId(clientId);
+            conn.setCreatedAt(OffsetDateTime.now());
+        } else {
+            // Keep row identity to satisfy unique(client_id), but normalize tenant linkage.
+            conn.setAgencyId(agencyId);
+            conn.setClientId(clientId);
+        }
+
         conn.setAdAccountId(adAccountId);
         conn.setPixelId(pixelId);
         conn.setPageId(pageId);
@@ -96,15 +105,20 @@ public class MetaService {
         conn.setTokenKeyId("plaintext-mvp");
         conn.setStatus("CONNECTED");
         conn.setConnectedAt(OffsetDateTime.now());
-        conn.setCreatedAt(OffsetDateTime.now());
         conn.setUpdatedAt(OffsetDateTime.now());
+        conn.setLastErrorCode(null);
+        conn.setLastErrorMessage(null);
 
         MetaConnection saved = connectionRepository.save(conn);
 
-        TenantContext ctx = TenantContextHolder.require();
-        auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),
-                AuditAction.META_CONNECT, "MetaConnection", saved.getId(),
-                null, saved.getStatus(), null);
+        // OAuth callback endpoint is public and may not have tenant context.
+        // Log audit only when context exists.
+        TenantContext ctx = TenantContextHolder.get();
+        if (ctx != null) {
+            auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),
+                    AuditAction.META_CONNECT, "MetaConnection", saved.getId(),
+                    null, saved.getStatus(), null);
+        }
 
         return saved;
     }
@@ -129,6 +143,14 @@ public class MetaService {
 
         String before = conn.getStatus();
         conn.setStatus("DISCONNECTED");
+        // Clear linked account details so UI doesn't continue showing stale data.
+        conn.setAdAccountId(null);
+        conn.setPixelId(null);
+        conn.setPageId(null);
+        conn.setLastSyncAt(null);
+        conn.setLastErrorCode(null);
+        conn.setLastErrorMessage(null);
+        conn.setAccessTokenEnc(new byte[0]);
         connectionRepository.save(conn);
 
         auditService.log(agencyId, clientId, ctx.getUserId(), ctx.getRole(),

@@ -208,6 +208,32 @@ public class MetaGraphApiClient {
         return pages;
     }
 
+    /**
+     * Get pixels available for an ad account.
+     */
+    public List<PixelInfo> getAdAccountPixels(String accessToken, String adAccountId) {
+        String url = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/adspixels"))
+                .queryParam("access_token", accessToken)
+                .queryParam("fields", "id,name")
+                .queryParam("limit", 100)
+                .toUriString();
+
+        ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+        JsonNode data = resp.getBody().get("data");
+
+        List<PixelInfo> pixels = new ArrayList<>();
+        if (data != null && data.isArray()) {
+            for (JsonNode node : data) {
+                pixels.add(new PixelInfo(
+                        node.get("id").asText(),
+                        node.has("name") ? node.get("name").asText() : ""
+                ));
+            }
+        }
+        return pixels;
+    }
+
     // ── Write methods ───────────────────────────────────────
 
     /**
@@ -376,6 +402,8 @@ public class MetaGraphApiClient {
 
     public record AdAccountInfo(String id, String name, String accountId,
                                 int status, String currency, String timezone) {}
+
+    public record PixelInfo(String id, String name) {}
 
     public record PageInfo(String id, String name) {}
 }

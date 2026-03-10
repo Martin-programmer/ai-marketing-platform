@@ -55,13 +55,13 @@
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.actions="{ item }">
-            <v-btn v-if="item.status === 'DRAFT'" size="small" variant="text" color="success" title="Publish" @click="store.publishCampaign(item.id)">
+            <v-btn v-if="rowItem(item).status === 'DRAFT'" size="small" variant="text" color="success" title="Publish" @click="store.publishCampaign(rowItem(item).id)">
               <v-icon>mdi-rocket-launch</v-icon>
             </v-btn>
-            <v-btn v-if="item.status === 'PUBLISHED'" size="small" variant="text" color="warning" title="Pause" @click="store.pauseCampaign(item.id)">
+            <v-btn v-if="rowItem(item).status === 'PUBLISHED'" size="small" variant="text" color="warning" title="Pause" @click="store.pauseCampaign(rowItem(item).id)">
               <v-icon>mdi-pause</v-icon>
             </v-btn>
-            <v-btn v-if="item.status === 'PAUSED'" size="small" variant="text" color="success" title="Resume" @click="store.resumeCampaign(item.id)">
+            <v-btn v-if="rowItem(item).status === 'PAUSED'" size="small" variant="text" color="success" title="Resume" @click="store.resumeCampaign(rowItem(item).id)">
               <v-icon>mdi-play</v-icon>
             </v-btn>
           </template>
@@ -71,20 +71,20 @@
             <tr>
               <td :colspan="columns.length" class="pa-4 bg-grey-lighten-4">
                 <div class="d-flex justify-space-between align-center mb-2">
-                  <h3>Adsets for "{{ item.name }}"</h3>
-                  <v-btn size="small" color="primary" variant="outlined" @click="openCreateAdset(item.id)">
+                  <h3>Adsets for "{{ rowItem(item).name }}"</h3>
+                  <v-btn size="small" color="primary" variant="outlined" @click="openCreateAdset(rowItem(item).id)">
                     <v-icon start>mdi-plus</v-icon> New Adset
                   </v-btn>
                 </div>
                 <v-data-table
                   :headers="adsetHeaders"
-                  :items="adsetMap[item.id] || []"
+                  :items="adsetMap[rowItem(item).id] || []"
                   item-value="id"
                   density="compact"
                   hover
                   show-expand
                   no-data-text="No adsets"
-                  @click:row="(_e: any, row: any) => onAdsetClick(row.item)"
+                  @click:row="(_e: any, row: any) => onAdsetClick(rowItem(row.item))"
                 >
                   <template #item.dailyBudget="{ item: adset }">
                     {{ adset.dailyBudget?.toFixed(2) ?? '—' }} BGN
@@ -101,6 +101,26 @@
                   </template>
                   <template #item.status="{ item: adset }">
                     <v-chip :color="campaignStatusColor(adset.status)" size="small">{{ adset.status }}</v-chip>
+                  </template>
+                  <template #item.actions="{ item: adset }">
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      color="info"
+                      title="Reload Ads"
+                      @click.stop="onAdsetClick(adset)"
+                    >
+                      <v-icon>mdi-refresh</v-icon>
+                    </v-btn>
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      title="Add Ad"
+                      @click.stop="openCreateAd(adset.id)"
+                    >
+                      <v-icon>mdi-plus</v-icon>
+                    </v-btn>
                   </template>
 
                   <!-- Expanded adset row: Ads -->
@@ -409,6 +429,10 @@ const adHeaders = [
   { title: 'Status', key: 'status' },
 ]
 
+function rowItem<T = any>(item: any): T {
+  return item && typeof item === 'object' && 'raw' in item ? item.raw as T : item as T
+}
+
 function campaignStatusColor(status: string) {
   const map: Record<string, string> = { DRAFT: 'grey', PUBLISHED: 'success', PAUSED: 'warning', ARCHIVED: 'error' }
   return map[status] || 'grey'
@@ -431,6 +455,11 @@ async function onClientChange(clientId: string) {
     for (const c of store.campaigns) {
       const data = await store.fetchAdsets(c.id)
       adsetMap[c.id] = data
+      // Pre-fetch ads for each adset so expanded rows are populated immediately
+      for (const adset of data) {
+        const ads = await store.fetchAds(adset.id)
+        adMap[adset.id] = ads
+      }
     }
   }
 }

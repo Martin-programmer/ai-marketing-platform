@@ -72,9 +72,17 @@ export const useMetaStore = defineStore('meta', () => {
 
       // Listen for postMessage from callback page
       return new Promise<boolean>((resolve) => {
+        const timeoutId = window.setTimeout(() => {
+          window.removeEventListener('message', handler)
+          if (popup && !popup.closed) popup.close()
+          error.value = 'Connection timed out'
+          resolve(false)
+        }, 300_000)
+
         const handler = (event: MessageEvent) => {
           if (event.data?.type === 'META_OAUTH_RESULT') {
             window.removeEventListener('message', handler)
+            window.clearTimeout(timeoutId)
             if (event.data.success) {
               fetchConnection(clientId)
               resolve(true)
@@ -85,14 +93,6 @@ export const useMetaStore = defineStore('meta', () => {
           }
         }
         window.addEventListener('message', handler)
-
-        // Timeout after 5 minutes
-        setTimeout(() => {
-          window.removeEventListener('message', handler)
-          if (popup && !popup.closed) popup.close()
-          error.value = 'Connection timed out'
-          resolve(false)
-        }, 300_000)
       })
     } catch (e: any) {
       error.value = e.response?.data?.message || 'Failed to start connection'
@@ -103,9 +103,17 @@ export const useMetaStore = defineStore('meta', () => {
   }
 
   async function disconnect(clientId: string) {
-    await api.post(`/clients/${clientId}/meta/disconnect`)
-    connection.value = null
-    syncJobs.value = []
+    loading.value = true
+    error.value = null
+    try {
+      await api.post(`/clients/${clientId}/meta/disconnect`)
+      await fetchConnection(clientId)
+      syncJobs.value = []
+    } catch (e: any) {
+      error.value = e.response?.data?.message || 'Failed to disconnect'
+    } finally {
+      loading.value = false
+    }
   }
 
   async function fetchSyncJobs(clientId: string) {
