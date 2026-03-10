@@ -62,6 +62,15 @@
           <v-chip size="small" class="ma-1" @click="fillDemo('owner_admin@local')">Owner Admin</v-chip>
           <v-chip size="small" class="ma-1" color="teal" @click="fillDemo('client_user@local')">Client User</v-chip>
         </div>
+
+        <div class="text-center mt-6">
+          <router-link to="/privacy" class="text-caption text-medium-emphasis text-decoration-none mr-3">
+            Privacy Policy
+          </router-link>
+          <router-link to="/terms" class="text-caption text-medium-emphasis text-decoration-none">
+            Terms of Service
+          </router-link>
+        </div>
       </v-card>
     </v-main>
   </v-app>

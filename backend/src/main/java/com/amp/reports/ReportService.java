@@ -147,6 +147,26 @@ public class ReportService {
         return ReportResponse.from(r);
     }
 
+    public ReportResponse markReportApproved(UUID agencyId, UUID reportId) {
+        TenantContext ctx = TenantContextHolder.require();
+        Report r = findReportOrThrow(agencyId, reportId);
+
+        if (!"DRAFT".equals(r.getStatus()) && !"IN_REVIEW".equals(r.getStatus())) {
+            throw new IllegalStateException("Only DRAFT or IN_REVIEW reports can be approved, current status: " + r.getStatus());
+        }
+
+        r.setStatus("APPROVED");
+        r.setApprovedBy(ctx.getUserId());
+        r.setApprovedAt(OffsetDateTime.now());
+        Report saved = reportRepository.save(r);
+
+        auditService.log(agencyId, r.getClientId(), ctx.getUserId(), ctx.getRole(),
+                AuditAction.REPORT_APPROVE, "Report", reportId,
+                null, "APPROVED", null);
+
+        return ReportResponse.from(saved);
+    }
+
     public ReportResponse markReportSent(UUID agencyId, UUID reportId) {
         TenantContext ctx = TenantContextHolder.require();
         Report r = findReportOrThrow(agencyId, reportId);

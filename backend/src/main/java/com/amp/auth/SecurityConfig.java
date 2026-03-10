@@ -64,6 +64,7 @@ public class SecurityConfig {
                         "/api-docs/**",
                         "/webjars/**",
                         "/api/v1/auth/**",
+                        "/api/v1/public/**",
                         "/api/v1/meta/oauth/callback"
                 ).permitAll()
                 .anyRequest().authenticated()

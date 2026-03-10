@@ -1,6 +1,13 @@
 <template>
-  <!-- If not authenticated, show only router-view (login screen) -->
-  <router-view v-if="!authStore.isAuthenticated" />
+  <!-- If not authenticated, show public view + footer -->
+  <template v-if="!authStore.isAuthenticated">
+    <router-view />
+    <div class="global-legal-footer">
+      <router-link to="/privacy" class="legal-link">Privacy Policy</router-link>
+      <span class="mx-2">•</span>
+      <router-link to="/terms" class="legal-link">Terms of Service</router-link>
+    </div>
+  </template>
 
   <!-- If authenticated, show navigation layout -->
   <v-app v-else>
@@ -84,6 +91,12 @@
         <router-view />
       </v-container>
     </v-main>
+
+    <v-footer app height="40" class="justify-center text-caption text-medium-emphasis">
+      <router-link to="/privacy" class="legal-link">Privacy Policy</router-link>
+      <span class="mx-2">•</span>
+      <router-link to="/terms" class="legal-link">Terms of Service</router-link>
+    </v-footer>
   </v-app>
 </template>
 
@@ -108,3 +121,21 @@ function handleLogout() {
   router.push('/login')
 }
 </script>
+
+<style scoped>
+.global-legal-footer {
+  text-align: center;
+  margin: 12px 0 20px;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+}
+
+.legal-link {
+  color: rgba(0, 0, 0, 0.62);
+  text-decoration: none;
+}
+
+.legal-link:hover {
+  text-decoration: underline;
+}
+</style>

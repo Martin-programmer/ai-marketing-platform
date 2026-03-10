@@ -43,10 +43,15 @@ public class ReportController {
                                          @Valid @RequestBody GenerateReportRequest req) {
         accessControl.requireClientPermission(clientId, Permission.REPORTS_EDIT);
         UUID agencyId = TenantContextHolder.require().getAgencyId();
-        if (!clientId.equals(req.clientId())) {
+        if (req.clientId() != null && !clientId.equals(req.clientId())) {
             throw new IllegalArgumentException("clientId in path and body must match");
         }
-        return reportService.generateReport(agencyId, req);
+        GenerateReportRequest normalizedReq = new GenerateReportRequest(
+                clientId,
+                req.reportType(),
+                req.periodStart(),
+                req.periodEnd());
+        return reportService.generateReport(agencyId, normalizedReq);
     }
 
     @GetMapping("/clients/{clientId}/reports")
@@ -62,6 +67,14 @@ public class ReportController {
         UUID clientId = reportService.resolveClientId(agencyId, reportId);
         accessControl.requireClientPermission(clientId, Permission.REPORTS_VIEW);
         return reportService.getReport(agencyId, reportId);
+    }
+
+    @PostMapping("/reports/{reportId}/approve")
+    public ReportResponse markReportApproved(@PathVariable UUID reportId) {
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        UUID clientId = reportService.resolveClientId(agencyId, reportId);
+        accessControl.requireClientPermission(clientId, Permission.REPORTS_EDIT);
+        return reportService.markReportApproved(agencyId, reportId);
     }
 
     @PostMapping("/reports/{reportId}/send")

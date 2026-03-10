@@ -28,6 +28,18 @@ const router = createRouter({
       component: () => import('@/views/ResetPasswordView.vue'),
       meta: { public: true }
     },
+    {
+      path: '/privacy',
+      name: 'privacy-policy',
+      component: () => import('@/views/PrivacyPolicyView.vue'),
+      meta: { public: true }
+    },
+    {
+      path: '/terms',
+      name: 'terms-of-service',
+      component: () => import('@/views/TermsOfServiceView.vue'),
+      meta: { public: true }
+    },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
     { path: '/clients', name: 'clients', component: () => import('@/views/ClientsView.vue') },
     { path: '/clients/:id', name: 'client-detail', component: () => import('@/views/ClientDetailView.vue') },
