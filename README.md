@@ -306,6 +306,16 @@ Both Dockerfiles use **multi-stage builds** with Spring Boot layered JARs (backe
 
 ## Infrastructure
 
+### EC2 SSL Certificate Auto-Renew (Let's Encrypt)
+
+For EC2-based deployments, configure a nightly cron job to renew certificates and restart frontend container:
+
+```bash
+0 0 1 * * certbot renew --quiet && docker-compose -f /home/ec2-user/amp/docker-compose.yml restart frontend
+```
+
+This keeps HTTPS certificates valid without manual intervention.
+
 ### AWS Architecture (Terraform)
 
 Seven modular Terraform configurations in `infra/terraform/modules/`:
