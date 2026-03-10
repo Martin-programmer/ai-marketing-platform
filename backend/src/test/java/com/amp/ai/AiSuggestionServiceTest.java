@@ -35,6 +35,7 @@ class AiSuggestionServiceTest {
     @Mock private AiSuggestionRepository suggestionRepository;
     @Mock private AiActionLogRepository actionLogRepository;
     @Mock private AuditService auditService;
+    @Mock private ExecutorService executorService;
 
     @InjectMocks
     private AiSuggestionService suggestionService;
@@ -146,21 +147,23 @@ class AiSuggestionServiceTest {
     // ──────── applySuggestion ────────
 
     @Test
-    @DisplayName("applySuggestion — success: APPROVED → APPLIED, action log created")
+    @DisplayName("applySuggestion — success: APPROVED → delegates to executor, reloads as APPLIED")
     void applySuggestion_success() {
-        AiSuggestion s = buildSuggestion("APPROVED");
-        when(suggestionRepository.findByIdAndAgencyId(SUGGESTION_ID, AGENCY_ID)).thenReturn(Optional.of(s));
-        when(suggestionRepository.save(any(AiSuggestion.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(actionLogRepository.save(any(AiActionLog.class))).thenAnswer(inv -> {
-            AiActionLog log = inv.getArgument(0);
-            log.setId(UUID.randomUUID());
-            return log;
-        });
+        AiSuggestion approved = buildSuggestion("APPROVED");
+        AiSuggestion applied  = buildSuggestion("APPLIED");
+
+        // First call: status check; second call: reload after executor runs
+        when(suggestionRepository.findByIdAndAgencyId(SUGGESTION_ID, AGENCY_ID))
+                .thenReturn(Optional.of(approved))
+                .thenReturn(Optional.of(applied));
+
+        when(executorService.executeSuggestion(AGENCY_ID, SUGGESTION_ID))
+                .thenReturn(java.util.Map.of("status", "APPLIED"));
 
         SuggestionResponse result = suggestionService.applySuggestion(AGENCY_ID, SUGGESTION_ID);
 
         assertThat(result.status()).isEqualTo("APPLIED");
-        verify(actionLogRepository).save(any(AiActionLog.class));
+        verify(executorService).executeSuggestion(AGENCY_ID, SUGGESTION_ID);
         verify(auditService).log(eq(AGENCY_ID), eq(CLIENT_ID), any(), any(), any(), any(), any(), any(), any(), any());
     }
 

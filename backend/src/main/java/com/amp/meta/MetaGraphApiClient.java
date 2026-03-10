@@ -3,6 +3,9 @@ package com.amp.meta;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -203,6 +206,125 @@ public class MetaGraphApiClient {
             }
         }
         return pages;
+    }
+
+    // ── Write methods ───────────────────────────────────────
+
+    /**
+     * Update an ad's status (pause/enable).
+     */
+    public JsonNode updateAdStatus(String accessToken, String adId, String status) {
+        return updateEntityField(accessToken, adId, "status", status);
+    }
+
+    /**
+     * Update an adset's status.
+     */
+    public JsonNode updateAdsetStatus(String accessToken, String adsetId, String status) {
+        return updateEntityField(accessToken, adsetId, "status", status);
+    }
+
+    /**
+     * Update a campaign's status.
+     */
+    public JsonNode updateCampaignStatus(String accessToken, String campaignId, String status) {
+        return updateEntityField(accessToken, campaignId, "status", status);
+    }
+
+    /**
+     * Update an adset's daily budget (in currency's smallest unit, e.g. cents).
+     */
+    public JsonNode updateAdsetBudget(String accessToken, String adsetId, long dailyBudgetCents) {
+        return updateEntityField(accessToken, adsetId, "daily_budget", String.valueOf(dailyBudgetCents));
+    }
+
+    /**
+     * Get current entity details from Meta.
+     */
+    public JsonNode getEntityDetails(String accessToken, String entityId, String fields) {
+        String url = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getGraphUrl(entityId))
+                .queryParam("access_token", accessToken)
+                .queryParam("fields", fields)
+                .toUriString();
+
+        ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+        return resp.getBody();
+    }
+
+    /**
+     * Create a campaign in Meta.
+     */
+    public JsonNode createCampaign(String accessToken, String adAccountId,
+                                   String name, String objective, String status) {
+        String url = metaProps.getGraphUrl(adAccountId + "/campaigns");
+        String body = "access_token=" + accessToken
+                + "&name=" + urlEncode(name)
+                + "&objective=" + objective
+                + "&status=" + status
+                + "&special_ad_categories=[]";
+        return postForm(url, body);
+    }
+
+    /**
+     * Create an adset in Meta.
+     */
+    public JsonNode createAdset(String accessToken, String metaCampaignId,
+                                String name, long dailyBudgetCents,
+                                String targetingJson, String optimizationGoal,
+                                String billingEvent) {
+        String url = metaProps.getGraphUrl(metaCampaignId + "/adsets");
+        String body = "access_token=" + accessToken
+                + "&name=" + urlEncode(name)
+                + "&daily_budget=" + dailyBudgetCents
+                + "&targeting=" + urlEncode(targetingJson)
+                + "&optimization_goal=" + optimizationGoal
+                + "&billing_event=" + billingEvent
+                + "&status=PAUSED";
+        return postForm(url, body);
+    }
+
+    /**
+     * Create an ad in Meta.
+     */
+    public JsonNode createAd(String accessToken, String metaAdsetId,
+                             String name, String creativeSpec) {
+        String url = metaProps.getGraphUrl(metaAdsetId + "/ads");
+        String body = "access_token=" + accessToken
+                + "&name=" + urlEncode(name)
+                + "&creative=" + urlEncode(creativeSpec)
+                + "&status=PAUSED";
+        return postForm(url, body);
+    }
+
+    private JsonNode postForm(String url, String body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<JsonNode> resp = restTemplate.postForEntity(url, entity, JsonNode.class);
+        return resp.getBody();
+    }
+
+    private static String urlEncode(String s) {
+        try {
+            return java.net.URLEncoder.encode(s, "UTF-8");
+        } catch (Exception e) {
+            return s;
+        }
+    }
+
+    private JsonNode updateEntityField(String accessToken, String entityId,
+                                       String field, String value) {
+        String url = metaProps.getGraphUrl(entityId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        String body = "access_token=" + accessToken + "&" + field + "=" + value;
+
+        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<JsonNode> resp = restTemplate.postForEntity(url, entity, JsonNode.class);
+        return resp.getBody();
     }
 
     // ── Pagination helpers ──────────────────────────────────

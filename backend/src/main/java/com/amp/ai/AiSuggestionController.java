@@ -75,6 +75,22 @@ public class AiSuggestionController {
         return aiSuggestionService.applySuggestion(agencyId, suggestionId);
     }
 
+    /**
+     * Approve and immediately apply a suggestion (single-step convenience).
+     */
+    @PostMapping("/suggestions/{suggestionId}/approve-and-apply")
+    public SuggestionResponse approveAndApply(@PathVariable UUID suggestionId) {
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        UUID clientId = aiSuggestionService.resolveClientId(agencyId, suggestionId);
+        accessControl.requireClientPermission(clientId, Permission.AI_APPROVE);
+
+        // First approve
+        aiSuggestionService.approveSuggestion(agencyId, suggestionId);
+
+        // Then execute via Meta API
+        return aiSuggestionService.applySuggestion(agencyId, suggestionId);
+    }
+
     @GetMapping("/suggestions/{suggestionId}/actions")
     public List<ActionLogResponse> getActionLogs(@PathVariable UUID suggestionId) {
         UUID agencyId = TenantContextHolder.require().getAgencyId();

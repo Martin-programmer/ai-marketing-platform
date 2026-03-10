@@ -42,6 +42,39 @@ export interface Ad {
   updatedAt: string
 }
 
+export interface ProposedAd {
+  adId: string
+  name: string
+  creativeAssetId: string | null
+  primaryText: string
+  headline: string
+  description: string
+  cta: string
+  url: string
+}
+
+export interface ProposedAdset {
+  adsetId: string
+  name: string
+  dailyBudget: number
+  targetingJson: string
+  optimizationGoal: string
+  ads: ProposedAd[]
+}
+
+export interface CampaignProposal {
+  campaignId: string
+  campaignName: string
+  objective: string
+  platform: string
+  status: string
+  rationale: string
+  suggestedDailyBudget: number
+  estimatedResults: string
+  warnings: string[]
+  adsets: ProposedAdset[]
+}
+
 export const useCampaignStore = defineStore('campaigns', () => {
   const campaigns = ref<Campaign[]>([])
   const adsets = ref<Adset[]>([])
@@ -49,6 +82,8 @@ export const useCampaignStore = defineStore('campaigns', () => {
   const selectedClientId = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const proposalLoading = ref(false)
+  const proposal = ref<CampaignProposal | null>(null)
 
   async function fetchCampaigns(clientId: string) {
     loading.value = true
@@ -111,9 +146,37 @@ export const useCampaignStore = defineStore('campaigns', () => {
     return data
   }
 
+  async function generateProposal(clientId: string, brief: string) {
+    proposalLoading.value = true
+    error.value = null
+    proposal.value = null
+    try {
+      const { data } = await api.post(`/clients/${clientId}/campaigns/ai-propose`, { brief })
+      proposal.value = data
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.message
+      throw e
+    } finally {
+      proposalLoading.value = false
+    }
+  }
+
+  async function metaPublish(campaignId: string) {
+    const { data } = await api.post(`/campaigns/${campaignId}/meta-publish`)
+    // Refresh the campaign in the list
+    const idx = campaigns.value.findIndex(c => c.id === campaignId)
+    if (idx >= 0 && data.status === 'PUBLISHED') {
+      campaigns.value[idx] = { ...campaigns.value[idx], status: 'PUBLISHED' }
+    }
+    return data
+  }
+
   return {
     campaigns, adsets, ads, selectedClientId, loading, error,
+    proposal, proposalLoading,
     fetchCampaigns, createCampaign, publishCampaign, pauseCampaign, resumeCampaign,
     fetchAdsets, createAdset, fetchAds, createAd,
+    generateProposal, metaPublish,
   }
 })

@@ -1,0 +1,394 @@
+package com.amp.ai;
+
+import com.amp.campaigns.*;
+import com.amp.clients.Client;
+import com.amp.clients.ClientRepository;
+import com.amp.creatives.CopyVariant;
+import com.amp.creatives.CopyVariantRepository;
+import com.amp.creatives.CreativeAsset;
+import com.amp.creatives.CreativeAssetRepository;
+import com.amp.common.exception.ResourceNotFoundException;
+import com.amp.insights.InsightDaily;
+import com.amp.insights.InsightDailyRepository;
+import com.amp.meta.MetaConnection;
+import com.amp.meta.MetaConnectionRepository;
+import com.amp.tenancy.TenantContext;
+import com.amp.tenancy.TenantContextHolder;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Generates full campaign proposals using Claude (Opus model).
+ * <p>
+ * Gathers client context (profile, creatives, copy variants, historical insights,
+ * active campaigns, Meta connection details), sends it to Claude with a structured
+ * system prompt, parses the JSON response, and persists DRAFT campaign + adsets + ads.
+ */
+@Service
+public class CampaignCreatorService {
+
+    private static final Logger log = LoggerFactory.getLogger(CampaignCreatorService.class);
+
+    private final ClaudeApiClient claudeClient;
+    private final AiProperties aiProps;
+    private final ClientRepository clientRepo;
+    private final CreativeAssetRepository creativeRepo;
+    private final CopyVariantRepository copyRepo;
+    private final InsightDailyRepository insightRepo;
+    private final CampaignRepository campaignRepo;
+    private final AdsetRepository adsetRepo;
+    private final AdRepository adRepo;
+    private final MetaConnectionRepository metaConnRepo;
+    private final ObjectMapper objectMapper;
+
+    public CampaignCreatorService(ClaudeApiClient claudeClient,
+                                  AiProperties aiProps,
+                                  ClientRepository clientRepo,
+                                  CreativeAssetRepository creativeRepo,
+                                  CopyVariantRepository copyRepo,
+                                  InsightDailyRepository insightRepo,
+                                  CampaignRepository campaignRepo,
+                                  AdsetRepository adsetRepo,
+                                  AdRepository adRepo,
+                                  MetaConnectionRepository metaConnRepo,
+                                  ObjectMapper objectMapper) {
+        this.claudeClient = claudeClient;
+        this.aiProps = aiProps;
+        this.clientRepo = clientRepo;
+        this.creativeRepo = creativeRepo;
+        this.copyRepo = copyRepo;
+        this.insightRepo = insightRepo;
+        this.campaignRepo = campaignRepo;
+        this.adsetRepo = adsetRepo;
+        this.adRepo = adRepo;
+        this.metaConnRepo = metaConnRepo;
+        this.objectMapper = objectMapper;
+    }
+
+    // ──────── Public API ────────
+
+    /**
+     * Generate a full AI campaign proposal for a client.
+     */
+    @Transactional
+    public CampaignProposalResponse generateProposal(UUID agencyId, UUID clientId, String briefText) {
+        TenantContext ctx = TenantContextHolder.require();
+
+        Client client = clientRepo.findByIdAndAgencyId(clientId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
+
+        // ── 1. Gather context ──
+        String contextPayload = buildContextPayload(agencyId, clientId, client, briefText);
+
+        // ── 2. Call Claude Opus ──
+        String systemPrompt = buildSystemPrompt();
+        String model = aiProps.getAnthropic().getComplexModel();
+        int maxTokens = 8192;
+
+        ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
+                systemPrompt, contextPayload, "CAMPAIGN_CREATOR",
+                agencyId, clientId, model, maxTokens);
+
+        if (!response.isSuccess()) {
+            throw new IllegalStateException("AI proposal generation failed: " + response.error());
+        }
+
+        // ── 3. Parse JSON response ──
+        JsonNode proposalJson = claudeClient.parseJson(response.text());
+        if (proposalJson == null) {
+            throw new IllegalStateException("Failed to parse AI response as JSON");
+        }
+
+        // ── 4. Deduplicate by campaign name ──
+        String campaignName = proposalJson.has("campaign_name")
+                ? proposalJson.get("campaign_name").asText()
+                : "AI Campaign — " + client.getName();
+
+        boolean exists = campaignRepo.findAllByAgencyIdAndClientId(agencyId, clientId)
+                .stream().anyMatch(c -> campaignName.equals(c.getName()));
+        if (exists) {
+            throw new IllegalStateException(
+                    "A campaign named '" + campaignName + "' already exists for this client");
+        }
+
+        // ── 5. Persist DRAFT campaign structure ──
+        return persistProposal(agencyId, clientId, ctx.getUserId(), proposalJson, campaignName);
+    }
+
+    // ──────── Context builder ────────
+
+    private String buildContextPayload(UUID agencyId, UUID clientId, Client client, String briefText) {
+        StringBuilder sb = new StringBuilder();
+
+        // Client profile
+        sb.append("## Client Profile\n");
+        sb.append("Name: ").append(client.getName()).append("\n");
+        sb.append("Industry: ").append(client.getIndustry()).append("\n");
+        sb.append("Currency: ").append(client.getCurrency()).append("\n");
+        sb.append("Timezone: ").append(client.getTimezone()).append("\n\n");
+
+        // Ad account info
+        metaConnRepo.findByAgencyIdAndClientId(agencyId, clientId).ifPresent(conn -> {
+            sb.append("## Meta Ad Account\n");
+            sb.append("Ad Account ID: ").append(conn.getAdAccountId()).append("\n");
+            sb.append("Status: ").append(conn.getStatus()).append("\n\n");
+        });
+
+        // Creative assets
+        List<CreativeAsset> assets = creativeRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
+        if (!assets.isEmpty()) {
+            sb.append("## Creative Assets (").append(assets.size()).append(" total)\n");
+            for (CreativeAsset a : assets) {
+                sb.append("- ID: ").append(a.getId())
+                  .append(" | Type: ").append(a.getAssetType())
+                  .append(" | File: ").append(a.getOriginalFilename())
+                  .append(" | Status: ").append(a.getStatus());
+                if (a.getWidthPx() != null) {
+                    sb.append(" | Size: ").append(a.getWidthPx()).append("x").append(a.getHeightPx());
+                }
+                sb.append("\n");
+            }
+            sb.append("\n");
+        } else {
+            sb.append("## Creative Assets\nNone available. Suggest text-only ads or warn.\n\n");
+        }
+
+        // Copy variants
+        List<CopyVariant> copies = copyRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
+        if (!copies.isEmpty()) {
+            sb.append("## Copy Variants (").append(copies.size()).append(" total)\n");
+            for (CopyVariant cv : copies) {
+                sb.append("- Asset: ").append(cv.getCreativeAssetId())
+                  .append(" | Headline: ").append(cv.getHeadline())
+                  .append(" | Primary: ").append(truncate(cv.getPrimaryText(), 80))
+                  .append(" | CTA: ").append(cv.getCta())
+                  .append("\n");
+            }
+            sb.append("\n");
+        }
+
+        // Historical insights (last 90 days, aggregated)
+        LocalDate to = LocalDate.now();
+        LocalDate from = to.minusDays(90);
+        List<InsightDaily> insights = insightRepo.findAllByAgencyIdAndClientIdAndDateBetween(
+                agencyId, clientId, from, to);
+        if (!insights.isEmpty()) {
+            double totalSpend   = insights.stream().mapToDouble(i -> i.getSpend().doubleValue()).sum();
+            long   totalImpr    = insights.stream().mapToLong(InsightDaily::getImpressions).sum();
+            long   totalClicks  = insights.stream().mapToLong(InsightDaily::getClicks).sum();
+            double totalConvVal = insights.stream()
+                    .mapToDouble(i -> i.getConversionValue().doubleValue()).sum();
+            double avgCtr       = totalImpr > 0 ? (double) totalClicks / totalImpr * 100 : 0;
+
+            sb.append("## Historical Performance (last 90 days)\n");
+            sb.append("Total Spend: ").append(String.format("%.2f", totalSpend)).append("\n");
+            sb.append("Impressions: ").append(totalImpr).append("\n");
+            sb.append("Clicks: ").append(totalClicks).append("\n");
+            sb.append("Avg CTR: ").append(String.format("%.2f%%", avgCtr)).append("\n");
+            sb.append("Conversion Value: ").append(String.format("%.2f", totalConvVal)).append("\n");
+            if (totalSpend > 0) {
+                sb.append("ROAS: ").append(String.format("%.2fx", totalConvVal / totalSpend)).append("\n");
+            }
+            sb.append("\n");
+        }
+
+        // Active campaigns
+        List<Campaign> existing = campaignRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
+        List<Campaign> active = existing.stream()
+                .filter(c -> "PUBLISHED".equals(c.getStatus()) || "DRAFT".equals(c.getStatus()))
+                .toList();
+        if (!active.isEmpty()) {
+            sb.append("## Existing Campaigns (").append(active.size()).append(")\n");
+            for (Campaign c : active) {
+                sb.append("- ").append(c.getName())
+                  .append(" (").append(c.getObjective()).append(", ").append(c.getStatus()).append(")\n");
+            }
+            sb.append("\n");
+        }
+
+        // Agency brief
+        if (briefText != null && !briefText.isBlank()) {
+            sb.append("## Agency Brief\n").append(briefText).append("\n\n");
+        }
+
+        return sb.toString();
+    }
+
+    // ──────── System prompt ────────
+
+    private String buildSystemPrompt() {
+        return """
+            You are a senior Meta Ads media buyer with 10+ years of experience.
+            Create a detailed campaign proposal in STRICT JSON format.
+
+            The JSON must have this exact structure:
+            {
+              "campaign_name": "string",
+              "objective": "SALES|LEADS|TRAFFIC|AWARENESS",
+              "rationale": "string explaining your strategic reasoning",
+              "suggested_daily_budget": number,
+              "estimated_results": "string with expected KPIs",
+              "warnings": ["array of warnings or caveats"],
+              "adsets": [
+                {
+                  "name": "string",
+                  "daily_budget": number,
+                  "targeting": {"age_min": 25, "age_max": 55, "genders": [1,2], "interests": ["..."]},
+                  "optimization_goal": "CONVERSIONS|LINK_CLICKS|IMPRESSIONS|REACH",
+                  "ads": [
+                    {
+                      "name": "string",
+                      "creative_asset_id": "UUID or null",
+                      "primary_text": "string (max 125 chars for best performance)",
+                      "headline": "string (max 40 chars)",
+                      "description": "string (max 30 chars)",
+                      "cta": "LEARN_MORE|SHOP_NOW|SIGN_UP|GET_OFFER|CONTACT_US",
+                      "url": "https://..."
+                    }
+                  ]
+                }
+              ]
+            }
+
+            Rules:
+            - Reference existing creative_asset_id UUIDs from the provided list when available
+            - If no creatives are available, set creative_asset_id to null and add a warning
+            - Create 2-4 adsets with different targeting segments
+            - Each adset should have 2-3 ads (for A/B testing)
+            - Budget allocation should be strategic across adsets
+            - Consider historical performance when setting expectations
+            - Campaign name must be unique and descriptive
+            - Respond ONLY with the JSON object, no markdown or extra text
+            """;
+    }
+
+    // ──────── Persist proposal ────────
+
+    private CampaignProposalResponse persistProposal(UUID agencyId, UUID clientId, UUID userId,
+                                                      JsonNode json, String campaignName) {
+        String objective = json.has("objective") ? json.get("objective").asText() : "SALES";
+        String rationale = json.has("rationale") ? json.get("rationale").asText() : "";
+        BigDecimal suggestedBudget = json.has("suggested_daily_budget")
+                ? BigDecimal.valueOf(json.get("suggested_daily_budget").asDouble())
+                : BigDecimal.ZERO;
+        String estimatedResults = json.has("estimated_results")
+                ? json.get("estimated_results").asText() : "";
+
+        List<String> warnings = new ArrayList<>();
+        if (json.has("warnings") && json.get("warnings").isArray()) {
+            for (JsonNode w : json.get("warnings")) {
+                warnings.add(w.asText());
+            }
+        }
+
+        // Create campaign
+        Campaign campaign = new Campaign();
+        campaign.setAgencyId(agencyId);
+        campaign.setClientId(clientId);
+        campaign.setPlatform("META");
+        campaign.setName(campaignName);
+        campaign.setObjective(objective);
+        campaign.setStatus("DRAFT");
+        campaign.setCreatedBy(userId);
+        campaign.setCreatedAt(OffsetDateTime.now());
+        campaign.setUpdatedAt(OffsetDateTime.now());
+        campaign = campaignRepo.save(campaign);
+
+        // Create adsets + ads
+        List<CampaignProposalResponse.ProposedAdset> proposedAdsets = new ArrayList<>();
+
+        JsonNode adsetsJson = json.get("adsets");
+        if (adsetsJson != null && adsetsJson.isArray()) {
+            for (JsonNode adsetJson : adsetsJson) {
+                Adset adset = new Adset();
+                adset.setAgencyId(agencyId);
+                adset.setClientId(clientId);
+                adset.setCampaignId(campaign.getId());
+                adset.setName(adsetJson.has("name") ? adsetJson.get("name").asText() : "Adset");
+                adset.setDailyBudget(adsetJson.has("daily_budget")
+                        ? BigDecimal.valueOf(adsetJson.get("daily_budget").asDouble())
+                        : BigDecimal.TEN);
+                adset.setTargetingJson(adsetJson.has("targeting")
+                        ? adsetJson.get("targeting").toString() : "{}");
+                adset.setStatus("DRAFT");
+                adset.setCreatedAt(OffsetDateTime.now());
+                adset.setUpdatedAt(OffsetDateTime.now());
+                adset = adsetRepo.save(adset);
+
+                String optGoal = adsetJson.has("optimization_goal")
+                        ? adsetJson.get("optimization_goal").asText() : "CONVERSIONS";
+
+                // Create ads
+                List<CampaignProposalResponse.ProposedAd> proposedAds = new ArrayList<>();
+                JsonNode adsJson = adsetJson.get("ads");
+                if (adsJson != null && adsJson.isArray()) {
+                    for (JsonNode adJson : adsJson) {
+                        UUID creativeAssetId = null;
+                        if (adJson.has("creative_asset_id")
+                                && !adJson.get("creative_asset_id").isNull()
+                                && !adJson.get("creative_asset_id").asText().equals("null")) {
+                            try {
+                                creativeAssetId = UUID.fromString(adJson.get("creative_asset_id").asText());
+                            } catch (Exception ignored) { /* LLM might produce invalid UUID */ }
+                        }
+
+                        Ad ad = new Ad();
+                        ad.setAgencyId(agencyId);
+                        ad.setClientId(clientId);
+                        ad.setAdsetId(adset.getId());
+                        ad.setName(adJson.has("name") ? adJson.get("name").asText() : "Ad");
+                        ad.setCreativePackageItemId(creativeAssetId);
+                        ad.setStatus("DRAFT");
+                        ad.setCreatedAt(OffsetDateTime.now());
+                        ad.setUpdatedAt(OffsetDateTime.now());
+                        ad = adRepo.save(ad);
+
+                        proposedAds.add(new CampaignProposalResponse.ProposedAd(
+                                ad.getId(),
+                                ad.getName(),
+                                creativeAssetId,
+                                adJson.has("primary_text") ? adJson.get("primary_text").asText() : "",
+                                adJson.has("headline") ? adJson.get("headline").asText() : "",
+                                adJson.has("description") ? adJson.get("description").asText() : "",
+                                adJson.has("cta") ? adJson.get("cta").asText() : "LEARN_MORE",
+                                adJson.has("url") ? adJson.get("url").asText() : ""
+                        ));
+                    }
+                }
+
+                proposedAdsets.add(new CampaignProposalResponse.ProposedAdset(
+                        adset.getId(),
+                        adset.getName(),
+                        adset.getDailyBudget(),
+                        adset.getTargetingJson(),
+                        optGoal,
+                        proposedAds
+                ));
+            }
+        }
+
+        log.info("Created AI campaign proposal '{}' with {} adsets for client {}",
+                campaignName, proposedAdsets.size(), clientId);
+
+        return new CampaignProposalResponse(
+                campaign.getId(), campaignName, objective, "META", "DRAFT",
+                rationale, suggestedBudget, estimatedResults, warnings, proposedAdsets);
+    }
+
+    // ──────── Utilities ────────
+
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "…";
+    }
+}

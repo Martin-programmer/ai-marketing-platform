@@ -1,13 +1,18 @@
 package com.amp.campaigns;
 
+import com.amp.ai.CampaignCreatorService;
+import com.amp.ai.CampaignProposalResponse;
+import com.amp.ai.ExecutorService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
 import com.amp.tenancy.TenantContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -19,11 +24,17 @@ public class CampaignController {
 
     private final CampaignService campaignService;
     private final AccessControl accessControl;
+    private final CampaignCreatorService campaignCreatorService;
+    private final ExecutorService executorService;
 
     public CampaignController(CampaignService campaignService,
-                              AccessControl accessControl) {
+                              AccessControl accessControl,
+                              CampaignCreatorService campaignCreatorService,
+                              ExecutorService executorService) {
         this.campaignService = campaignService;
         this.accessControl = accessControl;
+        this.campaignCreatorService = campaignCreatorService;
+        this.executorService = executorService;
     }
 
     private UUID agencyId() {
@@ -83,6 +94,35 @@ public class CampaignController {
         Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
         accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_PUBLISH);
         return CampaignResponse.from(campaignService.publishCampaign(agencyId, campaignId));
+    }
+
+    // ──────── AI Campaign Proposal ────────
+
+    /**
+     * Generate an AI campaign proposal using Claude Opus.
+     */
+    @PostMapping("/clients/{clientId}/campaigns/ai-propose")
+    public ResponseEntity<CampaignProposalResponse> aiPropose(
+            @PathVariable UUID clientId,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
+        UUID agencyId = agencyId();
+        String brief = (body != null) ? body.getOrDefault("brief", "") : "";
+        CampaignProposalResponse proposal = campaignCreatorService.generateProposal(agencyId, clientId, brief);
+        return ResponseEntity.ok(proposal);
+    }
+
+    /**
+     * Publish a DRAFT campaign to Meta via the Executor (creates in Meta API).
+     */
+    @PostMapping("/campaigns/{campaignId}/meta-publish")
+    public ResponseEntity<?> metaPublish(@PathVariable UUID campaignId) {
+        accessControl.requireAgencyRole();
+        UUID agencyId = agencyId();
+        Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
+        accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_PUBLISH);
+        var result = executorService.publishCampaign(agencyId, campaignId);
+        return ResponseEntity.ok(result);
     }
 
     // ──────── Adset ────────

@@ -3,6 +3,7 @@ package com.amp.meta;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -12,4 +13,7 @@ public interface MetaConnectionRepository extends JpaRepository<MetaConnection, 
     Optional<MetaConnection> findByAgencyIdAndClientId(UUID agencyId, UUID clientId);
 
     Optional<MetaConnection> findByIdAndAgencyId(UUID id, UUID agencyId);
+
+    /** Find all connections by status (e.g. "CONNECTED"). */
+    List<MetaConnection> findByStatus(String status);
 }

@@ -22,13 +22,16 @@ public class AiSuggestionService {
     private final AiSuggestionRepository suggestionRepository;
     private final AiActionLogRepository actionLogRepository;
     private final AuditService auditService;
+    private final ExecutorService executorService;
 
     public AiSuggestionService(AiSuggestionRepository suggestionRepository,
                                AiActionLogRepository actionLogRepository,
-                               AuditService auditService) {
+                               AuditService auditService,
+                               ExecutorService executorService) {
         this.suggestionRepository = suggestionRepository;
         this.actionLogRepository = actionLogRepository;
         this.auditService = auditService;
+        this.executorService = executorService;
     }
 
     // ──────── Query ────────
@@ -110,25 +113,17 @@ public class AiSuggestionService {
             throw new IllegalStateException("Only APPROVED suggestions can be applied");
         }
 
-        s.setStatus("APPLIED");
-        AiSuggestion saved = suggestionRepository.save(s);
+        // Execute via Executor (makes real Meta API calls for actionable types)
+        executorService.executeSuggestion(agencyId, suggestionId);
 
-        // Create action log record
-        AiActionLog log = new AiActionLog();
-        log.setAgencyId(agencyId);
-        log.setClientId(s.getClientId());
-        log.setSuggestionId(suggestionId);
-        log.setExecutedBy("USER");
-        log.setMetaRequestJson("{}");
-        log.setSuccess(true);
-        log.setCreatedAt(OffsetDateTime.now());
-        actionLogRepository.save(log);
+        // Reload suggestion to get updated status (APPLIED or FAILED)
+        s = findOrThrow(agencyId, suggestionId);
 
         auditService.log(agencyId, s.getClientId(), ctx.getUserId(), ctx.getRole(),
                 AuditAction.SUGGESTION_APPLY, "AiSuggestion", suggestionId,
-                "APPROVED", "APPLIED", null);
+                "APPROVED", s.getStatus(), null);
 
-        return SuggestionResponse.from(saved);
+        return SuggestionResponse.from(s);
     }
 
     // ──────── Action Logs ────────

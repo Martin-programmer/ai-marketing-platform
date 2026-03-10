@@ -57,7 +57,7 @@ app:
 
 ai:
   anthropic:
-    api-key: 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
+    api-key: ${ANTHROPIC_API_KEY:placeholder}
     default-model: claude-sonnet-4-20250514
     complex-model: claude-opus-4-20250115
     max-tokens: 4096

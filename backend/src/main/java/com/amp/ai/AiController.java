@@ -1,10 +1,12 @@
 package com.amp.ai;
 
 import com.amp.common.RoleGuard;
+import com.amp.tenancy.TenantContextHolder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/ai")
@@ -12,10 +14,14 @@ public class AiController {
 
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
+    private final PerformanceOptimizerService optimizerService;
 
-    public AiController(ClaudeApiClient claudeClient, AiProperties aiProps) {
+    public AiController(ClaudeApiClient claudeClient,
+                        AiProperties aiProps,
+                        PerformanceOptimizerService optimizerService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
+        this.optimizerService = optimizerService;
     }
 
     /**
@@ -58,5 +64,26 @@ public class AiController {
             "analyzerEnabled", aiProps.getAnalyzer().isEnabled(),
             "optimizerEnabled", aiProps.getOptimizer().isEnabled()
         ));
+    }
+
+    /**
+     * Manually trigger optimisation for all connected clients.
+     */
+    @PostMapping("/optimizer/run")
+    public ResponseEntity<?> runOptimizer() {
+        RoleGuard.requireAgencyAdmin();
+        var result = optimizerService.runForAllClients();
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Run optimisation for a specific client.
+     */
+    @PostMapping("/optimizer/run/{clientId}")
+    public ResponseEntity<?> runOptimizerForClient(@PathVariable UUID clientId) {
+        RoleGuard.requireAgencyRole();
+        UUID agencyId = TenantContextHolder.require().getAgencyId();
+        var result = optimizerService.runForClient(agencyId, clientId);
+        return ResponseEntity.ok(result);
     }
 }
