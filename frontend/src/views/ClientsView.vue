@@ -23,6 +23,17 @@
             {{ item.status }}
           </v-chip>
         </template>
+        <template #item.questionnaire="{ item }">
+          <v-chip
+            :color="getQuestionnaireColor(item.id)"
+            size="small"
+            variant="tonal"
+            :to="`/clients/${item.id}/questionnaire`"
+            style="cursor: pointer"
+          >
+            {{ getQuestionnaireLabel(item.id) }}
+          </v-chip>
+        </template>
         <template #item.createdAt="{ item }">
           {{ new Date(item.createdAt).toLocaleDateString() }}
         </template>
@@ -245,6 +256,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useClientStore } from '@/stores/clients'
+import api from '@/api/client'
 import type { Client } from '@/stores/clients'
 
 const store = useClientStore()
@@ -259,16 +271,55 @@ const websiteUrl = ref('')
 // Audience state
 const showAudienceDialog = ref(false)
 
+// Questionnaire status: true = completed, false = started, null = not started
+const questionnaireStatuses = ref<Record<string, boolean | null>>({})
+
+function getQuestionnaireColor(clientId: string): string {
+  const status = questionnaireStatuses.value[clientId]
+  if (status === true) return 'success'
+  if (status === false) return 'orange'
+  return 'grey'
+}
+
+function getQuestionnaireLabel(clientId: string): string {
+  const status = questionnaireStatuses.value[clientId]
+  if (status === true) return '\u2705 \u0417\u0430\u0432\u044a\u0440\u0448\u0435\u043d'
+  if (status === false) return '\u26a0\ufe0f \u041d\u0435\u0437\u0430\u0432\u044a\u0440\u0448\u0435\u043d'
+  return '\u274c \u041d\u0435 \u0435 \u0437\u0430\u043f\u043e\u0447\u043d\u0430\u0442'
+}
+
+async function fetchQuestionnaireStatuses() {
+  for (const client of store.clients) {
+    try {
+      const { data } = await api.get(`/clients/${client.id}/questionnaire`)
+      if (data?.questionnaireCompleted) {
+        questionnaireStatuses.value[client.id] = true
+      } else if (data && Object.keys(data).length > 2) {
+        // has some data beyond the status fields
+        questionnaireStatuses.value[client.id] = false
+      } else {
+        questionnaireStatuses.value[client.id] = null
+      }
+    } catch {
+      questionnaireStatuses.value[client.id] = null
+    }
+  }
+}
+
 const headers = [
   { title: 'Name', key: 'name' },
   { title: 'Industry', key: 'industry' },
   { title: 'Status', key: 'status' },
+  { title: 'Questionnaire', key: 'questionnaire', sortable: false },
   { title: 'Currency', key: 'currency' },
   { title: 'Created', key: 'createdAt' },
   { title: 'Actions', key: 'actions', sortable: false },
 ]
 
-onMounted(() => store.fetchClients())
+onMounted(async () => {
+  await store.fetchClients()
+  fetchQuestionnaireStatuses()
+})
 
 async function onCreate() {
   await store.createClient(form.value)

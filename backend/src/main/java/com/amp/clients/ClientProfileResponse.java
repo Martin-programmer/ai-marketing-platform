@@ -17,6 +17,8 @@ public record ClientProfileResponse(
         UUID clientId,
         String website,
         Map<String, Object> profileJson,
+        Boolean questionnaireCompleted,
+        OffsetDateTime questionnaireCompletedAt,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
@@ -37,6 +39,8 @@ public record ClientProfileResponse(
                 entity.getClientId(),
                 entity.getWebsite(),
                 parsed,
+                entity.getQuestionnaireCompleted(),
+                entity.getQuestionnaireCompletedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

@@ -45,6 +45,12 @@ public class ClientProfile {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    @Column(name = "questionnaire_completed")
+    private Boolean questionnaireCompleted = false;
+
+    @Column(name = "questionnaire_completed_at")
+    private OffsetDateTime questionnaireCompletedAt;
+
     protected ClientProfile() {
         // JPA
     }
@@ -76,4 +82,10 @@ public class ClientProfile {
 
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public Boolean getQuestionnaireCompleted() { return questionnaireCompleted; }
+    public void setQuestionnaireCompleted(Boolean questionnaireCompleted) { this.questionnaireCompleted = questionnaireCompleted; }
+
+    public OffsetDateTime getQuestionnaireCompletedAt() { return questionnaireCompletedAt; }
+    public void setQuestionnaireCompletedAt(OffsetDateTime questionnaireCompletedAt) { this.questionnaireCompletedAt = questionnaireCompletedAt; }
 }

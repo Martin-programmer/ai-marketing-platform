@@ -12,6 +12,23 @@
         <v-chip :color="client.status === 'ACTIVE' ? 'success' : 'warning'" size="small" class="ml-3">
           {{ client.status }}
         </v-chip>
+        <v-spacer />
+        <v-btn
+          color="deep-purple"
+          variant="tonal"
+          :to="`/clients/${clientId}/questionnaire`"
+        >
+          <v-icon start>mdi-clipboard-text</v-icon>
+          Въпросник
+          <v-chip
+            v-if="questionnaireStatus !== null"
+            :color="questionnaireStatus ? 'success' : 'orange'"
+            size="x-small"
+            class="ml-2"
+          >
+            {{ questionnaireStatus ? '✅' : '⚠️' }}
+          </v-chip>
+        </v-btn>
       </div>
 
       <!-- Client Info Card -->
@@ -178,6 +195,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showEditProfile = ref(false)
 const profileForm = ref({ website: '', profileJson: '' })
+const questionnaireStatus = ref<boolean | null>(null)
 
 /* ── Permissions ── */
 const permissions = ref<any[]>([])
@@ -290,5 +308,15 @@ onMounted(() => {
   fetchClient()
   fetchProfile()
   fetchPermissions()
+  fetchQuestionnaireStatus()
 })
+
+async function fetchQuestionnaireStatus() {
+  try {
+    const { data } = await api.get(`/clients/${clientId.value}/questionnaire`)
+    questionnaireStatus.value = !!data?.questionnaireCompleted
+  } catch {
+    questionnaireStatus.value = null
+  }
+}
 </script>

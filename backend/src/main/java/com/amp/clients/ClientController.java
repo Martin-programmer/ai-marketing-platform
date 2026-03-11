@@ -150,6 +150,26 @@ public class ClientController {
         return ResponseEntity.ok(ClientProfileResponse.from(profile));
     }
 
+    // ---- Client Questionnaire ----
+
+    @PutMapping("/{clientId}/questionnaire")
+    public ResponseEntity<Map<String, Object>> saveQuestionnaire(
+            @PathVariable UUID clientId,
+            @RequestBody ClientQuestionnaireRequest request,
+            @RequestParam(defaultValue = "false") boolean complete) {
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_EDIT);
+        profileService.saveQuestionnaire(agencyId(), clientId, request, complete);
+        Map<String, Object> result = profileService.getQuestionnaire(clientId);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/{clientId}/questionnaire")
+    public ResponseEntity<Map<String, Object>> getQuestionnaire(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CLIENT_VIEW);
+        Map<String, Object> result = profileService.getQuestionnaire(clientId);
+        return ResponseEntity.ok(result);
+    }
+
     // ---- AI Client Briefer ----
 
     /**

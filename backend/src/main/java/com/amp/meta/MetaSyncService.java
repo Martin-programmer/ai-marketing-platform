@@ -442,36 +442,29 @@ public class MetaSyncService {
                 BigDecimal cpm = getBigDecimal(insight, "cpm");
                 BigDecimal ctr = getBigDecimal(insight, "ctr");
 
-                // Extract conversions and conversion values from actions array
-                BigDecimal conversions = BigDecimal.ZERO;
-                BigDecimal conversionValue = BigDecimal.ZERO;
+                Set<String> conversionTypes = Set.of(
+                        "purchase",
+                        "omni_purchase",
+                        "offsite_conversion.fb_pixel_purchase",
+                        "lead",
+                        "offsite_conversion.fb_pixel_lead",
+                        "complete_registration"
+                );
+                Set<String> conversionValueTypes = Set.of(
+                        "purchase",
+                        "omni_purchase",
+                        "offsite_conversion.fb_pixel_purchase"
+                );
 
-                if (insight.has("actions") && insight.get("actions").isArray()) {
-                    for (JsonNode action : insight.get("actions")) {
-                        String actionType = action.has("action_type")
-                                ? action.get("action_type").asText() : "";
-                        if ("offsite_conversion".equals(actionType)
-                                || "purchase".equals(actionType)) {
-                            conversions = conversions.add(getBigDecimal(action, "value"));
-                        }
-                    }
-                }
-                if (insight.has("action_values") && insight.get("action_values").isArray()) {
-                    for (JsonNode av : insight.get("action_values")) {
-                        String actionType = av.has("action_type")
-                                ? av.get("action_type").asText() : "";
-                        if ("offsite_conversion".equals(actionType)
-                                || "purchase".equals(actionType)) {
-                            conversionValue = conversionValue.add(getBigDecimal(av, "value"));
-                        }
-                    }
-                }
+                BigDecimal conversions = sumActionValues(insight, "actions", conversionTypes);
+                BigDecimal conversionValue = sumActionValues(insight, "action_values", conversionValueTypes);
 
-                BigDecimal roas = spend.compareTo(BigDecimal.ZERO) > 0
-                        ? conversionValue.divide(spend, 6, RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO;
+                BigDecimal roas = BigDecimal.ZERO;
+                if (spend.compareTo(BigDecimal.ZERO) > 0 && conversionValue.compareTo(BigDecimal.ZERO) > 0) {
+                    roas = conversionValue.divide(spend, 6, RoundingMode.HALF_UP);
+                }
                 BigDecimal frequency = getBigDecimal(insight, "frequency");
-                long reach = insight.has("reach") ? insight.get("reach").asLong() : 0L;
+                long reach = getLong(insight, "reach");
 
                 // Upsert
                 Optional<InsightDaily> existingInsight = insightDailyRepository
@@ -534,6 +527,34 @@ public class MetaSyncService {
             }
         }
         return BigDecimal.ZERO;
+    }
+
+    private long getLong(JsonNode node, String field) {
+        if (node.has(field) && !node.get(field).isNull()) {
+            try {
+                return Long.parseLong(node.get(field).asText());
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+        }
+        return 0L;
+    }
+
+    private BigDecimal sumActionValues(JsonNode insight, String arrayField, Set<String> actionTypes) {
+        BigDecimal sum = BigDecimal.ZERO;
+        if (!insight.has(arrayField) || !insight.get(arrayField).isArray()) {
+            return sum;
+        }
+
+        for (JsonNode actionNode : insight.get(arrayField)) {
+            String actionType = actionNode.has("action_type")
+                    ? actionNode.get("action_type").asText()
+                    : "";
+            if (actionTypes.contains(actionType)) {
+                sum = sum.add(getBigDecimal(actionNode, "value"));
+            }
+        }
+        return sum;
     }
 
     private String textOrDefault(JsonNode node, String field, String defaultValue) {

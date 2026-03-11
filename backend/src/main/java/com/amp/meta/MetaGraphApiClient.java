@@ -161,7 +161,7 @@ public class MetaGraphApiClient {
                     .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/insights"))
                     .queryParam("access_token", accessToken)
                     .queryParam("fields", "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,"
-                            + "impressions,clicks,spend,cpc,cpm,ctr,actions,conversions,cost_per_action_type")
+                            + "impressions,clicks,spend,cpc,cpm,ctr,frequency,reach,actions,action_values,cost_per_action_type")
                     .queryParam("time_range[since]", start.toString())
                     .queryParam("time_range[until]", chunkEnd.toString())
                     .queryParam("time_increment", "1")
