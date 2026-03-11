@@ -15,6 +15,9 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+  task:
+    scheduling:
+      enabled: true
 
 server:
   port: 8080
@@ -78,3 +81,7 @@ ai:
     max-daily-spend-usd: 5.0
     max-monthly-spend-usd: 100.0
     alert-threshold-percent: 80
+
+ops:
+  daily-sync:
+    cron: "0 30 3 * * *"

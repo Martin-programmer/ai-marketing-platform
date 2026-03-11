@@ -5,11 +5,13 @@ import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailService;
 import com.amp.common.NotificationHelper;
+import jakarta.annotation.PostConstruct;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
 import com.amp.meta.MetaSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +30,9 @@ import java.util.UUID;
 public class ScheduledJobsService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledJobsService.class);
+
+    @Value("${ops.daily-sync.cron:0 30 3 * * *}")
+    private String cronExpression;
 
     private final MetaConnectionRepository metaConnectionRepository;
     private final MetaSyncService metaSyncService;
@@ -50,10 +55,15 @@ public class ScheduledJobsService {
         this.clientRepository = clientRepository;
     }
 
+    @PostConstruct
+    public void onInit() {
+        log.info("ScheduledJobsService initialized. Daily sync cron: {}", cronExpression);
+    }
+
     /**
      * Daily Meta sync at 03:30 Europe/Sofia.
      */
-    @Scheduled(cron = "0 30 3 * * *", zone = "Europe/Sofia")
+    @Scheduled(cron = "${ops.daily-sync.cron:0 30 3 * * *}", zone = "Europe/Sofia")
     public void dailySync() {
         runDailySyncJob();
     }

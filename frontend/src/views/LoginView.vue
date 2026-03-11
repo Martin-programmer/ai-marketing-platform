@@ -55,7 +55,7 @@
           </router-link>
         </div>
 
-        <div class="text-center mt-6">
+        <div v-if="showDemoCredentials" class="text-center mt-6">
           <p class="text-caption text-grey">Demo credentials:</p>
           <v-chip size="small" class="ma-1" @click="fillDemo('agency_admin@local')">Agency Admin</v-chip>
           <v-chip size="small" class="ma-1" @click="fillDemo('agency_user@local')">Agency User</v-chip>
@@ -87,6 +87,7 @@ const authStore = useAuthStore()
 const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
+const showDemoCredentials = window.location.hostname.includes('localhost')
 
 function fillDemo(demoEmail: string) {
   email.value = demoEmail

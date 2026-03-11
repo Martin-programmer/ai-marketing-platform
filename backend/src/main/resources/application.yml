@@ -51,6 +51,15 @@ ai:
     max-monthly-spend-usd: 100.0
     alert-threshold-percent: 80
 
+spring:
+  task:
+    scheduling:
+      enabled: true
+
+ops:
+  daily-sync:
+    cron: "0 30 3 * * *"
+
 app:
   security:
     dev-mode: false
