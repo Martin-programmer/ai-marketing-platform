@@ -219,7 +219,7 @@
           no-data-text="No campaign data for this period"
           item-value="id"
           hover
-          @click:row="(_event, row) => selectCampaign(row.item.id)"
+          @click:row="onCampaignRowClick"
         >
           <template #item.status="{ item }">
             <v-chip
@@ -374,8 +374,8 @@ async function loadSelectedCampaignMetrics() {
   const prevFromDate = new Date(fromDate)
   prevFromDate.setDate(prevFromDate.getDate() - diffDays)
 
-  const prevFrom = prevFromDate.toISOString().split('T')[0]
-  const prevTo = prevToDate.toISOString().split('T')[0]
+  const prevFrom = prevFromDate.toISOString().split('T')[0] ?? ''
+  const prevTo = prevToDate.toISOString().split('T')[0] ?? ''
 
   const [currentRes, previousRes] = await Promise.all([
     api.get(`/campaigns/${selectedCampaignId.value}/insights`, { params: { from: dateFrom.value, to: dateTo.value } }),
@@ -384,7 +384,14 @@ async function loadSelectedCampaignMetrics() {
 
   currentInsights.value = currentRes.data || []
   previousInsights.value = previousRes.data || []
-  summary.value = buildCampaignSummary(currentInsights.value, previousInsights.value, dateFrom.value, dateTo.value, prevFrom, prevTo)
+  summary.value = buildCampaignSummary(
+    currentInsights.value,
+    previousInsights.value,
+    dateFrom.value ?? '',
+    dateTo.value ?? '',
+    prevFrom,
+    prevTo,
+  )
   dailyData.value = buildDailyData(currentInsights.value)
 }
 
@@ -442,6 +449,23 @@ const campaignRows = computed(() => sortedCampaigns.value.map((campaign: any) =>
   ctr: campaignMetrics.value[campaign.id]?.avgCtr ?? 0,
   roas: campaignMetrics.value[campaign.id]?.avgRoas ?? 0,
 })))
+
+function dashboardRow(item: unknown) {
+  if (item && typeof item === 'object' && 'raw' in item) {
+    return (item as { raw: { id: string } }).raw
+  }
+  return item as { id: string }
+}
+
+function onCampaignRowClick(_event: unknown, row: unknown) {
+  const candidate = row && typeof row === 'object' && 'item' in row
+    ? (row as { item: unknown }).item
+    : null
+  const selectedRow = candidate ? dashboardRow(candidate) : null
+  if (selectedRow?.id) {
+    selectCampaign(selectedRow.id)
+  }
+}
 
 const campaignTableHeaders = [
   { title: 'Campaign', key: 'name' },

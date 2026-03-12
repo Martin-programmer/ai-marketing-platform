@@ -144,6 +144,19 @@ class AiSuggestionServiceTest {
         assertThat(result.status()).isEqualTo("REJECTED");
     }
 
+    @Test
+    @DisplayName("rejectSuggestion — success: APPROVED → REJECTED")
+    void rejectSuggestion_fromApproved_success() {
+        AiSuggestion s = buildSuggestion("APPROVED");
+        when(suggestionRepository.findByIdAndAgencyId(SUGGESTION_ID, AGENCY_ID)).thenReturn(Optional.of(s));
+        when(suggestionRepository.save(any(AiSuggestion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SuggestionResponse result = suggestionService.rejectSuggestion(AGENCY_ID, SUGGESTION_ID);
+
+        assertThat(result.status()).isEqualTo("REJECTED");
+        verify(auditService).log(eq(AGENCY_ID), eq(CLIENT_ID), any(), any(), any(), any(), any(), eq("APPROVED"), eq("REJECTED"), any());
+    }
+
     // ──────── applySuggestion ────────
 
     @Test

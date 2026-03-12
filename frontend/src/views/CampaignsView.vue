@@ -271,23 +271,23 @@
             density="compact"
           >
             <template #item.spend30d="{ item }">
-              {{ formatCurrency(item.spend30d) }}
+              {{ formatCurrency(rowItem(item).spend30d) }}
             </template>
             <template #item.roas30d="{ item }">
-              {{ formatDecimal(item.roas30d) }}×
+              {{ formatDecimal(rowItem(item).roas30d) }}×
             </template>
             <template #item.dailyBudget="{ item }">
-              {{ formatCurrency(item.dailyBudget) }}
+              {{ formatCurrency(rowItem(item).dailyBudget) }}
             </template>
             <template #item.suggestion="{ item }">
               <v-chip
-                :color="item.suggestion === 'INCREASE_BUDGET' ? 'success'
-                  : item.suggestion === 'DECREASE_BUDGET' ? 'warning'
-                  : item.suggestion === 'PAUSE_OR_RESTRUCTURE' ? 'error'
+                :color="rowItem(item).suggestion === 'INCREASE_BUDGET' ? 'success'
+                  : rowItem(item).suggestion === 'DECREASE_BUDGET' ? 'warning'
+                  : rowItem(item).suggestion === 'PAUSE_OR_RESTRUCTURE' ? 'error'
                   : 'grey'"
                 size="x-small"
               >
-                {{ item.suggestion?.replace(/_/g, ' ') }}
+                {{ rowItem(item).suggestion?.replace(/_/g, ' ') }}
               </v-chip>
             </template>
           </v-data-table>

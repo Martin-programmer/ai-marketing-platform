@@ -34,6 +34,7 @@ class CreativeServiceTest {
     private static final UUID CLIENT_ID  = UUID.fromString("00000000-0000-0000-0000-000000000100");
     private static final UUID USER_ID    = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID PACKAGE_ID = UUID.randomUUID();
+    private static final UUID VARIANT_ID = UUID.randomUUID();
 
     @Mock private CreativeAssetRepository assetRepository;
     @Mock private CreativeAnalysisRepository analysisRepository;
@@ -91,6 +92,24 @@ class CreativeServiceTest {
         p.setCreatedBy(USER_ID);
         p.setCreatedAt(OffsetDateTime.now());
         return p;
+    }
+
+    private CopyVariant buildCopyVariant(String status) {
+        CopyVariant variant = new CopyVariant();
+        variant.setId(VARIANT_ID);
+        variant.setAgencyId(AGENCY_ID);
+        variant.setClientId(CLIENT_ID);
+        variant.setCreativeAssetId(UUID.randomUUID());
+        variant.setLanguage("en");
+        variant.setPrimaryText("Primary text");
+        variant.setHeadline("Headline");
+        variant.setDescription("Description");
+        variant.setCta("LEARN_MORE");
+        variant.setStatus(status);
+        variant.setCreatedBy(USER_ID);
+        variant.setCreatedAt(OffsetDateTime.now());
+        variant.setUpdatedAt(OffsetDateTime.now());
+        return variant;
     }
 
     // ──────── listAssets ────────
@@ -191,5 +210,34 @@ class CreativeServiceTest {
 
         assertThatThrownBy(() -> creativeService.submitPackage(AGENCY_ID, unknownId))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("approveCopyVariant — success: DRAFT → APPROVED")
+    void approveCopyVariant_success() {
+        CopyVariant variant = buildCopyVariant("DRAFT");
+        when(copyVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(variant));
+        when(copyVariantRepository.save(any(CopyVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        CopyVariantResponse result = creativeService.approveCopyVariant(AGENCY_ID, VARIANT_ID);
+
+        assertThat(result.status()).isEqualTo("APPROVED");
+        verify(copyVariantRepository).save(variant);
+        verify(auditService).log(eq(AGENCY_ID), eq(CLIENT_ID), isNull(), anyString(),
+                eq(com.amp.audit.AuditAction.CREATIVE_APPROVE), eq("COPY_VARIANT"), eq(VARIANT_ID),
+                eq("DRAFT"), eq("APPROVED"), anyString());
+    }
+
+    @Test
+    @DisplayName("rejectCopyVariant — success: APPROVED → REJECTED")
+    void rejectCopyVariant_success() {
+        CopyVariant variant = buildCopyVariant("APPROVED");
+        when(copyVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(variant));
+        when(copyVariantRepository.save(any(CopyVariant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        CopyVariantResponse result = creativeService.rejectCopyVariant(AGENCY_ID, VARIANT_ID);
+
+        assertThat(result.status()).isEqualTo("REJECTED");
+        verify(copyVariantRepository).save(variant);
     }
 }

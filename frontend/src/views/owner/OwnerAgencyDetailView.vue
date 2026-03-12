@@ -125,8 +125,19 @@
             <v-select
               v-model="inviteForm.role"
               label="Role"
-              :items="['AGENCY_ADMIN', 'AGENCY_USER']"
+              :items="roleOptions"
               :rules="[rules.required]"
+            />
+            <v-select
+              v-if="inviteForm.role === 'CLIENT_USER'"
+              v-model="inviteForm.clientId"
+              label="Client"
+              :items="clients"
+              item-title="name"
+              item-value="id"
+              :loading="clientsLoading"
+              :rules="[rules.required]"
+              hint="Select the client this portal user should access"
             />
             <v-alert v-if="inviteForm.email" type="info" variant="tonal" class="mt-3">
               Invitation email will be sent to {{ inviteForm.email }}.
@@ -150,6 +161,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import api from '@/api/client'
 import { ownerApi } from '@/api/owner'
 
 interface Agency {
@@ -169,6 +181,11 @@ interface AgencyUser {
   createdAt: string
 }
 
+interface ClientOption {
+  id: string
+  name: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const agencyId = route.params.id as string
@@ -186,6 +203,9 @@ const userHeaders = [
   { title: 'Status', key: 'status' },
   { title: 'Created', key: 'createdAt' },
 ]
+const roleOptions = ['AGENCY_ADMIN', 'AGENCY_USER', 'CLIENT_USER']
+const clients = ref<ClientOption[]>([])
+const clientsLoading = ref(false)
 
 /* ── Edit Agency ── */
 const showEdit = ref(false)
@@ -220,17 +240,24 @@ async function handleSave() {
 const showInvite = ref(false)
 const inviteValid = ref(false)
 const inviting = ref(false)
-const inviteForm = ref({ email: '', displayName: '', role: 'AGENCY_ADMIN' })
+const inviteForm = ref({ email: '', displayName: '', role: 'AGENCY_ADMIN', clientId: '' })
 
 function closeInvite() {
   showInvite.value = false
-  inviteForm.value = { email: '', displayName: '', role: 'AGENCY_ADMIN' }
+  inviteForm.value = { email: '', displayName: '', role: 'AGENCY_ADMIN', clientId: '' }
 }
 
 async function handleInvite() {
   inviting.value = true
   try {
-    await ownerApi.inviteAgencyUser(agencyId, inviteForm.value)
+    const payload = inviteForm.value.role === 'CLIENT_USER'
+      ? { ...inviteForm.value }
+      : {
+          email: inviteForm.value.email,
+          displayName: inviteForm.value.displayName,
+          role: inviteForm.value.role,
+        }
+    await ownerApi.inviteAgencyUser(agencyId, payload)
     showSnack(`Invitation sent to ${inviteForm.value.email}`)
     closeInvite()
     await fetchUsers()
@@ -274,6 +301,18 @@ const rules = {
   email: (v: string) => /.+@.+\..+/.test(v) || 'Invalid email',
 }
 
+async function fetchClients() {
+  clientsLoading.value = true
+  try {
+    const { data } = await api.get('/clients', { params: { agencyId } })
+    clients.value = ((data || []) as ClientOption[]).map((client) => ({ id: client.id, name: client.name }))
+  } catch (e: any) {
+    error.value = e.response?.data?.message || 'Failed to load clients'
+  } finally {
+    clientsLoading.value = false
+  }
+}
+
 async function fetchAgency() {
   loading.value = true
   try {
@@ -303,6 +342,6 @@ async function fetchUsers() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgency(), fetchUsers()])
+  await Promise.all([fetchAgency(), fetchUsers(), fetchClients()])
 })
 </script>

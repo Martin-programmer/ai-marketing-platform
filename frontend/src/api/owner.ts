@@ -9,7 +9,7 @@ export const ownerApi = {
     api.patch(`/owner/agencies/${id}`, data),
   listAgencyUsers: (agencyId: string) =>
     api.get(`/owner/agencies/${agencyId}/users`),
-  inviteAgencyUser: (agencyId: string, data: { email: string; role: string; displayName?: string }) =>
+  inviteAgencyUser: (agencyId: string, data: { email: string; role: string; displayName?: string; clientId?: string }) =>
     api.post(`/owner/agencies/${agencyId}/users`, data),
   getIntelligence: () => api.get('/owner/intelligence'),
 }

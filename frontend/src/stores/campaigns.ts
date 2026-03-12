@@ -166,8 +166,9 @@ export const useCampaignStore = defineStore('campaigns', () => {
     const { data } = await api.post(`/campaigns/${campaignId}/meta-publish`)
     // Refresh the campaign in the list
     const idx = campaigns.value.findIndex(c => c.id === campaignId)
-    if (idx >= 0 && data.status === 'PUBLISHED') {
-      campaigns.value[idx] = { ...campaigns.value[idx], status: 'PUBLISHED' }
+    const existing = idx >= 0 ? campaigns.value[idx] : null
+    if (existing && data.status === 'PUBLISHED') {
+      campaigns.value[idx] = { ...existing, status: 'PUBLISHED' }
     }
     return data
   }

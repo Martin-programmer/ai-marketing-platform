@@ -5,6 +5,9 @@ import com.amp.agency.AgencyRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.EmailService;
 import com.amp.common.exception.ResourceNotFoundException;
+import com.amp.clients.Client;
+import com.amp.clients.ClientPermissionService;
+import com.amp.clients.ClientRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +41,8 @@ class UserServiceTest {
 
     @Mock private UserAccountRepository userAccountRepository;
     @Mock private AgencyRepository agencyRepository;
+    @Mock private ClientRepository clientRepository;
+    @Mock private ClientPermissionService clientPermissionService;
     @Mock private EmailService emailService;
     @Mock private EmailProperties emailProperties;
 
@@ -105,6 +110,8 @@ class UserServiceTest {
         InviteUserRequest req = new InviteUserRequest("client@example.com", "CLIENT_USER", CLIENT_ID);
 
         when(userAccountRepository.findByEmail("client@example.com")).thenReturn(Optional.empty());
+        Client client = mock(Client.class);
+        when(clientRepository.findByIdAndAgencyId(CLIENT_ID, AGENCY_ID)).thenReturn(Optional.of(client));
         when(userAccountRepository.save(any(UserAccount.class))).thenAnswer(inv -> {
             UserAccount u = inv.getArgument(0);
             u.setId(UUID.randomUUID());
@@ -124,6 +131,8 @@ class UserServiceTest {
         ArgumentCaptor<UserAccount> captor = ArgumentCaptor.forClass(UserAccount.class);
         verify(userAccountRepository).save(captor.capture());
         assertThat(captor.getValue().getClientId()).isEqualTo(CLIENT_ID);
+        verify(clientPermissionService).setUserClientPermissions(
+                any(UUID.class), eq(CLIENT_ID), eq(List.of("CLIENT_VIEW", "REPORTS_VIEW")), eq(null));
     }
 
     @Test
@@ -134,6 +143,19 @@ class UserServiceTest {
         assertThatThrownBy(() -> userService.inviteUser(AGENCY_ID, req))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("clientId");
+    }
+
+    @Test
+    @DisplayName("inviteUser — CLIENT_USER with foreign clientId: throws")
+    void inviteUser_clientUserForeignClient() {
+        InviteUserRequest req = new InviteUserRequest("client@example.com", "CLIENT_USER", CLIENT_ID);
+
+        when(userAccountRepository.findByEmail("client@example.com")).thenReturn(Optional.empty());
+        when(clientRepository.findByIdAndAgencyId(CLIENT_ID, AGENCY_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.inviteUser(AGENCY_ID, req))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not belong to this agency");
     }
 
     @Test

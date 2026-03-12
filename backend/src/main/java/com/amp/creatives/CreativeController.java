@@ -183,6 +183,20 @@ public class CreativeController {
         return ResponseEntity.ok(creativeService.getCopyVariant(agencyId(), variantId));
     }
 
+    @PostMapping("/copy-variants/{variantId}/approve")
+    public ResponseEntity<CopyVariantResponse> approveCopyVariant(@PathVariable UUID variantId) {
+        UUID clientId = creativeService.resolveCopyVariantClientId(agencyId(), variantId);
+        accessControl.requireClientPermission(clientId, Permission.AI_APPROVE);
+        return ResponseEntity.ok(creativeService.approveCopyVariant(agencyId(), variantId));
+    }
+
+    @PostMapping("/copy-variants/{variantId}/reject")
+    public ResponseEntity<CopyVariantResponse> rejectCopyVariant(@PathVariable UUID variantId) {
+        UUID clientId = creativeService.resolveCopyVariantClientId(agencyId(), variantId);
+        accessControl.requireClientPermission(clientId, Permission.AI_APPROVE);
+        return ResponseEntity.ok(creativeService.rejectCopyVariant(agencyId(), variantId));
+    }
+
     // ---- AI Endpoints ----
 
     /** Manually trigger AI analysis on a creative asset. */

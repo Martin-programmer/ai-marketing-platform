@@ -366,12 +366,42 @@ public class CreativeService {
         return CopyVariantResponse.from(cv);
     }
 
+    public CopyVariantResponse approveCopyVariant(UUID agencyId, UUID variantId) {
+        return updateCopyVariantStatus(agencyId, variantId, "APPROVED", AuditAction.CREATIVE_APPROVE);
+    }
+
+    public CopyVariantResponse rejectCopyVariant(UUID agencyId, UUID variantId) {
+        return updateCopyVariantStatus(agencyId, variantId, "REJECTED", AuditAction.CREATIVE_APPROVE);
+    }
+
     @Transactional(readOnly = true)
     public List<CopyVariantResponse> listCopyVariantsForAsset(UUID assetId) {
         return copyVariantRepository.findByCreativeAssetId(assetId)
                 .stream()
                 .map(CopyVariantResponse::from)
                 .toList();
+    }
+
+    private CopyVariantResponse updateCopyVariantStatus(UUID agencyId, UUID variantId,
+                                                        String nextStatus, AuditAction auditAction) {
+        CopyVariant variant = copyVariantRepository.findById(variantId)
+                .filter(v -> v.getAgencyId().equals(agencyId))
+                .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId));
+
+        String before = variant.getStatus();
+        if (nextStatus.equalsIgnoreCase(before)) {
+            return CopyVariantResponse.from(variant);
+        }
+
+        variant.setStatus(nextStatus);
+        variant.setUpdatedAt(OffsetDateTime.now());
+        CopyVariant saved = copyVariantRepository.save(variant);
+
+        auditService.log(agencyId, saved.getClientId(), null, TenantContextHolder.require().getRole(),
+                auditAction, "COPY_VARIANT", saved.getId(),
+                before, nextStatus, UUID.randomUUID().toString());
+
+        return CopyVariantResponse.from(saved);
     }
 
     // ──────── Client-ID resolvers (for permission checks) ────────

@@ -91,8 +91,9 @@ public class AiSuggestionService {
     public SuggestionResponse rejectSuggestion(UUID agencyId, UUID suggestionId) {
         TenantContext ctx = TenantContextHolder.require();
         AiSuggestion s = findOrThrow(agencyId, suggestionId);
-        requirePending(s);
+        requireRejectable(s);
 
+        String before = s.getStatus();
         s.setStatus("REJECTED");
         s.setReviewedBy(ctx.getUserId());
         s.setReviewedAt(OffsetDateTime.now());
@@ -100,7 +101,7 @@ public class AiSuggestionService {
 
         auditService.log(agencyId, s.getClientId(), ctx.getUserId(), ctx.getRole(),
                 AuditAction.SUGGESTION_REJECT, "AiSuggestion", suggestionId,
-                "PENDING", "REJECTED", null);
+            before, "REJECTED", null);
 
         return SuggestionResponse.from(saved);
     }
@@ -152,6 +153,12 @@ public class AiSuggestionService {
     private void requirePending(AiSuggestion s) {
         if (!"PENDING".equals(s.getStatus())) {
             throw new IllegalStateException("Suggestion must be in PENDING status, current: " + s.getStatus());
+        }
+    }
+
+    private void requireRejectable(AiSuggestion s) {
+        if (!"PENDING".equals(s.getStatus()) && !"APPROVED".equals(s.getStatus())) {
+            throw new IllegalStateException("Suggestion must be in PENDING or APPROVED status, current: " + s.getStatus());
         }
     }
 }

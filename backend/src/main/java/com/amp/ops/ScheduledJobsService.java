@@ -57,7 +57,8 @@ public class ScheduledJobsService {
 
     @PostConstruct
     public void onInit() {
-        log.info("ScheduledJobsService initialized. Daily sync cron: {}", cronExpression);
+        log.info("ScheduledJobsService initialized, daily sync enabled");
+        log.info("ScheduledJobsService daily sync cron: {}", cronExpression);
     }
 
     /**

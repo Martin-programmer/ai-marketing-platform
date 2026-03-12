@@ -5,6 +5,8 @@ import com.amp.agency.AgencyRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.EmailService;
 import com.amp.common.exception.ResourceNotFoundException;
+import com.amp.clients.ClientPermissionService;
+import com.amp.clients.ClientRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -33,16 +35,22 @@ public class UserService {
 
     private final UserAccountRepository userAccountRepository;
     private final AgencyRepository agencyRepository;
+    private final ClientRepository clientRepository;
+    private final ClientPermissionService clientPermissionService;
     private final EmailService emailService;
     private final EmailProperties emailProperties;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public UserService(UserAccountRepository userAccountRepository,
                        AgencyRepository agencyRepository,
+                       ClientRepository clientRepository,
+                       ClientPermissionService clientPermissionService,
                        EmailService emailService,
                        EmailProperties emailProperties) {
         this.userAccountRepository = userAccountRepository;
         this.agencyRepository = agencyRepository;
+        this.clientRepository = clientRepository;
+        this.clientPermissionService = clientPermissionService;
         this.emailService = emailService;
         this.emailProperties = emailProperties;
     }
@@ -62,11 +70,17 @@ public class UserService {
         if (!VALID_ROLES.contains(req.role())) {
             throw new IllegalArgumentException("Invalid role: " + req.role());
         }
-        if ("CLIENT_USER".equals(req.role()) && req.clientId() == null) {
-            throw new IllegalArgumentException("clientId is required for CLIENT_USER role");
-        }
         if (userAccountRepository.findByEmail(req.email()).isPresent()) {
             throw new IllegalArgumentException("Email already registered: " + req.email());
+        }
+
+        if ("CLIENT_USER".equals(req.role())) {
+            if (req.clientId() == null) {
+                throw new IllegalArgumentException("clientId is required for CLIENT_USER role");
+            }
+            clientRepository.findByIdAndAgencyId(req.clientId(), agencyId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "clientId does not belong to this agency: " + req.clientId()));
         }
 
         // Generate invitation token
@@ -90,9 +104,21 @@ public class UserService {
 
         if ("CLIENT_USER".equals(req.role())) {
             user.setClientId(req.clientId());
+        } else {
+            user.setClientId(null);
         }
 
         user = userAccountRepository.save(user);
+
+        if ("CLIENT_USER".equals(req.role())) {
+            clientPermissionService.setUserClientPermissions(
+                    user.getId(),
+                    req.clientId(),
+                    List.of(Permission.CLIENT_VIEW.name(), Permission.REPORTS_VIEW.name()),
+                    null
+            );
+        }
+
         log.info("Created INVITED user {} with role {} for agency {}", user.getEmail(), req.role(), agencyId);
 
         // Send invitation email (async-safe — doesn't throw on failure)

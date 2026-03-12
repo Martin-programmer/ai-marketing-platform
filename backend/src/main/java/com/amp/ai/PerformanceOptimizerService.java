@@ -9,6 +9,7 @@ import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -68,6 +69,12 @@ public class PerformanceOptimizerService {
     // ══════════════════════════════════════════
     // SCHEDULING & ENTRY POINTS
     // ══════════════════════════════════════════
+
+    @PostConstruct
+    public void onInit() {
+        log.info("PerformanceOptimizerService initialized, scheduled optimization enabled");
+        log.info("PerformanceOptimizerService cron: {}", aiProps.getOptimizer().getScheduleCron());
+    }
 
     /**
      * Scheduled daily optimisation run for all connected clients.
