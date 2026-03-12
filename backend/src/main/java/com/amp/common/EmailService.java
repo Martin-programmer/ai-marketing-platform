@@ -1,23 +1,21 @@
 package com.amp.common;
 
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.ses.SesClient;
-import software.amazon.awssdk.services.ses.model.Body;
-import software.amazon.awssdk.services.ses.model.Content;
-import software.amazon.awssdk.services.ses.model.Destination;
-import software.amazon.awssdk.services.ses.model.Message;
-import software.amazon.awssdk.services.ses.model.SendEmailRequest;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 /**
- * Email service using AWS SES.
+ * Email service using Resend.
  * <p>
  * When {@code email.enabled=false} (local dev), emails are logged but not sent.
  */
@@ -27,29 +25,22 @@ public class EmailService {
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final EmailProperties props;
-    private SesClient sesClient;
+    private final RestTemplate restTemplate;
 
     public EmailService(EmailProperties props) {
         this.props = props;
+        this.restTemplate = new RestTemplate();
     }
 
     @PostConstruct
     void init() {
         if (props.isEnabled()) {
-            sesClient = SesClient.builder()
-                    .region(Region.of(props.getRegion()))
-                    .credentialsProvider(DefaultCredentialsProvider.create())
-                    .build();
-            log.info("EmailService initialized with SES in region {}", props.getRegion());
+            log.info("EmailService initialized with Resend apiUrl={}", props.getApiUrl());
         } else {
             log.info("EmailService is DISABLED — emails will be logged only");
         }
-    }
-
-    @PreDestroy
-    void destroy() {
-        if (sesClient != null) {
-            sesClient.close();
+        if ("placeholder".equals(props.getApiKey())) {
+            log.warn("EmailService is configured with placeholder Resend API key — sends will be skipped");
         }
     }
 
@@ -62,27 +53,42 @@ public class EmailService {
         log.info("Sending email to={} subject=\"{}\" enabled={}", to, subject, props.isEnabled());
 
         if (!props.isEnabled()) {
-            log.info("EMAIL (dev-mode):\n  To: {}\n  Subject: {}\n  Body length: {} chars", to, subject, wrappedHtml.length());
+            log.info("Email skipped because email.enabled=false to={} subject=\"{}\" bodyLength={}",
+                to, subject, wrappedHtml.length());
             log.debug("EMAIL body:\n{}", wrappedHtml);
             return;
         }
 
-        try {
-            SendEmailRequest request = SendEmailRequest.builder()
-                    .source(props.getFromName() + " <" + props.getFromAddress() + ">")
-                    .destination(Destination.builder().toAddresses(to).build())
-                    .message(Message.builder()
-                            .subject(Content.builder().data(subject).charset("UTF-8").build())
-                            .body(Body.builder()
-                                    .html(Content.builder().data(wrappedHtml).charset("UTF-8").build())
-                                    .build())
-                            .build())
-                    .build();
+        if (props.getApiKey() == null || props.getApiKey().isBlank()
+            || "placeholder".equals(props.getApiKey())) {
+            log.warn("Email skipped because Resend API key is missing/placeholder to={} subject=\"{}\"",
+                to, subject);
+            return;
+        }
 
-            sesClient.sendEmail(request);
-            log.info("Email sent successfully to {}", to);
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(props.getApiKey());
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> payload = Map.of(
+                "from", props.getFromName() + " <" + props.getFromAddress() + ">",
+                "to", List.of(to),
+                "subject", subject,
+                "html", wrappedHtml
+            );
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+            String endpoint = props.getApiUrl().replaceAll("/+$", "") + "/emails";
+
+            ResponseEntity<JsonNode> response = restTemplate.postForEntity(endpoint, request, JsonNode.class);
+            String emailId = response.getBody() != null && response.getBody().has("id")
+                ? response.getBody().get("id").asText()
+                : "unknown";
+            log.info("Email sent successfully to={} subject=\"{}\" provider=resend emailId={}",
+                to, subject, emailId);
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", to, e.getMessage(), e);
+            log.error("Failed to send email to={} subject=\"{}\": {}", to, subject, e.getMessage(), e);
             // Don't re-throw — email failure shouldn't block business logic
         }
     }

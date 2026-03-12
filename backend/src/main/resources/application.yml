@@ -5,10 +5,11 @@
 # override these values.
 
 email:
-  enabled: ${EMAIL_ENABLED:true}
+  enabled: ${EMAIL_ENABLED:false}
   from-address: ${EMAIL_FROM:noreply@adverion.xyz}
   from-name: AI Marketing Platform
-  region: ${EMAIL_REGION:eu-north-1}
+  api-key: ${RESEND_API_KEY:placeholder}
+  api-url: https://api.resend.com
   base-url: ${EMAIL_BASE_URL:https://adverion.xyz}
 
 meta:
