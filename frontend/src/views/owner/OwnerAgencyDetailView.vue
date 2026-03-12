@@ -60,7 +60,7 @@
           </v-chip>
         </template>
         <template v-slot:[`item.status`]="{ item }">
-          <v-chip :color="item.status === 'ACTIVE' ? 'success' : 'grey'" size="small">
+          <v-chip :color="statusColor(item.status)" size="small">
             {{ item.status }}
           </v-chip>
         </template>
@@ -118,16 +118,8 @@
               class="mb-2"
             />
             <v-text-field
-              v-model="inviteForm.password"
-              label="Password"
-              type="password"
-              :rules="[rules.required, rules.minLen(6)]"
-              class="mb-2"
-            />
-            <v-text-field
               v-model="inviteForm.displayName"
               label="Display Name"
-              :rules="[rules.required]"
               class="mb-2"
             />
             <v-select
@@ -136,6 +128,9 @@
               :items="['AGENCY_ADMIN', 'AGENCY_USER']"
               :rules="[rules.required]"
             />
+            <v-alert v-if="inviteForm.email" type="info" variant="tonal" class="mt-3">
+              Invitation email will be sent to {{ inviteForm.email }}.
+            </v-alert>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -156,7 +151,6 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ownerApi } from '@/api/owner'
-import api from '@/api/client'
 
 interface Agency {
   id: string
@@ -226,20 +220,18 @@ async function handleSave() {
 const showInvite = ref(false)
 const inviteValid = ref(false)
 const inviting = ref(false)
-const inviteForm = ref({ email: '', password: '', displayName: '', role: 'AGENCY_ADMIN' })
+const inviteForm = ref({ email: '', displayName: '', role: 'AGENCY_ADMIN' })
 
 function closeInvite() {
   showInvite.value = false
-  inviteForm.value = { email: '', password: '', displayName: '', role: 'AGENCY_ADMIN' }
+  inviteForm.value = { email: '', displayName: '', role: 'AGENCY_ADMIN' }
 }
 
 async function handleInvite() {
   inviting.value = true
   try {
-    await api.post('/users/invite', inviteForm.value, {
-      params: { agencyId },
-    })
-    showSnack('User invited')
+    await ownerApi.inviteAgencyUser(agencyId, inviteForm.value)
+    showSnack(`Invitation sent to ${inviteForm.value.email}`)
     closeInvite()
     await fetchUsers()
   } catch (e: any) {
@@ -260,6 +252,14 @@ function roleColor(role: string) {
   }
 }
 
+function statusColor(status: string) {
+  switch (status) {
+    case 'ACTIVE': return 'success'
+    case 'INVITED': return 'orange'
+    default: return 'grey'
+  }
+}
+
 function formatDate(iso: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString()
@@ -272,7 +272,6 @@ function showSnack(msg: string) { snackbarText.value = msg; snackbar.value = tru
 const rules = {
   required: (v: string) => !!v || 'Required',
   email: (v: string) => /.+@.+\..+/.test(v) || 'Invalid email',
-  minLen: (n: number) => (v: string) => (v && v.length >= n) || `Min ${n} chars`,
 }
 
 async function fetchAgency() {

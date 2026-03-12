@@ -1,9 +1,12 @@
 package com.amp.agency;
 
 import com.amp.ai.AgencyIntelligenceService;
-import com.amp.auth.AccessControl;
+import com.amp.auth.InviteUserRequest;
+import com.amp.auth.UserResponse;
+import com.amp.auth.UserService;
 import com.amp.auth.UserAccountRepository;
 import com.amp.common.RoleGuard;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,17 +25,20 @@ public class OwnerController {
 
     private final AgencyRepository agencyRepository;
     private final UserAccountRepository userAccountRepository;
-    private final AccessControl accessControl;
     private final AgencyIntelligenceService intelligenceService;
+    private final AgencyService agencyService;
+    private final UserService userService;
 
     public OwnerController(AgencyRepository agencyRepository,
                            UserAccountRepository userAccountRepository,
-                           AccessControl accessControl,
-                           AgencyIntelligenceService intelligenceService) {
+                           AgencyIntelligenceService intelligenceService,
+                           AgencyService agencyService,
+                           UserService userService) {
         this.agencyRepository = agencyRepository;
         this.userAccountRepository = userAccountRepository;
-        this.accessControl = accessControl;
         this.intelligenceService = intelligenceService;
+        this.agencyService = agencyService;
+        this.userService = userService;
     }
 
     @GetMapping("/agencies")
@@ -49,20 +55,10 @@ public class OwnerController {
     }
 
     @PostMapping("/agencies")
-    public ResponseEntity<?> createAgency(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> createAgency(@Valid @RequestBody CreateAgencyWithAdminRequest request) {
         RoleGuard.requireOwnerAdmin();
-        Agency agency = new Agency();
-        agency.setName(request.get("name"));
-        agency.setStatus("ACTIVE");
-        agency.setPlanCode(request.getOrDefault("planCode", "STARTER"));
-        agency.setCreatedAt(OffsetDateTime.now());
-        agency.setUpdatedAt(OffsetDateTime.now());
-        agency = agencyRepository.save(agency);
-        return ResponseEntity.status(201).body(Map.of(
-                "id", agency.getId(),
-                "name", agency.getName(),
-                "status", agency.getStatus()
-        ));
+        CreateAgencyWithAdminResponse response = agencyService.createAgencyWithAdmin(request);
+        return ResponseEntity.status(201).body(response);
     }
 
     @PatchMapping("/agencies/{agencyId}")
@@ -92,8 +88,24 @@ public class OwnerController {
                 "email", u.getEmail(),
                 "role", u.getRole(),
                 "status", u.getStatus(),
-                "displayName", u.getDisplayName() != null ? u.getDisplayName() : ""
+                "displayName", u.getDisplayName() != null ? u.getDisplayName() : "",
+                "createdAt", u.getCreatedAt()
         )).toList());
+    }
+
+    @PostMapping("/agencies/{agencyId}/users")
+    public ResponseEntity<?> inviteAgencyUser(@PathVariable UUID agencyId,
+                                              @Valid @RequestBody InviteUserRequest request) {
+        RoleGuard.requireOwnerAdmin();
+        try {
+            UserResponse invited = userService.inviteUser(agencyId, request);
+            return ResponseEntity.status(201).body(invited);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "code", "INVALID_REQUEST",
+                    "message", e.getMessage()
+            ));
+        }
     }
 
     @GetMapping("/dashboard")

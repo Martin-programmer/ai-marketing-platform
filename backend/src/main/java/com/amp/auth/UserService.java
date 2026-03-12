@@ -76,7 +76,9 @@ public class UserService {
         UserAccount user = new UserAccount();
         user.setEmail(req.email());
         // No password — will be set on invitation acceptance
-        user.setDisplayName(req.email().split("@")[0]); // Placeholder display name
+        user.setDisplayName(req.displayName() != null && !req.displayName().isBlank()
+            ? req.displayName()
+            : req.email().split("@")[0]);
         user.setRole(req.role());
         user.setAgencyId(agencyId);
         user.setStatus("INVITED");

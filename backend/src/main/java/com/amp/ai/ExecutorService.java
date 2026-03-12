@@ -103,17 +103,6 @@ public class ExecutorService {
                     "Only APPROVED suggestions can be executed. Current status: " + suggestion.getStatus());
         }
 
-        // Get Meta connection for this client
-        MetaConnection conn = metaConnRepo.findByAgencyIdAndClientId(agencyId, suggestion.getClientId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "No Meta connection for client " + suggestion.getClientId()));
-
-        if (!"CONNECTED".equals(conn.getStatus())) {
-            throw new IllegalStateException("Meta connection is not active");
-        }
-
-        String accessToken = metaService.getAccessToken(conn);
-
         // Transition: APPROVED → APPLYING
         suggestion.setStatus("APPLYING");
         suggestionRepo.save(suggestion);
@@ -133,32 +122,58 @@ public class ExecutorService {
             JsonNode metaResponse   = null;
 
             String suggType = suggestion.getSuggestionType();
+            String entityId = resolveMetaEntityId(suggestion);
+            boolean requiresMetaAction = switch (suggType) {
+                case "PAUSE", "ENABLE" -> entityId != null;
+                case "BUDGET_ADJUST" -> entityId != null && payload.has("proposed_daily_budget");
+                case "DIAGNOSTIC", "CREATIVE_TEST", "COPY_REFRESH" -> false;
+                default -> throw new IllegalStateException("Unknown suggestion type: " + suggType);
+            };
+
+            String accessToken = null;
+            if (requiresMetaAction) {
+                MetaConnection conn = metaConnRepo.findByAgencyIdAndClientId(agencyId, suggestion.getClientId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "No Meta connection for client " + suggestion.getClientId()));
+
+                if (!"CONNECTED".equals(conn.getStatus())) {
+                    throw new IllegalStateException("Meta connection is not active");
+                }
+
+                accessToken = metaService.getAccessToken(conn);
+            }
 
             switch (suggType) {
                 case "PAUSE" -> {
-                    String entityId = resolveMetaEntityId(suggestion);
                     if (entityId != null) {
                         beforeSnapshot = fetchSnapshot(accessToken, entityId);
                         metaResponse   = metaClient.updateAdStatus(accessToken, entityId, "PAUSED");
                         afterSnapshot  = fetchSnapshot(accessToken, entityId);
+                    } else {
+                        metaResponse = objectMapper.createObjectNode()
+                                .put("info", "No Meta entity resolved for PAUSE suggestion");
                     }
                 }
                 case "ENABLE" -> {
-                    String entityId = resolveMetaEntityId(suggestion);
                     if (entityId != null) {
                         beforeSnapshot = fetchSnapshot(accessToken, entityId);
                         metaResponse   = metaClient.updateAdStatus(accessToken, entityId, "ACTIVE");
                         afterSnapshot  = fetchSnapshot(accessToken, entityId);
+                    } else {
+                        metaResponse = objectMapper.createObjectNode()
+                                .put("info", "No Meta entity resolved for ENABLE suggestion");
                     }
                 }
                 case "BUDGET_ADJUST" -> {
-                    String entityId = resolveMetaEntityId(suggestion);
                     if (entityId != null && payload.has("proposed_daily_budget")) {
                         beforeSnapshot = fetchSnapshot(accessToken, entityId);
                         // Meta expects budget in cents (smallest currency unit)
                         long budgetCents = (long) (payload.get("proposed_daily_budget").asDouble() * 100);
                         metaResponse   = metaClient.updateAdsetBudget(accessToken, entityId, budgetCents);
                         afterSnapshot  = fetchSnapshot(accessToken, entityId);
+                    } else {
+                        metaResponse = objectMapper.createObjectNode()
+                                .put("info", "No direct Meta budget update available for this suggestion");
                     }
                 }
                 case "DIAGNOSTIC", "CREATIVE_TEST", "COPY_REFRESH" -> {
@@ -166,7 +181,6 @@ public class ExecutorService {
                     metaResponse = objectMapper.createObjectNode()
                             .put("info", "No Meta action required for " + suggType);
                 }
-                default -> throw new IllegalStateException("Unknown suggestion type: " + suggType);
             }
 
             // ── Record success ──

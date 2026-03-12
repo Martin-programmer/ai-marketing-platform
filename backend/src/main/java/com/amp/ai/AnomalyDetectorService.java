@@ -4,6 +4,7 @@ import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
+import com.amp.creatives.CreativeAnalysis;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +41,7 @@ public class AnomalyDetectorService {
     private static final double CTR_COLLAPSE_FACTOR = 0.50;        // CTR dropped > 50%
     private static final int BASELINE_DAYS = 14;
     private static final int CPM_SURGE_LOOKBACK_DAYS = 3;
+    private static final UUID AI_SYSTEM_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     private final AiSuggestionRepository suggestionRepo;
     private final InsightDailyRepository insightRepo;
@@ -46,19 +49,25 @@ public class AnomalyDetectorService {
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
     private final ClientRepository clientRepo;
+    private final AiCrossModuleSupportService aiCrossModuleSupportService;
+    private final CopyFactoryService copyFactoryService;
 
     public AnomalyDetectorService(AiSuggestionRepository suggestionRepo,
                                    InsightDailyRepository insightRepo,
                                    ObjectMapper objectMapper,
                                    NotificationHelper notificationHelper,
                                    EmailProperties emailProperties,
-                                   ClientRepository clientRepo) {
+                                   ClientRepository clientRepo,
+                                   AiCrossModuleSupportService aiCrossModuleSupportService,
+                                   CopyFactoryService copyFactoryService) {
         this.suggestionRepo = suggestionRepo;
         this.insightRepo = insightRepo;
         this.objectMapper = objectMapper;
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
         this.clientRepo = clientRepo;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
+        this.copyFactoryService = copyFactoryService;
     }
 
     // ══════════════════════════════════════════
@@ -294,6 +303,13 @@ public class AnomalyDetectorService {
 
         if (!isDuplicate) {
             try {
+                boolean copyQueued = false;
+                if ("CTR_COLLAPSE".equalsIgnoreCase(anomalyType)) {
+                    copyQueued = queueCopyFactoryGeneration(agencyId, clientId, entityType, entityId);
+                    if (copyQueued) {
+                        rationale = rationale + " New copy variants have been auto-generated. Review them in the Creative Library.";
+                    }
+                }
                 String payloadJson = objectMapper.writeValueAsString(payload);
                 AiSuggestion suggestion = new AiSuggestion();
                 suggestion.setAgencyId(agencyId);
@@ -336,5 +352,29 @@ public class AnomalyDetectorService {
 
     private double round(double val) {
         return BigDecimal.valueOf(val).setScale(2, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    private boolean queueCopyFactoryGeneration(UUID agencyId, UUID clientId, String entityType, UUID entityId) {
+        try {
+            Optional<CreativeAnalysis> analysis = aiCrossModuleSupportService.findAnalysisForScope(
+                    agencyId, clientId, entityType, entityId);
+            if (analysis.isEmpty()) {
+                return false;
+            }
+            CreativeAnalysis savedAnalysis = analysis.get();
+            CompletableFuture.runAsync(() -> {
+                try {
+                    copyFactoryService.generateCopy(savedAnalysis, AI_SYSTEM_USER_ID);
+                } catch (Exception e) {
+                    log.warn("Auto copy generation failed for anomaly entity {} {}: {}",
+                            entityType, entityId, e.getMessage());
+                }
+            });
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to queue auto copy generation for anomaly entity {} {}: {}",
+                    entityType, entityId, e.getMessage());
+            return false;
+        }
     }
 }

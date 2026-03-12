@@ -98,7 +98,18 @@
               label="Plan Code"
               hint="Optional plan identifier"
               persistent-hint
+              class="mb-2"
             />
+            <v-text-field
+              v-model="createForm.adminEmail"
+              label="Admin Email"
+              type="email"
+              hint="Optional — invitation email will be sent to this address"
+              persistent-hint
+            />
+            <v-alert v-if="createForm.adminEmail" type="info" variant="tonal" class="mt-3">
+              Invitation email will be sent to {{ createForm.adminEmail }}.
+            </v-alert>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -280,20 +291,21 @@ const activeAgencies = computed(() =>
 const showCreate = ref(false)
 const createValid = ref(false)
 const creating = ref(false)
-const createForm = ref({ name: '', planCode: '' })
+const createForm = ref({ name: '', planCode: '', adminEmail: '' })
 
 function closeCreate() {
   showCreate.value = false
-  createForm.value = { name: '', planCode: '' }
+  createForm.value = { name: '', planCode: '', adminEmail: '' }
 }
 
 async function handleCreate() {
   creating.value = true
   try {
-    const payload: { name: string; planCode?: string } = { name: createForm.value.name }
+    const payload: { name: string; planCode?: string; adminEmail?: string } = { name: createForm.value.name }
     if (createForm.value.planCode) payload.planCode = createForm.value.planCode
+    if (createForm.value.adminEmail) payload.adminEmail = createForm.value.adminEmail
     await ownerApi.createAgency(payload)
-    showSnack('Agency created')
+    showSnack(createForm.value.adminEmail ? 'Agency created and invitation sent' : 'Agency created')
     closeCreate()
     await fetchAll()
   } catch (e: any) {

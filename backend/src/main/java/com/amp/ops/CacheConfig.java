@@ -42,6 +42,7 @@ public class CacheConfig {
         Map<String, RedisCacheConfiguration> cacheConfigs = Map.of(
                 "kpis", defaultConfig.entryTtl(Duration.ofMinutes(5)),
                 "campaigns", defaultConfig.entryTtl(Duration.ofMinutes(10)),
+                "aiContext", defaultConfig.entryTtl(Duration.ofMinutes(5)),
                 "suggestions", defaultConfig.entryTtl(Duration.ofMinutes(5)),
                 "reports", defaultConfig.entryTtl(Duration.ofMinutes(15))
         );

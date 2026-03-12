@@ -12,6 +12,8 @@ public interface AdRepository extends JpaRepository<Ad, UUID> {
 
     List<Ad> findAllByAdsetId(UUID adsetId);
 
+    List<Ad> findAllByAgencyIdAndClientId(UUID agencyId, UUID clientId);
+
     Optional<Ad> findByIdAndAgencyId(UUID id, UUID agencyId);
 
     Optional<Ad> findByAgencyIdAndClientIdAndMetaAdId(UUID agencyId, UUID clientId, String metaAdId);

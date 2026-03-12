@@ -154,6 +154,174 @@
           </template>
         </v-data-table>
       </v-card>
+
+      <v-divider class="my-6" />
+
+      <div class="d-flex align-center mb-4">
+        <h2 class="text-h6">Budget Analysis</h2>
+        <v-spacer />
+        <v-btn
+          color="deep-purple"
+          :loading="dashStore.budgetLoading"
+          @click="loadBudgetAnalysis"
+        >
+          <v-icon start>mdi-chart-areaspline</v-icon>
+          Analyse Budget
+        </v-btn>
+      </div>
+
+      <template v-if="dashStore.budgetAnalysis && !dashStore.budgetAnalysis.error">
+        <v-card variant="tonal" color="deep-purple" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            <v-icon class="mr-2">mdi-robot</v-icon>AI Recommendation
+          </v-card-title>
+          <v-card-text class="text-body-2" style="white-space: pre-line">
+            {{ dashStore.budgetAnalysis.narrative }}
+          </v-card-text>
+        </v-card>
+
+        <v-row class="mb-4">
+          <v-col cols="12" md="4">
+            <v-card variant="outlined">
+              <v-card-title class="text-subtitle-2">Monthly Pacing</v-card-title>
+              <v-card-text>
+                <div class="d-flex justify-space-between mb-2">
+                  <span class="text-caption">Month Elapsed</span>
+                  <span class="text-caption font-weight-bold">
+                    {{ dashStore.budgetAnalysis.pacing?.pctMonthElapsed?.toFixed(0) }}%
+                  </span>
+                </div>
+                <v-progress-linear
+                  :model-value="dashStore.budgetAnalysis.pacing?.pctMonthElapsed || 0"
+                  color="grey"
+                  height="8"
+                  rounded
+                  class="mb-3"
+                />
+                <div class="d-flex justify-space-between mb-2">
+                  <span class="text-caption">Budget Spent</span>
+                  <span class="text-caption font-weight-bold">
+                    {{ formatCurrency(dashStore.budgetAnalysis.pacing?.currentMonthSpend) }}
+                  </span>
+                </div>
+                <v-progress-linear
+                  :model-value="dashStore.budgetAnalysis.pacing?.projectedMonthSpend > 0
+                    ? (dashStore.budgetAnalysis.pacing.currentMonthSpend / dashStore.budgetAnalysis.pacing.projectedMonthSpend) * 100
+                    : 0"
+                  :color="pacingColor"
+                  height="8"
+                  rounded
+                  class="mb-3"
+                />
+                <v-chip :color="pacingColor" size="small" variant="tonal">
+                  {{ dashStore.budgetAnalysis.pacing?.pacingStatus?.replace('_', ' ') }}
+                </v-chip>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  Projected: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.projectedMonthSpend) }}
+                  · Daily avg: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.dailyAvg30d) }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+
+          <v-col cols="12" md="8">
+            <v-card variant="outlined">
+              <v-card-title class="text-subtitle-2">Day-of-Week Performance</v-card-title>
+              <v-card-text>
+                <v-table density="compact">
+                  <thead>
+                    <tr>
+                      <th>Day</th>
+                      <th class="text-end">Spend</th>
+                      <th class="text-end">Conversions</th>
+                      <th class="text-end">ROAS</th>
+                      <th class="text-end">CTR %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="d in dashStore.budgetAnalysis.dayOfWeek?.days || []"
+                      :key="d.day"
+                      :class="{
+                        'bg-green-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.bestDay,
+                        'bg-red-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.worstDay,
+                      }"
+                    >
+                      <td>{{ d.day?.substring(0, 3) }}</td>
+                      <td class="text-end">{{ formatCurrency(d.spend) }}</td>
+                      <td class="text-end">{{ formatDecimal(d.conversions) }}</td>
+                      <td class="text-end">{{ formatDecimal(d.roas) }}×</td>
+                      <td class="text-end">{{ formatPercent(d.ctr) }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  {{ dashStore.budgetAnalysis.dayOfWeek?.recommendation }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <v-card v-if="dashStore.budgetAnalysis.campaignRanking?.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">Campaign Budget Ranking</v-card-title>
+          <v-data-table
+            :headers="budgetRankHeaders"
+            :items="dashStore.budgetAnalysis.campaignRanking"
+            density="compact"
+          >
+            <template #item.spend30d="{ item }">
+              {{ formatCurrency(item.spend30d) }}
+            </template>
+            <template #item.roas30d="{ item }">
+              {{ formatDecimal(item.roas30d) }}×
+            </template>
+            <template #item.dailyBudget="{ item }">
+              {{ formatCurrency(item.dailyBudget) }}
+            </template>
+            <template #item.suggestion="{ item }">
+              <v-chip
+                :color="item.suggestion === 'INCREASE_BUDGET' ? 'success'
+                  : item.suggestion === 'DECREASE_BUDGET' ? 'warning'
+                  : item.suggestion === 'PAUSE_OR_RESTRUCTURE' ? 'error'
+                  : 'grey'"
+                size="x-small"
+              >
+                {{ item.suggestion?.replace(/_/g, ' ') }}
+              </v-chip>
+            </template>
+          </v-data-table>
+        </v-card>
+
+        <v-card v-if="dashStore.budgetAnalysis.diminishingReturns?.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">
+            <v-icon color="warning" class="mr-2" size="20">mdi-trending-down</v-icon>
+            Diminishing Returns Detected
+          </v-card-title>
+          <v-card-text>
+            <v-alert
+              v-for="(dr, i) in dashStore.budgetAnalysis.diminishingReturns"
+              :key="i"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-2"
+            >
+              <strong>{{ dr.entityType }} {{ dr.entityId?.substring(0, 8) }}…</strong>
+              — {{ dr.description }}
+            </v-alert>
+          </v-card-text>
+        </v-card>
+      </template>
+
+      <v-alert
+        v-else-if="dashStore.budgetAnalysis?.error"
+        type="warning"
+        variant="tonal"
+        class="mb-4"
+      >
+        {{ dashStore.budgetAnalysis.error }}
+      </v-alert>
     </template>
 
     <!-- Create Campaign Dialog -->
@@ -378,14 +546,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { computed, ref, onMounted, reactive } from 'vue'
 import { useCampaignStore } from '@/stores/campaigns'
 import { useClientStore } from '@/stores/clients'
 import { useCreativeStore } from '@/stores/creatives'
+import { useDashboardStore } from '@/stores/dashboard'
 
 const store = useCampaignStore()
 const clientStore = useClientStore()
 const creativeStore = useCreativeStore()
+const dashStore = useDashboardStore()
 const selectedClient = ref<string | null>(null)
 
 const adsetMap = reactive<Record<string, any[]>>({})
@@ -406,6 +576,22 @@ const showAiProposal = ref(false)
 const showProposalResult = ref(false)
 const aiBrief = ref('')
 const publishLoading = ref(false)
+
+const pacingColor = computed(() => {
+  const status = dashStore.budgetAnalysis?.pacing?.pacingStatus
+  if (status === 'ON_TRACK') return 'success'
+  if (status === 'OVERSPENDING') return 'error'
+  return 'warning'
+})
+
+const budgetRankHeaders = [
+  { title: 'Campaign', key: 'campaignName' },
+  { title: 'Status', key: 'status', width: '100px' },
+  { title: 'Spend (30d)', key: 'spend30d', align: 'end' as const },
+  { title: 'ROAS', key: 'roas30d', align: 'end' as const },
+  { title: 'Daily Budget', key: 'dailyBudget', align: 'end' as const },
+  { title: 'Suggestion', key: 'suggestion' },
+]
 
 const campaignHeaders = [
   { title: 'Name', key: 'name' },
@@ -447,6 +633,7 @@ function formatTargeting(json: any): string {
 async function onClientChange(clientId: string) {
   if (clientId) {
     store.selectedClientId = clientId
+    dashStore.budgetAnalysis = null
     await Promise.all([
       store.fetchCampaigns(clientId),
       creativeStore.fetchPackages(clientId),
@@ -462,6 +649,31 @@ async function onClientChange(clientId: string) {
       }
     }
   }
+}
+
+async function loadBudgetAnalysis() {
+  if (!selectedClient.value) return
+  await dashStore.fetchBudgetAnalysis(selectedClient.value)
+}
+
+function formatCurrency(val: any): string {
+  if (val == null) return '—'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(Number(val))
+}
+
+function formatPercent(val: any): string {
+  if (val == null) return '—'
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(val)) + '%'
+}
+
+function formatDecimal(val: any): string {
+  if (val == null) return '—'
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(val))
 }
 
 async function onAdsetClick(adset: any) {

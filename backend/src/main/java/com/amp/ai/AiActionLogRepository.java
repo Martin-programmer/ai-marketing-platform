@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface AiActionLogRepository extends JpaRepository<AiActionLog, UUID> {
 
     List<AiActionLog> findAllBySuggestionId(UUID suggestionId);
+
+    List<AiActionLog> findAllByAgencyIdAndClientId(UUID agencyId, UUID clientId);
+
+    List<AiActionLog> findTop5ByAgencyIdAndClientIdOrderByCreatedAtDesc(UUID agencyId, UUID clientId);
 }

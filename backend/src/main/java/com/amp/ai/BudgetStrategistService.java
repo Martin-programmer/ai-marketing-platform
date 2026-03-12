@@ -40,6 +40,8 @@ public class BudgetStrategistService {
     private final CampaignRepository campaignRepo;
     private final AdsetRepository adsetRepo;
     private final InsightDailyRepository insightRepo;
+    private final AiContextBuilder aiContextBuilder;
+    private final AiBudgetAnalysisRepository aiBudgetAnalysisRepository;
     private final ObjectMapper objectMapper;
 
     public BudgetStrategistService(ClaudeApiClient claudeClient,
@@ -48,6 +50,8 @@ public class BudgetStrategistService {
                                     CampaignRepository campaignRepo,
                                     AdsetRepository adsetRepo,
                                     InsightDailyRepository insightRepo,
+                                    AiContextBuilder aiContextBuilder,
+                                    AiBudgetAnalysisRepository aiBudgetAnalysisRepository,
                                     ObjectMapper objectMapper) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
@@ -55,6 +59,8 @@ public class BudgetStrategistService {
         this.campaignRepo = campaignRepo;
         this.adsetRepo = adsetRepo;
         this.insightRepo = insightRepo;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiBudgetAnalysisRepository = aiBudgetAnalysisRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -62,8 +68,8 @@ public class BudgetStrategistService {
     // PUBLIC API
     // ══════════════════════════════════════════
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> analyzeBudget(UUID agencyId, UUID clientId) {
+    @Transactional
+    public AiBudgetAnalysis analyzeBudget(UUID agencyId, UUID clientId) {
         clientRepo.findByIdAndAgencyId(clientId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
 
@@ -73,7 +79,7 @@ public class BudgetStrategistService {
                 agencyId, clientId, from30, today);
 
         if (insights.isEmpty()) {
-            return Map.of("error", "No insight data for the last 30 days");
+            throw new IllegalStateException("No insight data for the last 30 days");
         }
 
         // Compute each analysis section
@@ -93,7 +99,16 @@ public class BudgetStrategistService {
         String narrative = generateNarrative(analysis, agencyId, clientId);
         analysis.put("narrative", narrative);
 
-        return analysis;
+        try {
+            AiBudgetAnalysis saved = new AiBudgetAnalysis();
+            saved.setAgencyId(agencyId);
+            saved.setClientId(clientId);
+            saved.setAnalysisJson(objectMapper.writeValueAsString(analysis));
+            saved.setCreatedAt(java.time.OffsetDateTime.now());
+            return aiBudgetAnalysisRepository.save(saved);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to persist budget analysis", e);
+        }
     }
 
     // ══════════════════════════════════════════
@@ -341,6 +356,7 @@ public class BudgetStrategistService {
     private String generateNarrative(Map<String, Object> analysis, UUID agencyId, UUID clientId) {
         try {
             String dataSummary = objectMapper.writeValueAsString(analysis);
+            String sharedContext = aiContextBuilder.buildContext(agencyId, clientId);
             // Truncate if too long for the prompt
             if (dataSummary.length() > 6000) {
                 dataSummary = dataSummary.substring(0, 6000) + "... (truncated)";
@@ -355,7 +371,9 @@ public class BudgetStrategistService {
                     """;
 
             ClaudeResponse response = claudeClient.sendMessage(
-                    systemPrompt, dataSummary, MODULE, agencyId, clientId);
+                    systemPrompt,
+                    sharedContext + "\n\nBudget Analysis Data:\n" + dataSummary,
+                    MODULE, agencyId, clientId);
 
             if (response.isSuccess()) {
                 return response.text();

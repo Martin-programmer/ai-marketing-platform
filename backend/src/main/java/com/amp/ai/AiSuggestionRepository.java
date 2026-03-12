@@ -13,6 +13,8 @@ public interface AiSuggestionRepository extends JpaRepository<AiSuggestion, UUID
 
     List<AiSuggestion> findAllByAgencyIdAndClientId(UUID agencyId, UUID clientId);
 
+        List<AiSuggestion> findTop10ByAgencyIdAndClientIdOrderByCreatedAtDesc(UUID agencyId, UUID clientId);
+
     List<AiSuggestion> findAllByAgencyIdAndClientIdAndStatus(UUID agencyId, UUID clientId, String status);
 
     Optional<AiSuggestion> findByIdAndAgencyId(UUID id, UUID agencyId);

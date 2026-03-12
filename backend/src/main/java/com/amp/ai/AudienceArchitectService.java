@@ -5,23 +5,19 @@ import com.amp.campaigns.Adset;
 import com.amp.campaigns.AdsetRepository;
 import com.amp.campaigns.Campaign;
 import com.amp.campaigns.CampaignRepository;
-import com.amp.clients.Client;
-import com.amp.clients.ClientProfile;
-import com.amp.clients.ClientProfileRepository;
-import com.amp.clients.ClientRepository;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
-import com.amp.insights.KpiSummary;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 /**
@@ -36,49 +32,36 @@ public class AudienceArchitectService {
 
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
-    private final ClientRepository clientRepo;
-    private final ClientProfileRepository profileRepo;
     private final CampaignRepository campaignRepo;
     private final AdsetRepository adsetRepo;
     private final InsightDailyRepository insightRepo;
-    private final ObjectMapper objectMapper;
+    private final AiContextBuilder aiContextBuilder;
+    private final AiAudienceSuggestionRepository aiAudienceSuggestionRepository;
 
     public AudienceArchitectService(ClaudeApiClient claudeClient,
                                      AiProperties aiProps,
-                                     ClientRepository clientRepo,
-                                     ClientProfileRepository profileRepo,
                                      CampaignRepository campaignRepo,
                                      AdsetRepository adsetRepo,
                                      InsightDailyRepository insightRepo,
-                                     ObjectMapper objectMapper) {
+                                     AiContextBuilder aiContextBuilder,
+                                     AiAudienceSuggestionRepository aiAudienceSuggestionRepository) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
-        this.clientRepo = clientRepo;
-        this.profileRepo = profileRepo;
         this.campaignRepo = campaignRepo;
         this.adsetRepo = adsetRepo;
         this.insightRepo = insightRepo;
-        this.objectMapper = objectMapper;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiAudienceSuggestionRepository = aiAudienceSuggestionRepository;
     }
 
     /**
      * Generate audience targeting suggestions for a client.
      */
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> suggestAudiences(UUID agencyId, UUID clientId) {
-        Client client = clientRepo.findByIdAndAgencyId(clientId, agencyId)
-                .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
+    @Transactional
+    public AiAudienceSuggestion suggestAudiences(UUID agencyId, UUID clientId) {
+        String sharedContext = aiContextBuilder.buildContext(agencyId, clientId);
 
-        // 1. Client profile
-        String profileJson = "{}";
-        String website = null;
-        ClientProfile profile = profileRepo.findByClientId(clientId).orElse(null);
-        if (profile != null) {
-            profileJson = profile.getProfileJson();
-            website = profile.getWebsite();
-        }
-
-        // 2. Active campaigns and their targeting
+        // Module-specific targeting details
         List<Campaign> campaigns = campaignRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
         List<Campaign> activeCampaigns = campaigns.stream()
                 .filter(c -> "ACTIVE".equals(c.getStatus()) || "PUBLISHED".equals(c.getStatus()))
@@ -99,11 +82,9 @@ public class AudienceArchitectService {
             }
         }
 
-        // 3. Performance data — last 30 days top performers
+        // Best performing entities for audience inspiration
         LocalDate to = LocalDate.now().minusDays(1);
         LocalDate from = to.minusDays(29);
-        KpiSummary kpis = insightRepo.aggregateKpis(agencyId, clientId, from, to);
-
         List<InsightDaily> insights = insightRepo
                 .findAllByAgencyIdAndClientIdAndDateBetween(agencyId, clientId, from, to);
 
@@ -130,48 +111,30 @@ public class AudienceArchitectService {
                 })
                 .toList();
 
-        // 4. Build context
         StringBuilder ctx = new StringBuilder();
-        ctx.append("CLIENT: ").append(client.getName()).append("\n");
-        ctx.append("INDUSTRY: ").append(client.getIndustry() != null ? client.getIndustry() : "Unknown").append("\n");
-        if (website != null) {
-            ctx.append("WEBSITE: ").append(website).append("\n");
-        }
-        ctx.append("\n=== CLIENT PROFILE ===\n").append(profileJson).append("\n");
+        ctx.append(sharedContext);
 
-        ctx.append("\n=== CURRENT TARGETING (").append(currentTargeting.size()).append(" active ad sets) ===\n");
+        ctx.append("\nCurrent Targeting Details (module-specific):\n");
         for (Map<String, String> t : currentTargeting) {
-            ctx.append("Campaign: ").append(t.get("campaignName"))
+            ctx.append("- Campaign: ").append(t.get("campaignName"))
                .append(" > ").append(t.get("adsetName"))
                .append(" | Budget: $").append(t.get("dailyBudget"))
                .append(" | Targeting: ").append(t.get("targeting"))
                .append("\n");
         }
 
-        ctx.append("\n=== PERFORMANCE SUMMARY (last 30 days) ===\n");
-        if (kpis != null && kpis.getTotalImpressions() != null) {
-            ctx.append("Spend: $").append(fmt(kpis.getTotalSpend())).append("\n");
-            ctx.append("Impressions: ").append(kpis.getTotalImpressions()).append("\n");
-            ctx.append("Clicks: ").append(kpis.getTotalClicks()).append("\n");
-            ctx.append("Conversions: ").append(fmt(kpis.getTotalConversions())).append("\n");
-            ctx.append("ROAS: ").append(fmt(kpis.getAvgRoas())).append("\n");
-        } else {
-            ctx.append("No performance data available.\n");
-        }
-
-        ctx.append("\n=== TOP 5 PERFORMING ENTITIES ===\n");
+        ctx.append("\nTop Performing Entities for Targeting Inspiration:\n");
         for (Map<String, Object> tp : topPerformers) {
-            ctx.append(tp.get("entityType")).append(": ").append(tp.get("entityId"))
+            ctx.append("- ").append(tp.get("entityType")).append(": ").append(tp.get("entityId"))
                .append(" | Spend: $").append(tp.get("spend"))
                .append(" | Conversions: ").append(tp.get("conversions"))
                .append(" | ROAS: ").append(tp.get("roas"))
                .append("\n");
         }
 
-        // 5. Call Claude
         String systemPrompt = """
                 You are a Meta Ads targeting expert and audience strategist.
-                Based on the business profile and performance data, suggest 3-5 audience segments.
+            Based on the shared client context and targeting data, suggest 3-5 audience segments.
                 For each audience, provide detailed Meta Ads targeting specifications.
                 
                 Respond with STRICT JSON only, no markdown:
@@ -215,27 +178,26 @@ public class AudienceArchitectService {
 
         if (!response.isSuccess()) {
             log.warn("Audience Architect: Claude call failed for client {}: {}", clientId, response.error());
-            return Map.of("error", "AI analysis failed: " + response.error());
+            throw new IllegalStateException("AI analysis failed: " + response.error());
         }
 
-        // 6. Parse response
         JsonNode json = claudeClient.parseJson(response.text());
         if (json == null) {
             log.warn("Audience Architect: Failed to parse Claude response for client {}", clientId);
-            return Map.of("error", "Failed to parse AI response");
+            throw new IllegalStateException("Failed to parse AI response");
         }
 
-        try {
-            Map<String, Object> result = objectMapper.treeToValue(json, Map.class);
-            log.info("Audience Architect: generated {} audience suggestions for client {}",
-                    json.has("recommended_audiences") ? json.get("recommended_audiences").size() : 0,
-                    clientId);
-            return result;
-        } catch (Exception e) {
-            log.warn("Audience Architect: JSON conversion failed: {}", e.getMessage());
-            return Map.of("error", "JSON conversion failed",
-                          "raw", response.text());
-        }
+        AiAudienceSuggestion saved = new AiAudienceSuggestion();
+        saved.setAgencyId(agencyId);
+        saved.setClientId(clientId);
+        saved.setSuggestionJson(json.toString());
+        saved.setCreatedAt(OffsetDateTime.now());
+        saved = aiAudienceSuggestionRepository.save(saved);
+
+        log.info("Audience Architect: generated {} audience suggestions for client {}",
+                json.has("recommended_audiences") ? json.get("recommended_audiences").size() : 0,
+                clientId);
+        return saved;
     }
 
     // ──────── Helpers ────────

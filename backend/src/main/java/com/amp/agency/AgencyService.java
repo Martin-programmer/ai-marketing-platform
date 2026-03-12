@@ -1,9 +1,8 @@
 package com.amp.agency;
 
-import com.amp.auth.UserAccount;
-import com.amp.auth.UserAccountRepository;
-import com.amp.common.EmailProperties;
-import com.amp.common.EmailService;
+import com.amp.auth.InviteUserRequest;
+import com.amp.auth.UserResponse;
+import com.amp.auth.UserService;
 import com.amp.common.exception.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -25,18 +23,12 @@ public class AgencyService {
     private static final Logger log = LoggerFactory.getLogger(AgencyService.class);
 
     private final AgencyRepository agencyRepository;
-    private final UserAccountRepository userAccountRepository;
-    private final EmailService emailService;
-    private final EmailProperties emailProperties;
+    private final UserService userService;
 
     public AgencyService(AgencyRepository agencyRepository,
-                         UserAccountRepository userAccountRepository,
-                         EmailService emailService,
-                         EmailProperties emailProperties) {
+                         UserService userService) {
         this.agencyRepository = agencyRepository;
-        this.userAccountRepository = userAccountRepository;
-        this.emailService = emailService;
-        this.emailProperties = emailProperties;
+        this.userService = userService;
     }
 
     @Transactional(readOnly = true)
@@ -62,7 +54,6 @@ public class AgencyService {
      * The admin receives an invitation email instead of having a password set directly.
      */
     public CreateAgencyWithAdminResponse createAgencyWithAdmin(CreateAgencyWithAdminRequest req) {
-        // Create the agency
         Agency a = new Agency();
         a.setName(req.name());
         a.setStatus("ACTIVE");
@@ -71,45 +62,25 @@ public class AgencyService {
         a.setUpdatedAt(OffsetDateTime.now());
         Agency saved = agencyRepository.save(a);
 
-        // Generate invitation token
-        String invitationToken = UUID.randomUUID().toString();
-        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(72);
-
-        // Create the admin user with INVITED status (no password)
-        UserAccount admin = new UserAccount();
-        admin.setEmail(req.adminEmail());
-        admin.setDisplayName(req.adminDisplayName());
-        admin.setRole("AGENCY_ADMIN");
-        admin.setAgencyId(saved.getId());
-        admin.setStatus("INVITED");
-        admin.setCognitoSub("local-" + UUID.randomUUID());
-        admin.setInvitationToken(invitationToken);
-        admin.setInvitationExpiresAt(expiresAt);
-        admin.setCreatedAt(OffsetDateTime.now());
-        admin.setUpdatedAt(OffsetDateTime.now());
-        admin = userAccountRepository.save(admin);
-
-        log.info("Created agency '{}' with invited admin {}", saved.getName(), admin.getEmail());
-
-        // Send invitation email
-        String activationLink = emailProperties.getBaseUrl()
-                + "/accept-invite?token=" + invitationToken;
-        emailService.sendTemplatedEmail(
-                admin.getEmail(),
-                "You're Invited to AI Marketing Platform!",
-                "invitation",
-                Map.of(
-                        "agencyName", saved.getName(),
-                        "role", "AGENCY_ADMIN",
-                        "activationLink", activationLink
-                )
-        );
+        CreateAgencyWithAdminResponse.AdminUserInfo adminUser = null;
+        if (req.adminEmail() != null && !req.adminEmail().isBlank()) {
+            UserResponse invited = userService.inviteUser(saved.getId(), new InviteUserRequest(
+                req.adminEmail(),
+                req.adminDisplayName(),
+                "AGENCY_ADMIN",
+                null
+            ));
+            adminUser = new CreateAgencyWithAdminResponse.AdminUserInfo(
+                invited.id(), invited.email(), invited.role()
+            );
+            log.info("Created agency '{}' and invited admin {}", saved.getName(), invited.email());
+        } else {
+            log.info("Created agency '{}' without initial admin invitation", saved.getName());
+        }
 
         return new CreateAgencyWithAdminResponse(
                 AgencyResponse.from(saved),
-                new CreateAgencyWithAdminResponse.AdminUserInfo(
-                        admin.getId(), admin.getEmail(), admin.getRole()
-                )
+            adminUser
         );
     }
 

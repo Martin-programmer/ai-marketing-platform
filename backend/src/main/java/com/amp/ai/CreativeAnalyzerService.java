@@ -51,15 +51,18 @@ public class CreativeAnalyzerService {
     private final ClaudeApiClient claudeClient;
     private final CreativeAnalysisRepository analysisRepository;
     private final S3StorageService s3StorageService;
+    private final AiContextBuilder aiContextBuilder;
     private final AiProperties aiProperties;
 
     public CreativeAnalyzerService(ClaudeApiClient claudeClient,
                                    CreativeAnalysisRepository analysisRepository,
                                    S3StorageService s3StorageService,
+                                   AiContextBuilder aiContextBuilder,
                                    AiProperties aiProperties) {
         this.claudeClient = claudeClient;
         this.analysisRepository = analysisRepository;
         this.s3StorageService = s3StorageService;
+        this.aiContextBuilder = aiContextBuilder;
         this.aiProperties = aiProperties;
     }
 
@@ -91,11 +94,12 @@ public class CreativeAnalyzerService {
 
         // Generate presigned URL for Claude to access the image
         String imageUrl = s3StorageService.generatePresignedGetUrl(asset.getS3Key());
+        String clientContext = aiContextBuilder.buildContext(asset.getAgencyId(), asset.getClientId());
 
         String userMessage = String.format(
-                "Analyze this creative asset. File: %s, Type: %s. "
-                        + "Provide your analysis as the JSON object described in the system prompt.",
-                asset.getOriginalFilename(), asset.getMimeType());
+            "Analyze this creative asset. File: %s, Type: %s.%n%nShared client context:%n%s%n%n"
+                + "Provide your analysis as the JSON object described in the system prompt.",
+            asset.getOriginalFilename(), asset.getMimeType(), clientContext);
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendVisionMessage(
                 SYSTEM_PROMPT, userMessage, imageUrl, asset.getMimeType(),

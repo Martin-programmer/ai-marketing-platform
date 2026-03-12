@@ -16,8 +16,14 @@ public record InviteUserRequest(
         @Email(message = "email must be valid")
         String email,
 
+        String displayName,
+
         @NotBlank(message = "role is required")
         String role,
 
         UUID clientId
-) {}
+) {
+        public InviteUserRequest(String email, String role, UUID clientId) {
+                this(email, null, role, clientId);
+        }
+}

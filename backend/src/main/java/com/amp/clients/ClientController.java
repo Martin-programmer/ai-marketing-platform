@@ -1,6 +1,8 @@
 package com.amp.clients;
 
 import com.amp.ai.AnomalyDetectorService;
+import com.amp.ai.AiAudienceSuggestion;
+import com.amp.ai.AiBudgetAnalysis;
 import com.amp.ai.AudienceArchitectService;
 import com.amp.ai.BudgetStrategistService;
 import com.amp.ai.ClientBrieferService;
@@ -9,6 +11,8 @@ import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
 import com.amp.tenancy.TenantContext;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -33,6 +37,7 @@ public class ClientController {
     private final AudienceArchitectService audienceService;
     private final BudgetStrategistService budgetStrategist;
     private final AnomalyDetectorService anomalyDetector;
+    private final ObjectMapper objectMapper;
 
     public ClientController(ClientService clientService,
                             ClientProfileService profileService,
@@ -40,7 +45,8 @@ public class ClientController {
                             ClientBrieferService brieferService,
                             AudienceArchitectService audienceService,
                             BudgetStrategistService budgetStrategist,
-                            AnomalyDetectorService anomalyDetector) {
+                            AnomalyDetectorService anomalyDetector,
+                            ObjectMapper objectMapper) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.accessControl = accessControl;
@@ -48,6 +54,7 @@ public class ClientController {
         this.audienceService = audienceService;
         this.budgetStrategist = budgetStrategist;
         this.anomalyDetector = anomalyDetector;
+        this.objectMapper = objectMapper;
     }
 
     private UUID agencyId() {
@@ -206,8 +213,12 @@ public class ClientController {
     @PostMapping("/{clientId}/ai-audiences")
     public ResponseEntity<Map<String, Object>> suggestAudiences(@PathVariable UUID clientId) {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
-        Map<String, Object> result = audienceService.suggestAudiences(agencyId(), clientId);
-        return ResponseEntity.ok(result);
+        try {
+            AiAudienceSuggestion result = audienceService.suggestAudiences(agencyId(), clientId);
+            return ResponseEntity.ok(readJsonMap(result.getSuggestionJson()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.ok(Map.of("error", e.getMessage()));
+        }
     }
 
     // ---- AI Budget Strategist ----
@@ -218,8 +229,12 @@ public class ClientController {
     @GetMapping("/{clientId}/ai-budget-analysis")
     public ResponseEntity<Map<String, Object>> analyzeBudget(@PathVariable UUID clientId) {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
-        Map<String, Object> result = budgetStrategist.analyzeBudget(agencyId(), clientId);
-        return ResponseEntity.ok(result);
+        try {
+            AiBudgetAnalysis result = budgetStrategist.analyzeBudget(agencyId(), clientId);
+            return ResponseEntity.ok(readJsonMap(result.getAnalysisJson()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.ok(Map.of("error", e.getMessage()));
+        }
     }
 
     // ---- AI Anomaly Detector ----
@@ -232,5 +247,13 @@ public class ClientController {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
         Map<String, Object> result = anomalyDetector.detectAnomalies(agencyId(), clientId);
         return ResponseEntity.ok(result);
+    }
+
+    private Map<String, Object> readJsonMap(String json) {
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return Map.of("error", "Failed to parse saved AI response");
+        }
     }
 }

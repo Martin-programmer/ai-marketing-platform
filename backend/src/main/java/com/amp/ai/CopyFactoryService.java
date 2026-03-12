@@ -1,10 +1,5 @@
 package com.amp.ai;
 
-import com.amp.clients.Client;
-import com.amp.clients.ClientProfile;
-import com.amp.clients.ClientProfileRepository;
-import com.amp.clients.ClientRepository;
-import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.creatives.CopyVariant;
 import com.amp.creatives.CopyVariantRepository;
 import com.amp.creatives.CreativeAnalysis;
@@ -19,6 +14,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Generates adaptive ad-copy variants using Claude, informed by the
@@ -54,20 +50,20 @@ public class CopyFactoryService {
 
     private final ClaudeApiClient claudeClient;
     private final CopyVariantRepository copyVariantRepository;
-    private final ClientRepository clientRepository;
-    private final ClientProfileRepository clientProfileRepository;
+    private final AiContextBuilder aiContextBuilder;
     private final AiProperties aiProperties;
+    private final AiCrossModuleSupportService aiCrossModuleSupportService;
 
     public CopyFactoryService(ClaudeApiClient claudeClient,
                                CopyVariantRepository copyVariantRepository,
-                               ClientRepository clientRepository,
-                               ClientProfileRepository clientProfileRepository,
-                               AiProperties aiProperties) {
+                               AiContextBuilder aiContextBuilder,
+                               AiProperties aiProperties,
+                               AiCrossModuleSupportService aiCrossModuleSupportService) {
         this.claudeClient = claudeClient;
         this.copyVariantRepository = copyVariantRepository;
-        this.clientRepository = clientRepository;
-        this.clientProfileRepository = clientProfileRepository;
+        this.aiContextBuilder = aiContextBuilder;
         this.aiProperties = aiProperties;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
     }
 
     /**
@@ -87,15 +83,21 @@ public class CopyFactoryService {
         UUID agencyId = analysis.getAgencyId();
         UUID clientId = analysis.getClientId();
 
-        // Build context from client info
-        String clientContext = buildClientContext(agencyId, clientId);
+        CompletableFuture<String> clientContextFuture = CompletableFuture.supplyAsync(
+            () -> aiContextBuilder.buildContext(agencyId, clientId));
+        CompletableFuture<String> performanceLearningFuture =
+            aiCrossModuleSupportService.buildTopPerformingAdTextSummaryAsync(agencyId, clientId);
+
+        String clientContext = clientContextFuture.join();
+        String performanceLearning = performanceLearningFuture.join();
 
         String userMessage = String.format(
                 "Generate 5 ad-copy variants for this creative.\n\n"
                         + "--- Client Context ---\n%s\n\n"
+                + "--- Best Historical Ad Texts ---\n%s\n\n"
                         + "--- Creative Analysis ---\n%s\n\n"
                         + "Create compelling, platform-optimized copy that aligns with the brand and leverages the creative's strengths.",
-                clientContext, analysis.getAnalysisJson());
+            clientContext, performanceLearning, analysis.getAnalysisJson());
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
                 SYSTEM_PROMPT, userMessage, MODULE, agencyId, clientId);
@@ -150,29 +152,6 @@ public class CopyFactoryService {
 
         UUID userId = TenantContextHolder.require().getUserId();
         return generateCopy(analysis, userId);
-    }
-
-    private String buildClientContext(UUID agencyId, UUID clientId) {
-        StringBuilder sb = new StringBuilder();
-
-        clientRepository.findByIdAndAgencyId(clientId, agencyId).ifPresent(client -> {
-            sb.append("Business name: ").append(client.getName()).append("\n");
-            if (client.getIndustry() != null) {
-                sb.append("Industry: ").append(client.getIndustry()).append("\n");
-            }
-        });
-
-        clientProfileRepository.findByClientId(clientId).ifPresent(profile -> {
-            if (profile.getProfileJson() != null && !profile.getProfileJson().isBlank()) {
-                sb.append("Business profile: ").append(profile.getProfileJson()).append("\n");
-            }
-        });
-
-        if (sb.isEmpty()) {
-            sb.append("No additional client context available.");
-        }
-
-        return sb.toString();
     }
 
     private String textOrDefault(JsonNode node, String field, String defaultValue) {

@@ -9,6 +9,7 @@ import com.amp.insights.InsightDailyRepository;
 import com.amp.insights.KpiSummary;
 import com.amp.reports.NarrativeSections;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -37,20 +39,32 @@ public class AiReporterService {
     private final InsightDailyRepository insightRepo;
     private final CampaignRepository campaignRepo;
     private final AiSuggestionRepository suggestionRepo;
+        private final AiActionLogRepository actionLogRepo;
     private final ClientRepository clientRepo;
+        private final AiContextBuilder aiContextBuilder;
+        private final AiCrossModuleSupportService aiCrossModuleSupportService;
+        private final ObjectMapper objectMapper;
 
     public AiReporterService(ClaudeApiClient claudeClient,
                              AiProperties aiProps,
                              InsightDailyRepository insightRepo,
                              CampaignRepository campaignRepo,
                              AiSuggestionRepository suggestionRepo,
-                             ClientRepository clientRepo) {
+                             AiActionLogRepository actionLogRepo,
+                             ClientRepository clientRepo,
+                             AiContextBuilder aiContextBuilder,
+                             AiCrossModuleSupportService aiCrossModuleSupportService,
+                             ObjectMapper objectMapper) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.insightRepo = insightRepo;
         this.campaignRepo = campaignRepo;
         this.suggestionRepo = suggestionRepo;
+        this.actionLogRepo = actionLogRepo;
         this.clientRepo = clientRepo;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -109,6 +123,18 @@ public class AiReporterService {
                     .filter(s -> "APPLIED".equals(s.getStatus()))
                     .count();
 
+            List<AiActionLog> periodActions = actionLogRepo.findAllByAgencyIdAndClientId(agencyId, clientId)
+                    .stream()
+                    .filter(a -> a.getCreatedAt() != null
+                            && !a.getCreatedAt().isBefore(periodStartOdt)
+                            && a.getCreatedAt().isBefore(periodEndOdt))
+                    .toList();
+
+            CompletableFuture<String> sharedContextFuture = CompletableFuture.supplyAsync(
+                    () -> aiContextBuilder.buildContext(agencyId, clientId));
+            CompletableFuture<String> aiActivityFuture = aiCrossModuleSupportService.buildAiActivitySummaryAsync(
+                    agencyId, clientId, periodStart, periodEnd, true, "month");
+
             // 6. Build context payload
             StringBuilder ctx = new StringBuilder();
             ctx.append("CLIENT: ").append(clientName).append("\n");
@@ -144,6 +170,19 @@ public class AiReporterService {
             if (!byType.isEmpty()) {
                 ctx.append("By type: ").append(byType).append("\n");
             }
+                        if (!periodActions.isEmpty()) {
+                                ctx.append("Applied action logs this period: ").append(periodActions.size()).append("\n");
+                                periodActions.stream().limit(5).forEach(action -> ctx.append("- ")
+                                                .append(summarizeActionForPrompt(action, allSuggestions))
+                                                .append("\n"));
+                        }
+                        String aiActivitySummary = aiActivityFuture.join();
+                        if (aiActivitySummary != null && !aiActivitySummary.isBlank()) {
+                                ctx.append("\n=== AI ACTIVITY SUMMARY ===\n").append(aiActivitySummary).append("\n");
+                        }
+                        ctx.append("\n=== SHARED CLIENT CONTEXT ===\n")
+                                        .append(sharedContextFuture.join())
+                                        .append("\n");
 
             // 7. Call Claude (Sonnet — fast and cheap)
             String systemPrompt = """
@@ -221,4 +260,54 @@ public class AiReporterService {
                 ? json.get(field).asText()
                 : null;
     }
+
+        private String summarizeActionForPrompt(AiActionLog action, List<AiSuggestion> suggestions) {
+                AiSuggestion suggestion = suggestions.stream()
+                                .filter(s -> s.getId().equals(action.getSuggestionId()))
+                                .findFirst()
+                                .orElse(null);
+                String type = suggestion != null ? suggestion.getSuggestionType() : "AI_ACTION";
+                String rationale = suggestion != null ? suggestion.getRationale() : "Applied AI action";
+                return type + ": " + truncate(rationale, 140) + " | Before/after: "
+                                + truncate(summarizeSnapshot(action.getResultSnapshotJson()), 160);
+        }
+
+        private String summarizeSnapshot(String snapshotJson) {
+                if (snapshotJson == null || snapshotJson.isBlank()) {
+                        return "not available";
+                }
+                try {
+                        JsonNode node = objectMapper.readTree(snapshotJson);
+                        JsonNode before = node.get("before");
+                        JsonNode after = node.get("after");
+                        if (before == null || after == null) {
+                                return snapshotJson;
+                        }
+                        List<String> changes = new java.util.ArrayList<>();
+                        appendSnapshotChange(changes, before, after, "status");
+                        appendSnapshotChange(changes, before, after, "daily_budget");
+                        appendSnapshotChange(changes, before, after, "lifetime_budget");
+                        return changes.isEmpty() ? "captured" : String.join(", ", changes);
+                } catch (Exception e) {
+                        return snapshotJson;
+                }
+        }
+
+        private void appendSnapshotChange(List<String> changes, JsonNode before, JsonNode after, String field) {
+                if (before.has(field) && after.has(field)) {
+                        String beforeVal = before.get(field).asText();
+                        String afterVal = after.get(field).asText();
+                        if (!beforeVal.equals(afterVal)) {
+                                changes.add(field + " " + beforeVal + " → " + afterVal);
+                        }
+                }
+        }
+
+        private String truncate(String value, int max) {
+                if (value == null) {
+                        return "";
+                }
+                String cleaned = value.replaceAll("\\s+", " ").trim();
+                return cleaned.length() <= max ? cleaned : cleaned.substring(0, max - 1) + "…";
+        }
 }

@@ -33,19 +33,22 @@ public class ClientPortalAiService {
     private final CampaignRepository campaignRepo;
     private final AiSuggestionRepository suggestionRepo;
     private final ReportRepository reportRepo;
+    private final AiContextBuilder aiContextBuilder;
 
     public ClientPortalAiService(ClaudeApiClient claudeClient,
                                  AiProperties aiProps,
                                  InsightDailyRepository insightDailyRepo,
                                  CampaignRepository campaignRepo,
                                  AiSuggestionRepository suggestionRepo,
-                                 ReportRepository reportRepo) {
+                                 ReportRepository reportRepo,
+                                 AiContextBuilder aiContextBuilder) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.insightDailyRepo = insightDailyRepo;
         this.campaignRepo = campaignRepo;
         this.suggestionRepo = suggestionRepo;
         this.reportRepo = reportRepo;
+        this.aiContextBuilder = aiContextBuilder;
     }
 
     /**
@@ -91,12 +94,13 @@ public class ClientPortalAiService {
                 response.cost());
     }
 
-    // ── Context builder ──
-
     String buildClientContext(UUID agencyId, UUID clientId) {
+        if (aiContextBuilder != null) {
+            return aiContextBuilder.buildContext(agencyId, clientId);
+        }
+
         StringBuilder sb = new StringBuilder();
 
-        // 30-day KPI summary
         LocalDate today = LocalDate.now();
         LocalDate thirtyDaysAgo = today.minusDays(30);
         KpiSummary kpis = insightDailyRepo.aggregateKpis(agencyId, clientId, thirtyDaysAgo, today);
@@ -111,7 +115,6 @@ public class ClientPortalAiService {
             sb.append("  ROAS: ").append(fmt(kpis.getAvgRoas())).append("\n\n");
         }
 
-        // Previous 30 days for comparison
         KpiSummary prevKpis = insightDailyRepo.aggregateKpis(agencyId, clientId,
                 thirtyDaysAgo.minusDays(30), thirtyDaysAgo.minusDays(1));
         if (prevKpis != null && prevKpis.getTotalSpend() != null
@@ -125,7 +128,6 @@ public class ClientPortalAiService {
             sb.append("  Average CPC: $").append(fmt(prevKpis.getAvgCpc())).append("\n\n");
         }
 
-        // Active campaigns
         List<Campaign> campaigns = campaignRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
         if (!campaigns.isEmpty()) {
             sb.append("CAMPAIGNS (").append(campaigns.size()).append(" total):\n");
@@ -141,7 +143,6 @@ public class ClientPortalAiService {
             sb.append("\n");
         }
 
-        // Recent suggestions (last 30 days, only approved/applied)
         List<AiSuggestion> suggestions = suggestionRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
         List<AiSuggestion> recentSuggestions = suggestions.stream()
                 .filter(s -> "APPROVED".equals(s.getStatus()) || "APPLIED".equals(s.getStatus()))
@@ -155,7 +156,6 @@ public class ClientPortalAiService {
             sb.append("\n");
         }
 
-        // Most recent report summary
         List<Report> reports = reportRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
         reports.stream()
                 .filter(r -> "SENT".equals(r.getStatus()) || "APPROVED".equals(r.getStatus()))

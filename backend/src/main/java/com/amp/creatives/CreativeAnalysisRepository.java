@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface CreativeAnalysisRepository extends JpaRepository<CreativeAnalysis, UUID> {
 
     Optional<CreativeAnalysis> findByCreativeAssetId(UUID creativeAssetId);
+
+    java.util.List<CreativeAnalysis> findAllByAgencyIdAndClientIdOrderByQualityScoreDescCreatedAtDesc(UUID agencyId, UUID clientId);
+
+    java.util.List<CreativeAnalysis> findTop5ByAgencyIdAndClientIdOrderByCreatedAtDesc(UUID agencyId, UUID clientId);
 }

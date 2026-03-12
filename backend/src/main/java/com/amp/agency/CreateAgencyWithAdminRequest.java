@@ -13,7 +13,6 @@ public record CreateAgencyWithAdminRequest(
         String name,
         String planCode,
 
-        @NotBlank(message = "adminEmail is required")
         @Email(message = "adminEmail must be a valid email")
         String adminEmail,
 
@@ -22,6 +21,9 @@ public record CreateAgencyWithAdminRequest(
     public CreateAgencyWithAdminRequest {
         if (planCode == null || planCode.isBlank()) {
             planCode = "FREE";
+        }
+        if (adminEmail != null && adminEmail.isBlank()) {
+            adminEmail = null;
         }
         if (adminDisplayName == null || adminDisplayName.isBlank()) {
             adminDisplayName = "Agency Admin";

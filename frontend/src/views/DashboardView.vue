@@ -14,7 +14,7 @@
           variant="outlined"
           density="compact"
           hide-details
-          @update:model-value="loadDashboard"
+          @update:model-value="onClientChange"
         />
       </v-col>
       <v-col cols="12" sm="3">
@@ -130,231 +130,112 @@
       <v-row class="mb-4" v-if="dailyData.length > 0">
         <v-col cols="12" md="6">
           <v-card>
-            <v-card-title class="text-subtitle-1">Spend &amp; Conversions</v-card-title>
+            <v-card-title class="text-subtitle-1 d-flex flex-wrap align-center ga-2">
+              <span>Chart 1</span>
+              <v-spacer />
+              <v-select
+                v-model="primaryChartMetric"
+                :items="chartMetricOptions"
+                item-title="label"
+                item-value="key"
+                label="Primary metric"
+                variant="outlined"
+                density="compact"
+                hide-details
+                style="max-width: 180px"
+              />
+              <v-select
+                v-model="secondaryChartMetric"
+                :items="chartMetricOptions"
+                item-title="label"
+                item-value="key"
+                label="Secondary metric"
+                variant="outlined"
+                density="compact"
+                hide-details
+                style="max-width: 180px"
+              />
+            </v-card-title>
             <v-card-text>
-              <Line :data="spendChartData" :options="spendChartOptions" style="height: 300px" />
+              <Line :data="primaryChartData" :options="primaryChartOptions" style="height: 300px" />
             </v-card-text>
           </v-card>
         </v-col>
         <v-col cols="12" md="6">
           <v-card>
-            <v-card-title class="text-subtitle-1">Impressions &amp; Clicks</v-card-title>
+            <v-card-title class="text-subtitle-1 d-flex flex-wrap align-center ga-2">
+              <span>Chart 2</span>
+              <v-spacer />
+              <v-select
+                v-model="tertiaryChartMetric"
+                :items="chartMetricOptions"
+                item-title="label"
+                item-value="key"
+                label="Primary metric"
+                variant="outlined"
+                density="compact"
+                hide-details
+                style="max-width: 180px"
+              />
+              <v-select
+                v-model="quaternaryChartMetric"
+                :items="chartMetricOptions"
+                item-title="label"
+                item-value="key"
+                label="Secondary metric"
+                variant="outlined"
+                density="compact"
+                hide-details
+                style="max-width: 180px"
+              />
+            </v-card-title>
             <v-card-text>
-              <Line :data="trafficChartData" :options="trafficChartOptions" style="height: 300px" />
+              <Line :data="secondaryChartData" :options="secondaryChartOptions" style="height: 300px" />
             </v-card-text>
           </v-card>
         </v-col>
       </v-row>
 
-      <!-- ── Top Campaigns Table ── -->
-      <v-card v-if="topCampaigns.length > 0">
-        <v-card-title class="text-subtitle-1">Top Campaigns by Spend</v-card-title>
+      <v-card v-if="campaignRows.length > 0">
+        <v-card-title class="d-flex align-center">
+          <span>Campaigns</span>
+          <v-chip v-if="selectedCampaignId" color="primary" size="small" class="ml-3">
+            Filter: {{ selectedCampaignName }}
+          </v-chip>
+          <v-spacer />
+          <v-btn v-if="selectedCampaignId" variant="text" color="primary" @click="selectCampaign(null)">
+            <v-icon start>mdi-filter-off</v-icon>
+            All campaigns
+          </v-btn>
+          <v-btn color="primary" variant="outlined" to="/campaigns">
+            <v-icon start>mdi-lightbulb-on-outline</v-icon>
+            View Suggestions
+          </v-btn>
+        </v-card-title>
         <v-data-table
-          :headers="topCampaignHeaders"
-          :items="topCampaigns"
+          :headers="campaignTableHeaders"
+          :items="campaignRows"
           density="compact"
           no-data-text="No campaign data for this period"
+          item-value="id"
+          hover
+          @click:row="(_event, row) => selectCampaign(row.item.id)"
         >
-          <template #item.spend="{ item }">
-            {{ formatCurrency(item.spend) }}
+          <template #item.status="{ item }">
+            <v-chip
+              :color="selectedCampaignId === item.id ? 'primary' : campaignStatusColor(item.status)"
+              size="small"
+            >
+              {{ item.status }}
+            </v-chip>
           </template>
-          <template #item.impressions="{ item }">
-            {{ formatNumber(item.impressions) }}
-          </template>
-          <template #item.clicks="{ item }">
-            {{ formatNumber(item.clicks) }}
-          </template>
-          <template #item.conversions="{ item }">
-            {{ formatDecimal(item.conversions) }}
-          </template>
-          <template #item.ctr="{ item }">
-            {{ formatPercent(item.ctr) }}
-          </template>
-          <template #item.cpc="{ item }">
-            {{ formatCurrency(item.cpc) }}
-          </template>
+          <template #item.spend="{ item }">{{ formatCurrency(item.spend) }}</template>
+          <template #item.clicks="{ item }">{{ formatNumber(item.clicks) }}</template>
+          <template #item.conversions="{ item }">{{ formatTrimmedNumber(item.conversions) }}</template>
+          <template #item.ctr="{ item }">{{ formatPercent(item.ctr) }}</template>
+          <template #item.roas="{ item }">{{ formatRoas(item.roas) }}</template>
         </v-data-table>
       </v-card>
-
-      <!-- ══════════════════════════════════════ -->
-      <!-- ── Budget Analysis Section ── -->
-      <!-- ══════════════════════════════════════ -->
-      <v-divider class="my-6" />
-
-      <div class="d-flex align-center mb-4">
-        <h2 class="text-h6">Budget Analysis</h2>
-        <v-spacer />
-        <v-btn
-          color="deep-purple"
-          :loading="dashStore.budgetLoading"
-          @click="loadBudgetAnalysis"
-        >
-          <v-icon start>mdi-chart-areaspline</v-icon>
-          Analyse Budget
-        </v-btn>
-      </div>
-
-      <template v-if="dashStore.budgetAnalysis && !dashStore.budgetAnalysis.error">
-        <!-- AI Narrative -->
-        <v-card variant="tonal" color="deep-purple" class="mb-4">
-          <v-card-title class="text-subtitle-1">
-            <v-icon class="mr-2">mdi-robot</v-icon>AI Recommendation
-          </v-card-title>
-          <v-card-text class="text-body-2" style="white-space: pre-line">
-            {{ dashStore.budgetAnalysis.narrative }}
-          </v-card-text>
-        </v-card>
-
-        <!-- Pacing Gauge -->
-        <v-row class="mb-4">
-          <v-col cols="12" md="4">
-            <v-card variant="outlined">
-              <v-card-title class="text-subtitle-2">Monthly Pacing</v-card-title>
-              <v-card-text>
-                <div class="d-flex justify-space-between mb-2">
-                  <span class="text-caption">Month Elapsed</span>
-                  <span class="text-caption font-weight-bold">
-                    {{ dashStore.budgetAnalysis.pacing?.pctMonthElapsed?.toFixed(0) }}%
-                  </span>
-                </div>
-                <v-progress-linear
-                  :model-value="dashStore.budgetAnalysis.pacing?.pctMonthElapsed || 0"
-                  color="grey"
-                  height="8"
-                  rounded
-                  class="mb-3"
-                />
-                <div class="d-flex justify-space-between mb-2">
-                  <span class="text-caption">Budget Spent</span>
-                  <span class="text-caption font-weight-bold">
-                    {{ formatCurrency(dashStore.budgetAnalysis.pacing?.currentMonthSpend) }}
-                  </span>
-                </div>
-                <v-progress-linear
-                  :model-value="dashStore.budgetAnalysis.pacing?.projectedMonthSpend > 0
-                    ? (dashStore.budgetAnalysis.pacing.currentMonthSpend / dashStore.budgetAnalysis.pacing.projectedMonthSpend) * 100
-                    : 0"
-                  :color="pacingColor"
-                  height="8"
-                  rounded
-                  class="mb-3"
-                />
-                <v-chip
-                  :color="pacingColor"
-                  size="small"
-                  variant="tonal"
-                >
-                  {{ dashStore.budgetAnalysis.pacing?.pacingStatus?.replace('_', ' ') }}
-                </v-chip>
-                <div class="text-caption text-medium-emphasis mt-2">
-                  Projected: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.projectedMonthSpend) }}
-                  · Daily avg: {{ formatCurrency(dashStore.budgetAnalysis.pacing?.dailyAvg30d) }}
-                </div>
-              </v-card-text>
-            </v-card>
-          </v-col>
-
-          <!-- Day-of-Week Performance -->
-          <v-col cols="12" md="8">
-            <v-card variant="outlined">
-              <v-card-title class="text-subtitle-2">Day-of-Week Performance</v-card-title>
-              <v-card-text>
-                <v-table density="compact">
-                  <thead>
-                    <tr>
-                      <th>Day</th>
-                      <th class="text-end">Spend</th>
-                      <th class="text-end">Conversions</th>
-                      <th class="text-end">ROAS</th>
-                      <th class="text-end">CTR %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="d in dashStore.budgetAnalysis.dayOfWeek?.days || []"
-                      :key="d.day"
-                      :class="{
-                        'bg-green-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.bestDay,
-                        'bg-red-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.worstDay,
-                      }"
-                    >
-                      <td>{{ d.day?.substring(0, 3) }}</td>
-                      <td class="text-end">{{ formatCurrency(d.spend) }}</td>
-                      <td class="text-end">{{ formatDecimal(d.conversions) }}</td>
-                      <td class="text-end">{{ formatDecimal(d.roas) }}×</td>
-                      <td class="text-end">{{ formatPercent(d.ctr) }}</td>
-                    </tr>
-                  </tbody>
-                </v-table>
-                <div class="text-caption text-medium-emphasis mt-2">
-                  {{ dashStore.budgetAnalysis.dayOfWeek?.recommendation }}
-                </div>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-
-        <!-- Campaign Ranking -->
-        <v-card v-if="dashStore.budgetAnalysis.campaignRanking?.length" variant="outlined" class="mb-4">
-          <v-card-title class="text-subtitle-2">Campaign Budget Ranking</v-card-title>
-          <v-data-table
-            :headers="budgetRankHeaders"
-            :items="dashStore.budgetAnalysis.campaignRanking"
-            density="compact"
-          >
-            <template #item.spend30d="{ item }">
-              {{ formatCurrency(item.spend30d) }}
-            </template>
-            <template #item.roas30d="{ item }">
-              {{ formatDecimal(item.roas30d) }}×
-            </template>
-            <template #item.dailyBudget="{ item }">
-              {{ formatCurrency(item.dailyBudget) }}
-            </template>
-            <template #item.suggestion="{ item }">
-              <v-chip
-                :color="item.suggestion === 'INCREASE_BUDGET' ? 'success'
-                  : item.suggestion === 'DECREASE_BUDGET' ? 'warning'
-                  : item.suggestion === 'PAUSE_OR_RESTRUCTURE' ? 'error'
-                  : 'grey'"
-                size="x-small"
-              >
-                {{ item.suggestion?.replace(/_/g, ' ') }}
-              </v-chip>
-            </template>
-          </v-data-table>
-        </v-card>
-
-        <!-- Diminishing Returns -->
-        <v-card v-if="dashStore.budgetAnalysis.diminishingReturns?.length" variant="outlined" class="mb-4">
-          <v-card-title class="text-subtitle-2">
-            <v-icon color="warning" class="mr-2" size="20">mdi-trending-down</v-icon>
-            Diminishing Returns Detected
-          </v-card-title>
-          <v-card-text>
-            <v-alert
-              v-for="(dr, i) in dashStore.budgetAnalysis.diminishingReturns"
-              :key="i"
-              type="warning"
-              variant="tonal"
-              density="compact"
-              class="mb-2"
-            >
-              <strong>{{ dr.entityType }} {{ dr.entityId?.substring(0, 8) }}…</strong>
-              — {{ dr.description }}
-            </v-alert>
-          </v-card-text>
-        </v-card>
-      </template>
-
-      <v-alert
-        v-else-if="dashStore.budgetAnalysis?.error"
-        type="warning"
-        variant="tonal"
-        class="mb-4"
-      >
-        {{ dashStore.budgetAnalysis.error }}
-      </v-alert>
     </template>
   </div>
 </template>
@@ -382,9 +263,13 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 
 const selectedClient = ref<string | null>(null)
 const clients = ref<any[]>([])
+const campaigns = ref<any[]>([])
+const campaignMetrics = ref<Record<string, any>>({})
 const summary = ref<any>(null)
 const dailyData = ref<any[]>([])
-const topCampaigns = ref<any[]>([])
+const selectedCampaignId = ref<string | null>(null)
+const currentInsights = ref<any[]>([])
+const previousInsights = ref<any[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -394,6 +279,10 @@ const thirtyDaysAgo = new Date(today)
 thirtyDaysAgo.setDate(today.getDate() - 30)
 const dateFrom = ref(thirtyDaysAgo.toISOString().split('T')[0])
 const dateTo = ref(today.toISOString().split('T')[0])
+const primaryChartMetric = ref('spend')
+const secondaryChartMetric = ref('conversions')
+const tertiaryChartMetric = ref('impressions')
+const quaternaryChartMetric = ref('clicks')
 
 // ── Data loading ──
 
@@ -406,22 +295,36 @@ function setRange(days: number) {
   loadDashboard()
 }
 
+function onClientChange() {
+  selectedCampaignId.value = null
+  currentInsights.value = []
+  previousInsights.value = []
+  loadDashboard()
+}
+
 async function loadDashboard() {
   if (!selectedClient.value) return
   loading.value = true
   error.value = null
   try {
     const params = { from: dateFrom.value, to: dateTo.value }
-    const [summaryRes, dailyRes, topRes] = await Promise.all([
+    const [summaryRes, dailyRes, campaignsRes] = await Promise.all([
       api.get(`/clients/${selectedClient.value}/kpis/summary`, { params }),
       api.get(`/clients/${selectedClient.value}/kpis/daily`, { params }),
-      api.get(`/clients/${selectedClient.value}/kpis/top-campaigns`, {
-        params: { ...params, limit: 10 },
-      }),
+      api.get(`/clients/${selectedClient.value}/campaigns`),
     ])
-    summary.value = summaryRes.data
-    dailyData.value = dailyRes.data
-    topCampaigns.value = topRes.data
+    campaigns.value = campaignsRes.data || []
+    await loadCampaignMetrics()
+    if (selectedCampaignId.value && !campaigns.value.some((campaign: any) => campaign.id === selectedCampaignId.value)) {
+      selectedCampaignId.value = null
+    }
+
+    if (selectedCampaignId.value) {
+      await loadSelectedCampaignMetrics()
+    } else {
+      summary.value = summaryRes.data
+      dailyData.value = dailyRes.data
+    }
 
     // Auto-run anomaly detection in background (non-blocking)
     dashStore.runAnomalyCheck(selectedClient.value).catch(() => {})
@@ -429,6 +332,77 @@ async function loadDashboard() {
     error.value = e.response?.data?.message || 'Failed to load dashboard data'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadCampaignMetrics() {
+  if (!campaigns.value.length) {
+    campaignMetrics.value = {}
+    return
+  }
+
+  const metricsEntries = await Promise.all(campaigns.value.map(async (campaign: any) => {
+    try {
+      const { data } = await api.get(`/campaigns/${campaign.id}/insights`, {
+        params: { from: dateFrom.value, to: dateTo.value },
+      })
+      const aggregate = aggregateInsightRows(data || [])
+      return [campaign.id, aggregate] as const
+    } catch {
+      return [campaign.id, {
+        totalSpend: 0,
+        totalImpressions: 0,
+        totalClicks: 0,
+        totalConversions: 0,
+        avgCtr: 0,
+        avgRoas: 0,
+      }] as const
+    }
+  }))
+
+  campaignMetrics.value = Object.fromEntries(metricsEntries)
+}
+
+async function loadSelectedCampaignMetrics() {
+  if (!selectedCampaignId.value || !selectedClient.value) return
+
+  const fromDate = new Date(dateFrom.value + 'T00:00:00')
+  const toDate = new Date(dateTo.value + 'T00:00:00')
+  const diffDays = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / 86400000))
+  const prevToDate = new Date(fromDate)
+  prevToDate.setDate(prevToDate.getDate() - 1)
+  const prevFromDate = new Date(fromDate)
+  prevFromDate.setDate(prevFromDate.getDate() - diffDays)
+
+  const prevFrom = prevFromDate.toISOString().split('T')[0]
+  const prevTo = prevToDate.toISOString().split('T')[0]
+
+  const [currentRes, previousRes] = await Promise.all([
+    api.get(`/campaigns/${selectedCampaignId.value}/insights`, { params: { from: dateFrom.value, to: dateTo.value } }),
+    api.get(`/campaigns/${selectedCampaignId.value}/insights`, { params: { from: prevFrom, to: prevTo } }),
+  ])
+
+  currentInsights.value = currentRes.data || []
+  previousInsights.value = previousRes.data || []
+  summary.value = buildCampaignSummary(currentInsights.value, previousInsights.value, dateFrom.value, dateTo.value, prevFrom, prevTo)
+  dailyData.value = buildDailyData(currentInsights.value)
+}
+
+async function selectCampaign(campaignId: string | null) {
+  selectedCampaignId.value = campaignId
+  if (!selectedClient.value) return
+
+  if (campaignId) {
+    loading.value = true
+    try {
+      await loadSelectedCampaignMetrics()
+    } catch (e: any) {
+      error.value = e.response?.data?.message || 'Failed to load campaign metrics'
+    } finally {
+      loading.value = false
+    }
+  } else {
+    await loadDashboard()
   }
 }
 
@@ -447,27 +421,55 @@ onMounted(async () => {
   }
 })
 
-// Budget analysis
-async function loadBudgetAnalysis() {
-  if (!selectedClient.value) return
-  await dashStore.fetchBudgetAnalysis(selectedClient.value)
+const sortedCampaigns = computed(() => [...campaigns.value].sort((a, b) => {
+  const statusWeight = (status: string) => status === 'PUBLISHED' ? 0 : status === 'ACTIVE' ? 0 : status === 'PAUSED' ? 1 : 2
+  const diff = statusWeight(a.status) - statusWeight(b.status)
+  if (diff !== 0) return diff
+  return a.name.localeCompare(b.name)
+}))
+
+const selectedCampaignName = computed(() =>
+  sortedCampaigns.value.find((campaign: any) => campaign.id === selectedCampaignId.value)?.name || ''
+)
+
+const campaignRows = computed(() => sortedCampaigns.value.map((campaign: any) => ({
+  id: campaign.id,
+  name: campaign.name,
+  status: campaign.status,
+  spend: campaignMetrics.value[campaign.id]?.totalSpend ?? 0,
+  clicks: campaignMetrics.value[campaign.id]?.totalClicks ?? 0,
+  conversions: campaignMetrics.value[campaign.id]?.totalConversions ?? 0,
+  ctr: campaignMetrics.value[campaign.id]?.avgCtr ?? 0,
+  roas: campaignMetrics.value[campaign.id]?.avgRoas ?? 0,
+})))
+
+const campaignTableHeaders = [
+  { title: 'Campaign', key: 'name' },
+  { title: 'Status', key: 'status' },
+  { title: 'Spend', key: 'spend', align: 'end' as const },
+  { title: 'Clicks', key: 'clicks', align: 'end' as const },
+  { title: 'Results', key: 'conversions', align: 'end' as const },
+  { title: 'CTR', key: 'ctr', align: 'end' as const },
+  { title: 'ROAS', key: 'roas', align: 'end' as const },
+]
+
+const metricConfig: Record<string, { label: string; color: string; format: 'currency' | 'number' | 'percent' | 'roas' }> = {
+  spend: { label: 'Spend', color: '#1976D2', format: 'currency' },
+  conversions: { label: 'Results', color: '#4CAF50', format: 'number' },
+  impressions: { label: 'Impressions', color: '#9C27B0', format: 'number' },
+  clicks: { label: 'Clicks', color: '#009688', format: 'number' },
+  ctr: { label: 'CTR', color: '#FB8C00', format: 'percent' },
+  cpc: { label: 'CPC', color: '#3949AB', format: 'currency' },
+  cpm: { label: 'CPM', color: '#5E35B1', format: 'currency' },
+  roas: { label: 'ROAS', color: '#00897B', format: 'roas' },
+  reach: { label: 'Reach', color: '#6D4C41', format: 'number' },
+  frequency: { label: 'Frequency', color: '#546E7A', format: 'number' },
 }
 
-const pacingColor = computed(() => {
-  const status = dashStore.budgetAnalysis?.pacing?.pacingStatus
-  if (status === 'ON_TRACK') return 'success'
-  if (status === 'OVERSPENDING') return 'error'
-  return 'warning'
-})
-
-const budgetRankHeaders = [
-  { title: 'Campaign', key: 'campaignName' },
-  { title: 'Status', key: 'status', width: '100px' },
-  { title: 'Spend (30d)', key: 'spend30d', align: 'end' as const },
-  { title: 'ROAS', key: 'roas30d', align: 'end' as const },
-  { title: 'Daily Budget', key: 'dailyBudget', align: 'end' as const },
-  { title: 'Suggestion', key: 'suggestion' },
-]
+const chartMetricOptions = computed(() => Object.entries(metricConfig).map(([key, value]) => ({
+  key,
+  label: value.label,
+})))
 
 // ── Computed: has any data? ──
 
@@ -494,15 +496,17 @@ const kpiCards = computed<KpiCard[]>(() => {
 
   // For spend & CPC: up is bad (red), down is good (green)
   // For everything else: up is good (green), down is bad (red)
-  const upIsBad = new Set(['spend', 'cpc'])
+  const upIsBad = new Set(['spend', 'cpa'])
+
+  const currentCpa = Number(cur.totalConversions) > 0 ? Number(cur.totalSpend) / Number(cur.totalConversions) : 0
 
   const items: { key: string; label: string; value: string; changeKey: string }[] = [
-    { key: 'spend', label: 'Spend', value: formatCurrency(cur.totalSpend), changeKey: 'spend' },
-    { key: 'impressions', label: 'Impressions', value: formatNumber(cur.totalImpressions), changeKey: 'impressions' },
-    { key: 'clicks', label: 'Clicks', value: formatNumber(cur.totalClicks), changeKey: 'clicks' },
-    { key: 'conversions', label: 'Conversions', value: formatDecimal(cur.totalConversions), changeKey: 'conversions' },
+    { key: 'spend', label: 'Ad Spend', value: formatCurrency(cur.totalSpend), changeKey: 'spend' },
+    { key: 'results', label: 'Results', value: formatTrimmedNumber(cur.totalConversions), changeKey: 'conversions' },
+    { key: 'cpa', label: 'CPA', value: formatCurrency(currentCpa), changeKey: 'cpa' },
     { key: 'ctr', label: 'CTR', value: formatPercent(cur.avgCtr), changeKey: 'ctr' },
-    { key: 'cpc', label: 'CPC', value: formatCurrency(cur.avgCpc), changeKey: 'cpc' },
+    { key: 'roas', label: 'ROAS', value: formatRoas(cur.avgRoas), changeKey: 'roas' },
+    { key: 'clicks', label: 'Clicks', value: formatNumber(cur.totalClicks), changeKey: 'clicks' },
   ]
 
   return items.map((item) => {
@@ -517,12 +521,93 @@ const kpiCards = computed<KpiCard[]>(() => {
   })
 })
 
-// ── Chart: Spend & Conversions ──
+// ── Chart helpers ──
 
 function shortDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+
+function metricLabel(metricKey: string) {
+  return metricConfig[metricKey]?.label || metricKey
+}
+
+function metricFormatter(metricKey: string, value: number) {
+  const config = metricConfig[metricKey]
+  if (!config) return formatTrimmedNumber(value)
+  if (config.format === 'currency') return formatCurrency(value)
+  if (config.format === 'percent') return formatPercent(value)
+  if (config.format === 'roas') return formatRoas(value)
+  return formatTrimmedNumber(value)
+}
+
+function createChartData(primaryMetric: string, secondaryMetric: string) {
+  return {
+    labels: dailyData.value.map((d) => shortDate(d.date)),
+    datasets: [
+      {
+        label: metricLabel(primaryMetric),
+        data: dailyData.value.map((d) => Number(d[primaryMetric] || 0)),
+        borderColor: metricConfig[primaryMetric]?.color || '#1976D2',
+        backgroundColor: `${metricConfig[primaryMetric]?.color || '#1976D2'}1A`,
+        fill: true,
+        tension: 0.3,
+        yAxisID: 'y',
+      },
+      {
+        label: metricLabel(secondaryMetric),
+        data: dailyData.value.map((d) => Number(d[secondaryMetric] || 0)),
+        borderColor: metricConfig[secondaryMetric]?.color || '#4CAF50',
+        backgroundColor: `${metricConfig[secondaryMetric]?.color || '#4CAF50'}1A`,
+        fill: false,
+        tension: 0.3,
+        yAxisID: 'y1',
+      },
+    ],
+  }
+}
+
+function createChartOptions(primaryMetric: string, secondaryMetric: string) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    plugins: {
+      legend: { position: 'top' as const },
+      tooltip: {
+        callbacks: {
+          label: (ctx: any) => {
+            const metricKey = ctx.datasetIndex === 0 ? primaryMetric : secondaryMetric
+            return `${ctx.dataset.label}: ${metricFormatter(metricKey, ctx.parsed.y)}`
+          },
+        },
+      },
+    },
+    scales: {
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        title: { display: true, text: metricLabel(primaryMetric) },
+        grid: { drawOnChartArea: true },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        title: { display: true, text: metricLabel(secondaryMetric) },
+        grid: { drawOnChartArea: false },
+      },
+    },
+  }
+}
+
+const primaryChartData = computed(() => createChartData(primaryChartMetric.value, secondaryChartMetric.value))
+const primaryChartOptions = computed(() => createChartOptions(primaryChartMetric.value, secondaryChartMetric.value))
+const secondaryChartData = computed(() => createChartData(tertiaryChartMetric.value, quaternaryChartMetric.value))
+const secondaryChartOptions = computed(() => createChartOptions(tertiaryChartMetric.value, quaternaryChartMetric.value))
+
+// ── Aggregated daily charts ──
 
 const spendChartData = computed(() => ({
   labels: dailyData.value.map((d) => shortDate(d.date)),
@@ -559,8 +644,8 @@ const spendChartOptions = computed(() => ({
         label: (ctx: any) => {
           const label = ctx.dataset.label || ''
           const val = ctx.parsed.y
-          if (label.includes('Spend')) return `${label}: $${val.toFixed(2)}`
-          return `${label}: ${val.toFixed(2)}`
+          if (label.includes('Spend')) return `${label}: ${formatCurrency(val)}`
+          return `${label}: ${formatTrimmedNumber(val)}`
         },
       },
     },
@@ -639,19 +724,6 @@ const trafficChartOptions = computed(() => ({
   },
 }))
 
-// ── Top Campaigns Table ──
-
-const topCampaignHeaders = [
-  { title: 'Type', key: 'entityType', width: '80px' },
-  { title: 'Entity ID', key: 'entityId' },
-  { title: 'Spend', key: 'spend', align: 'end' as const },
-  { title: 'Impressions', key: 'impressions', align: 'end' as const },
-  { title: 'Clicks', key: 'clicks', align: 'end' as const },
-  { title: 'Conversions', key: 'conversions', align: 'end' as const },
-  { title: 'CTR %', key: 'ctr', align: 'end' as const },
-  { title: 'CPC', key: 'cpc', align: 'end' as const },
-]
-
 // ── Format helpers ──
 
 function formatCurrency(val: any): string {
@@ -660,6 +732,7 @@ function formatCurrency(val: any): string {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
   }).format(Number(val))
 }
 
@@ -670,11 +743,109 @@ function formatNumber(val: any): string {
 
 function formatPercent(val: any): string {
   if (val == null) return '—'
-  return Number(val).toFixed(2) + '%'
+  return formatTrimmedNumber(val) + '%'
 }
 
-function formatDecimal(val: any): string {
+function formatTrimmedNumber(val: any): string {
   if (val == null) return '—'
-  return Number(val).toFixed(2)
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(val))
+}
+
+function formatRoas(val: any): string {
+  if (val == null) return '—'
+  return `${formatTrimmedNumber(val)}x`
+}
+
+function calculatePctChange(current: number, previous: number): number | null {
+  if (!previous) return null
+  return ((current - previous) / previous) * 100
+}
+
+function aggregateInsightRows(rows: any[]) {
+  const totals = rows.reduce((acc, item) => {
+    acc.spend += Number(item.spend || 0)
+    acc.impressions += Number(item.impressions || 0)
+    acc.clicks += Number(item.clicks || 0)
+    acc.conversions += Number(item.conversions || 0)
+    acc.conversionValue += Number(item.conversionValue || 0)
+    return acc
+  }, { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 })
+
+  const avgCtr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0
+  const avgRoas = totals.spend > 0 ? totals.conversionValue / totals.spend : 0
+
+  return {
+    totalSpend: totals.spend,
+    totalImpressions: totals.impressions,
+    totalClicks: totals.clicks,
+    totalConversions: totals.conversions,
+    avgCtr,
+    avgRoas,
+  }
+}
+
+function buildCampaignSummary(currentRows: any[], previousRows: any[], from: string, to: string, prevFrom: string, prevTo: string) {
+  const current = aggregateInsightRows(currentRows)
+  const previous = aggregateInsightRows(previousRows)
+  const currentCpa = current.totalConversions > 0 ? current.totalSpend / current.totalConversions : 0
+  const previousCpa = previous.totalConversions > 0 ? previous.totalSpend / previous.totalConversions : 0
+
+  return {
+    period: { from, to },
+    previousPeriod: { from: prevFrom, to: prevTo },
+    current,
+    previous,
+    changes: {
+      spend: calculatePctChange(current.totalSpend, previous.totalSpend),
+      clicks: calculatePctChange(current.totalClicks, previous.totalClicks),
+      conversions: calculatePctChange(current.totalConversions, previous.totalConversions),
+      ctr: calculatePctChange(current.avgCtr, previous.avgCtr),
+      roas: calculatePctChange(current.avgRoas, previous.avgRoas),
+      cpa: calculatePctChange(currentCpa, previousCpa),
+    },
+  }
+}
+
+function buildDailyData(rows: any[]) {
+  const byDate = rows.reduce((acc: Record<string, any>, item) => {
+    const date = item.date
+    if (!acc[date]) {
+      acc[date] = {
+        date,
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        conversionValue: 0,
+        reach: 0,
+      }
+    }
+    acc[date].spend += Number(item.spend || 0)
+    acc[date].impressions += Number(item.impressions || 0)
+    acc[date].clicks += Number(item.clicks || 0)
+    acc[date].conversions += Number(item.conversions || 0)
+    acc[date].conversionValue += Number(item.conversionValue || 0)
+    acc[date].reach += Number(item.reach || 0)
+    return acc
+  }, {})
+
+  return Object.values(byDate)
+    .map((item: any) => ({
+      ...item,
+      ctr: item.impressions > 0 ? (item.clicks / item.impressions) * 100 : 0,
+      cpc: item.clicks > 0 ? item.spend / item.clicks : 0,
+      cpm: item.impressions > 0 ? (item.spend * 1000) / item.impressions : 0,
+      roas: item.spend > 0 ? item.conversionValue / item.spend : 0,
+      frequency: item.reach > 0 ? item.impressions / item.reach : 0,
+    }))
+    .sort((a: any, b: any) => a.date.localeCompare(b.date))
+}
+
+function campaignStatusColor(status: string) {
+  const map: Record<string, string> = { PUBLISHED: 'success', ACTIVE: 'success', PAUSED: 'warning', DRAFT: 'grey', ARCHIVED: 'error' }
+  return map[status] || 'grey'
 }
 </script>

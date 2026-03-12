@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +50,8 @@ public class CampaignCreatorService {
     private final AdsetRepository adsetRepo;
     private final AdRepository adRepo;
     private final MetaConnectionRepository metaConnRepo;
+    private final AiContextBuilder aiContextBuilder;
+    private final AiCrossModuleSupportService aiCrossModuleSupportService;
     private final ObjectMapper objectMapper;
 
     public CampaignCreatorService(ClaudeApiClient claudeClient,
@@ -61,6 +64,8 @@ public class CampaignCreatorService {
                                   AdsetRepository adsetRepo,
                                   AdRepository adRepo,
                                   MetaConnectionRepository metaConnRepo,
+                                  AiContextBuilder aiContextBuilder,
+                                  AiCrossModuleSupportService aiCrossModuleSupportService,
                                   ObjectMapper objectMapper) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
@@ -72,6 +77,8 @@ public class CampaignCreatorService {
         this.adsetRepo = adsetRepo;
         this.adRepo = adRepo;
         this.metaConnRepo = metaConnRepo;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
         this.objectMapper = objectMapper;
     }
 
@@ -88,7 +95,7 @@ public class CampaignCreatorService {
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
 
         // ── 1. Gather context ──
-        String contextPayload = buildContextPayload(agencyId, clientId, client, briefText);
+        String contextPayload = buildContextPayload(agencyId, clientId, briefText);
 
         // ── 2. Call Claude Opus ──
         String systemPrompt = buildSystemPrompt();
@@ -127,98 +134,22 @@ public class CampaignCreatorService {
 
     // ──────── Context builder ────────
 
-    private String buildContextPayload(UUID agencyId, UUID clientId, Client client, String briefText) {
+    private String buildContextPayload(UUID agencyId, UUID clientId, String briefText) {
+        CompletableFuture<String> sharedContextFuture = CompletableFuture.supplyAsync(
+            () -> aiContextBuilder.buildContext(agencyId, clientId));
+        CompletableFuture<String> crossModuleContextFuture =
+            aiCrossModuleSupportService.buildCampaignCreatorSectionsAsync(agencyId, clientId);
+
         StringBuilder sb = new StringBuilder();
-
-        // Client profile
-        sb.append("## Client Profile\n");
-        sb.append("Name: ").append(client.getName()).append("\n");
-        sb.append("Industry: ").append(client.getIndustry()).append("\n");
-        sb.append("Currency: ").append(client.getCurrency()).append("\n");
-        sb.append("Timezone: ").append(client.getTimezone()).append("\n\n");
-
-        // Ad account info
-        metaConnRepo.findByAgencyIdAndClientId(agencyId, clientId).ifPresent(conn -> {
-            sb.append("## Meta Ad Account\n");
-            sb.append("Ad Account ID: ").append(conn.getAdAccountId()).append("\n");
-            sb.append("Status: ").append(conn.getStatus()).append("\n\n");
-        });
-
-        // Creative assets
-        List<CreativeAsset> assets = creativeRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
-        if (!assets.isEmpty()) {
-            sb.append("## Creative Assets (").append(assets.size()).append(" total)\n");
-            for (CreativeAsset a : assets) {
-                sb.append("- ID: ").append(a.getId())
-                  .append(" | Type: ").append(a.getAssetType())
-                  .append(" | File: ").append(a.getOriginalFilename())
-                  .append(" | Status: ").append(a.getStatus());
-                if (a.getWidthPx() != null) {
-                    sb.append(" | Size: ").append(a.getWidthPx()).append("x").append(a.getHeightPx());
-                }
-                sb.append("\n");
-            }
-            sb.append("\n");
-        } else {
-            sb.append("## Creative Assets\nNone available. Suggest text-only ads or warn.\n\n");
-        }
-
-        // Copy variants
-        List<CopyVariant> copies = copyRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
-        if (!copies.isEmpty()) {
-            sb.append("## Copy Variants (").append(copies.size()).append(" total)\n");
-            for (CopyVariant cv : copies) {
-                sb.append("- Asset: ").append(cv.getCreativeAssetId())
-                  .append(" | Headline: ").append(cv.getHeadline())
-                  .append(" | Primary: ").append(truncate(cv.getPrimaryText(), 80))
-                  .append(" | CTA: ").append(cv.getCta())
-                  .append("\n");
-            }
-            sb.append("\n");
-        }
-
-        // Historical insights (last 90 days, aggregated)
-        LocalDate to = LocalDate.now();
-        LocalDate from = to.minusDays(90);
-        List<InsightDaily> insights = insightRepo.findAllByAgencyIdAndClientIdAndDateBetween(
-                agencyId, clientId, from, to);
-        if (!insights.isEmpty()) {
-            double totalSpend   = insights.stream().mapToDouble(i -> i.getSpend().doubleValue()).sum();
-            long   totalImpr    = insights.stream().mapToLong(InsightDaily::getImpressions).sum();
-            long   totalClicks  = insights.stream().mapToLong(InsightDaily::getClicks).sum();
-            double totalConvVal = insights.stream()
-                    .mapToDouble(i -> i.getConversionValue().doubleValue()).sum();
-            double avgCtr       = totalImpr > 0 ? (double) totalClicks / totalImpr * 100 : 0;
-
-            sb.append("## Historical Performance (last 90 days)\n");
-            sb.append("Total Spend: ").append(String.format("%.2f", totalSpend)).append("\n");
-            sb.append("Impressions: ").append(totalImpr).append("\n");
-            sb.append("Clicks: ").append(totalClicks).append("\n");
-            sb.append("Avg CTR: ").append(String.format("%.2f%%", avgCtr)).append("\n");
-            sb.append("Conversion Value: ").append(String.format("%.2f", totalConvVal)).append("\n");
-            if (totalSpend > 0) {
-                sb.append("ROAS: ").append(String.format("%.2fx", totalConvVal / totalSpend)).append("\n");
-            }
-            sb.append("\n");
-        }
-
-        // Active campaigns
-        List<Campaign> existing = campaignRepo.findAllByAgencyIdAndClientId(agencyId, clientId);
-        List<Campaign> active = existing.stream()
-                .filter(c -> "PUBLISHED".equals(c.getStatus()) || "DRAFT".equals(c.getStatus()))
-                .toList();
-        if (!active.isEmpty()) {
-            sb.append("## Existing Campaigns (").append(active.size()).append(")\n");
-            for (Campaign c : active) {
-                sb.append("- ").append(c.getName())
-                  .append(" (").append(c.getObjective()).append(", ").append(c.getStatus()).append(")\n");
-            }
-            sb.append("\n");
+        sb.append(sharedContextFuture.join()).append("\n");
+        String crossModuleContext = crossModuleContextFuture.join();
+        if (crossModuleContext != null && !crossModuleContext.isBlank()) {
+            sb.append(crossModuleContext);
         }
 
         // Agency brief
         if (briefText != null && !briefText.isBlank()) {
-            sb.append("## Agency Brief\n").append(briefText).append("\n\n");
+            sb.append("Agency Brief:\n").append(briefText).append("\n\n");
         }
 
         return sb.toString();

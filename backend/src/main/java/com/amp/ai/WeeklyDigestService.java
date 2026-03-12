@@ -20,6 +20,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Generates weekly performance digest emails for clients.
@@ -38,6 +39,8 @@ public class WeeklyDigestService {
     private final InsightDailyRepository insightRepo;
     private final AiWeeklyDigestRepository digestRepo;
     private final NotificationHelper notificationHelper;
+    private final AiContextBuilder aiContextBuilder;
+    private final AiCrossModuleSupportService aiCrossModuleSupportService;
 
     public WeeklyDigestService(ClaudeApiClient claudeClient,
                                 AiProperties aiProps,
@@ -46,7 +49,9 @@ public class WeeklyDigestService {
                                 UserAccountRepository userAccountRepo,
                                 InsightDailyRepository insightRepo,
                                 AiWeeklyDigestRepository digestRepo,
-                                NotificationHelper notificationHelper) {
+                                NotificationHelper notificationHelper,
+                                AiContextBuilder aiContextBuilder,
+                                AiCrossModuleSupportService aiCrossModuleSupportService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.metaConnectionRepo = metaConnectionRepo;
@@ -55,6 +60,8 @@ public class WeeklyDigestService {
         this.insightRepo = insightRepo;
         this.digestRepo = digestRepo;
         this.notificationHelper = notificationHelper;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
     }
 
     // ──────── Scheduled trigger ────────
@@ -136,6 +143,11 @@ public class WeeklyDigestService {
             return null;
         }
 
+        CompletableFuture<String> sharedContextFuture = CompletableFuture.supplyAsync(
+            () -> aiContextBuilder.buildContext(agencyId, clientId));
+        CompletableFuture<String> aiActivityFuture = aiCrossModuleSupportService.buildAiActivitySummaryAsync(
+            agencyId, clientId, periodStart, periodEnd, false, "week");
+
         // Build context for Claude
         StringBuilder ctx = new StringBuilder();
         ctx.append("CLIENT: ").append(clientName).append("\n");
@@ -160,6 +172,15 @@ public class WeeklyDigestService {
                 previous != null ? previous.getTotalClicks() : null);
         appendChange(ctx, "Conversions", current.getTotalConversions(),
                 previous != null ? previous.getTotalConversions() : null);
+        String aiActivitySummary = aiActivityFuture.join();
+        if (aiActivitySummary != null && !aiActivitySummary.isBlank()) {
+            ctx.append("\n=== AI ACTIVITY THIS WEEK ===\n")
+                .append(aiActivitySummary)
+                .append("\n");
+        }
+        ctx.append("\n=== SHARED CLIENT CONTEXT ===\n")
+            .append(sharedContextFuture.join())
+            .append("\n");
 
         // Call Claude (Sonnet — fast and cheap)
         String systemPrompt = """

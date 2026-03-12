@@ -2,6 +2,9 @@ package com.amp.ai;
 
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.meta.MetaConnection;
@@ -16,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +39,9 @@ public class PerformanceOptimizerService {
     private final InsightDailyRepository insightRepo;
     private final MetaConnectionRepository metaConnRepo;
     private final ClientRepository clientRepo;
+    private final AiContextBuilder aiContextBuilder;
+    private final AiCrossModuleSupportService aiCrossModuleSupportService;
+    private final ObjectMapper objectMapper;
 
     public PerformanceOptimizerService(AiProperties aiProps,
                                        ClaudeApiClient claudeClient,
@@ -42,7 +49,10 @@ public class PerformanceOptimizerService {
                                        AiSuggestionRepository suggestionRepo,
                                        InsightDailyRepository insightRepo,
                                        MetaConnectionRepository metaConnRepo,
-                                       ClientRepository clientRepo) {
+                                       ClientRepository clientRepo,
+                                       AiContextBuilder aiContextBuilder,
+                                       AiCrossModuleSupportService aiCrossModuleSupportService,
+                                       ObjectMapper objectMapper) {
         this.aiProps = aiProps;
         this.claudeClient = claudeClient;
         this.guardrails = guardrails;
@@ -50,6 +60,9 @@ public class PerformanceOptimizerService {
         this.insightRepo = insightRepo;
         this.metaConnRepo = metaConnRepo;
         this.clientRepo = clientRepo;
+        this.aiContextBuilder = aiContextBuilder;
+        this.aiCrossModuleSupportService = aiCrossModuleSupportService;
+        this.objectMapper = objectMapper;
     }
 
     // ══════════════════════════════════════════
@@ -180,8 +193,13 @@ public class PerformanceOptimizerService {
         int created = 0;
         for (RuleFinding f : passed) {
             try {
+            CompletableFuture<AiCrossModuleSupportService.CreativeSuggestionEnrichment> creativeEnrichmentFuture =
+                shouldAttachCreativeRecommendations(f)
+                    ? aiCrossModuleSupportService.findCreativeSuggestionEnrichmentAsync(
+                        agencyId, clientId, f.scopeType(), f.scopeId(), isCopyRefreshFinding(f))
+                    : CompletableFuture.completedFuture(AiCrossModuleSupportService.CreativeSuggestionEnrichment.empty());
                 String enrichedRationale = enrichWithLlm(f, agencyId, clientId);
-                saveSuggestion(f, enrichedRationale, agencyId, clientId);
+            saveSuggestion(f, enrichedRationale, creativeEnrichmentFuture, agencyId, clientId);
                 created++;
             } catch (Exception e) {
                 log.warn("Failed to create suggestion for finding {}: {}", f.suggestionType(), e.getMessage());
@@ -428,8 +446,7 @@ public class PerformanceOptimizerService {
 
     private String enrichWithLlm(RuleFinding finding, UUID agencyId, UUID clientId) {
         try {
-            Client client = clientRepo.findById(clientId).orElse(null);
-            String clientName = client != null ? client.getName() : "Unknown";
+            String sharedContext = aiContextBuilder.buildContext(agencyId, clientId);
 
             String systemPrompt = """
                     You are a performance marketing expert. Explain this optimization finding \
@@ -441,8 +458,8 @@ public class PerformanceOptimizerService {
                     """;
 
             String userMessage = String.format(
-                    "Client: %s\nFinding type: %s\nRisk: %s\nScope: %s\nDetails: %s\nData: %s",
-                    clientName, finding.suggestionType(), finding.riskLevel(),
+            "Shared context:\n%s\n\nFinding type: %s\nRisk: %s\nScope: %s\nDetails: %s\nData: %s",
+            sharedContext, finding.suggestionType(), finding.riskLevel(),
                     finding.scopeType() + " " + finding.scopeId(),
                     finding.rawRationale(), finding.payloadJson());
 
@@ -463,15 +480,19 @@ public class PerformanceOptimizerService {
     // ══════════════════════════════════════════
 
     private void saveSuggestion(RuleFinding finding, String enrichedRationale,
+                                 CompletableFuture<AiCrossModuleSupportService.CreativeSuggestionEnrichment> creativeEnrichmentFuture,
                                  UUID agencyId, UUID clientId) {
+        AiCrossModuleSupportService.CreativeSuggestionEnrichment creativeEnrichment = creativeEnrichmentFuture.join();
+        String finalRationale = enrichedRationale + creativeEnrichment.rationaleSuffix();
+
         AiSuggestion suggestion = new AiSuggestion();
         suggestion.setAgencyId(agencyId);
         suggestion.setClientId(clientId);
         suggestion.setScopeType(finding.scopeType());
         suggestion.setScopeId(finding.scopeId());
         suggestion.setSuggestionType(finding.suggestionType());
-        suggestion.setPayloadJson(finding.payloadJson());
-        suggestion.setRationale(enrichedRationale);
+        suggestion.setPayloadJson(augmentPayload(finding.payloadJson(), creativeEnrichment.recommendedCreatives()));
+        suggestion.setRationale(finalRationale);
         suggestion.setConfidence(BigDecimal.valueOf(finding.confidence()));
         suggestion.setRiskLevel(finding.riskLevel());
         suggestion.setStatus("PENDING");
@@ -481,6 +502,39 @@ public class PerformanceOptimizerService {
         suggestionRepo.save(suggestion);
         log.info("Created {} suggestion for {} {} (confidence: {})",
                 finding.suggestionType(), finding.scopeType(), finding.scopeId(), finding.confidence());
+    }
+
+    private boolean shouldAttachCreativeRecommendations(RuleFinding finding) {
+        return isCopyRefreshFinding(finding)
+                || containsPayloadToken(finding.payloadJson(), "frequency_fatigue")
+                || containsPayloadToken(finding.payloadJson(), "ctr_erosion");
+    }
+
+    private boolean isCopyRefreshFinding(RuleFinding finding) {
+        return "COPY_REFRESH".equalsIgnoreCase(finding.suggestionType())
+                || containsPayloadToken(finding.payloadJson(), "copy_refresh");
+    }
+
+    private boolean containsPayloadToken(String payloadJson, String token) {
+        return payloadJson != null && payloadJson.contains(token);
+    }
+
+    private String augmentPayload(String payloadJson, List<Map<String, Object>> recommendedCreatives) {
+        if (recommendedCreatives == null || recommendedCreatives.isEmpty()) {
+            return payloadJson;
+        }
+        try {
+            ObjectNode node = (ObjectNode) objectMapper.readTree(payloadJson);
+            ArrayNode arrayNode = objectMapper.createArrayNode();
+            for (Map<String, Object> item : recommendedCreatives) {
+                arrayNode.add(objectMapper.valueToTree(item));
+            }
+            node.set("recommended_creatives", arrayNode);
+            return node.toString();
+        } catch (Exception e) {
+            log.warn("Failed to augment optimizer payload with recommended creatives: {}", e.getMessage());
+            return payloadJson;
+        }
     }
 
     // ══════════════════════════════════════════

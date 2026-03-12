@@ -107,6 +107,7 @@ public class KpiController {
             day.put("impressions", agg.impressions);
             day.put("clicks", agg.clicks);
             day.put("conversions", agg.conversions.setScale(2, RoundingMode.HALF_UP));
+            day.put("conversionValue", agg.conversionValue.setScale(2, RoundingMode.HALF_UP));
             day.put("ctr", agg.impressions > 0
                     ? BigDecimal.valueOf(agg.clicks)
                         .divide(BigDecimal.valueOf(agg.impressions), 6, RoundingMode.HALF_UP)
@@ -115,6 +116,18 @@ public class KpiController {
             day.put("cpc", agg.clicks > 0
                     ? agg.spend.divide(BigDecimal.valueOf(agg.clicks), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO);
+            day.put("cpm", agg.impressions > 0
+                ? agg.spend.multiply(BigDecimal.valueOf(1000))
+                .divide(BigDecimal.valueOf(agg.impressions), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+            day.put("roas", agg.spend.compareTo(BigDecimal.ZERO) > 0
+                ? agg.conversionValue.divide(agg.spend, 4, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+            day.put("reach", agg.reach);
+            day.put("frequency", agg.reach > 0
+                ? BigDecimal.valueOf(agg.impressions)
+                .divide(BigDecimal.valueOf(agg.reach), 4, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
             dailyData.add(day);
         }
 
@@ -237,12 +250,16 @@ public class KpiController {
         long impressions;
         long clicks;
         BigDecimal conversions = BigDecimal.ZERO;
+        BigDecimal conversionValue = BigDecimal.ZERO;
+        long reach;
 
         void add(InsightDaily i) {
             spend = spend.add(i.getSpend() != null ? i.getSpend() : BigDecimal.ZERO);
             impressions += i.getImpressions();
             clicks += i.getClicks();
             conversions = conversions.add(i.getConversions() != null ? i.getConversions() : BigDecimal.ZERO);
+            conversionValue = conversionValue.add(i.getConversionValue() != null ? i.getConversionValue() : BigDecimal.ZERO);
+            reach += i.getReach();
         }
     }
 
