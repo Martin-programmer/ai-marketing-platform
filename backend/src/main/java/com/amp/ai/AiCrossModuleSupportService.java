@@ -582,6 +582,32 @@ public class AiCrossModuleSupportService {
             return "Untitled ad";
         }
 
+        if (ad.getCopyVariantId() != null) {
+            Optional<CopyVariant> directCopyVariant = copyVariantRepository.findById(ad.getCopyVariantId());
+            if (directCopyVariant.isPresent()) {
+                return renderCopyText(directCopyVariant.get());
+            }
+        }
+
+        if (ad.getCreativeAssetId() != null) {
+            List<CopyVariant> directAssetVariants = copyVariantRepository.findByCreativeAssetId(ad.getCreativeAssetId());
+            if (!directAssetVariants.isEmpty()) {
+                return renderCopyText(directAssetVariants.get(0));
+            }
+        }
+
+        if (ad.getPrimaryText() != null && !ad.getPrimaryText().isBlank()) {
+            List<String> parts = new ArrayList<>();
+            parts.add(ad.getPrimaryText().trim());
+            if (ad.getHeadline() != null && !ad.getHeadline().isBlank()) {
+                parts.add(ad.getHeadline().trim());
+            }
+            if (ad.getDescription() != null && !ad.getDescription().isBlank()) {
+                parts.add(ad.getDescription().trim());
+            }
+            return String.join(" | ", parts);
+        }
+
         UUID creativeRef = ad.getCreativePackageItemId();
         if (creativeRef != null) {
             Optional<CreativePackageItem> packageItem = creativePackageItemRepository.findById(creativeRef);

@@ -193,6 +193,7 @@ public class CampaignCreatorService {
 
             Rules:
             - Reference existing creative_asset_id UUIDs from the provided list when available
+            - Reuse approved copy variants from the provided context when possible instead of inventing new ad text
             - If no creatives are available, set creative_asset_id to null and add a warning
             - Create 2-4 adsets with different targeting segments
             - Each adset should have 2-3 ads (for A/B testing)
@@ -251,13 +252,15 @@ public class CampaignCreatorService {
                         : BigDecimal.TEN);
                 adset.setTargetingJson(adsetJson.has("targeting")
                         ? adsetJson.get("targeting").toString() : "{}");
+                adset.setOptimizationGoal(adsetJson.has("optimization_goal")
+                    ? adsetJson.get("optimization_goal").asText()
+                    : "CONVERSIONS");
                 adset.setStatus("DRAFT");
                 adset.setCreatedAt(OffsetDateTime.now());
                 adset.setUpdatedAt(OffsetDateTime.now());
                 adset = adsetRepo.save(adset);
 
-                String optGoal = adsetJson.has("optimization_goal")
-                        ? adsetJson.get("optimization_goal").asText() : "CONVERSIONS";
+                String optGoal = adset.getOptimizationGoal();
 
                 // Create ads
                 List<CampaignProposalResponse.ProposedAd> proposedAds = new ArrayList<>();
@@ -273,12 +276,27 @@ public class CampaignCreatorService {
                             } catch (Exception ignored) { /* LLM might produce invalid UUID */ }
                         }
 
+                            String primaryText = adJson.has("primary_text") ? adJson.get("primary_text").asText() : "";
+                            String headline = adJson.has("headline") ? adJson.get("headline").asText() : "";
+                            String description = adJson.has("description") ? adJson.get("description").asText() : "";
+                            String cta = adJson.has("cta") ? adJson.get("cta").asText() : "LEARN_MORE";
+                            String destinationUrl = adJson.has("url") ? adJson.get("url").asText() : "";
+                            UUID copyVariantId = findMatchingCopyVariantId(agencyId, clientId, creativeAssetId,
+                                primaryText, headline, description, cta);
+
                         Ad ad = new Ad();
                         ad.setAgencyId(agencyId);
                         ad.setClientId(clientId);
                         ad.setAdsetId(adset.getId());
                         ad.setName(adJson.has("name") ? adJson.get("name").asText() : "Ad");
                         ad.setCreativePackageItemId(creativeAssetId);
+                            ad.setCreativeAssetId(creativeAssetId);
+                            ad.setCopyVariantId(copyVariantId);
+                            ad.setPrimaryText(primaryText);
+                            ad.setHeadline(headline);
+                            ad.setDescription(description);
+                            ad.setCta(cta);
+                            ad.setDestinationUrl(destinationUrl);
                         ad.setStatus("DRAFT");
                         ad.setCreatedAt(OffsetDateTime.now());
                         ad.setUpdatedAt(OffsetDateTime.now());
@@ -288,11 +306,12 @@ public class CampaignCreatorService {
                                 ad.getId(),
                                 ad.getName(),
                                 creativeAssetId,
-                                adJson.has("primary_text") ? adJson.get("primary_text").asText() : "",
-                                adJson.has("headline") ? adJson.get("headline").asText() : "",
-                                adJson.has("description") ? adJson.get("description").asText() : "",
-                                adJson.has("cta") ? adJson.get("cta").asText() : "LEARN_MORE",
-                                adJson.has("url") ? adJson.get("url").asText() : ""
+                                copyVariantId,
+                                primaryText,
+                                headline,
+                                description,
+                                cta,
+                                destinationUrl
                         ));
                     }
                 }
@@ -314,6 +333,38 @@ public class CampaignCreatorService {
         return new CampaignProposalResponse(
                 campaign.getId(), campaignName, objective, "META", "DRAFT",
                 rationale, suggestedBudget, estimatedResults, warnings, proposedAdsets);
+    }
+
+    private UUID findMatchingCopyVariantId(UUID agencyId, UUID clientId, UUID creativeAssetId,
+                                           String primaryText, String headline, String description, String cta) {
+        List<CopyVariant> candidates = new ArrayList<>();
+        if (creativeAssetId != null) {
+            candidates.addAll(copyRepo.findByCreativeAssetIdAndStatusOrderByCreatedAtDesc(creativeAssetId, "APPROVED"));
+            if (candidates.isEmpty()) {
+                candidates.addAll(copyRepo.findByCreativeAssetId(creativeAssetId));
+            }
+        }
+        if (candidates.isEmpty()) {
+            candidates.addAll(copyRepo.findAllByAgencyIdAndClientId(agencyId, clientId));
+        }
+
+        String normalizedPrimary = normalize(primaryText);
+        String normalizedHeadline = normalize(headline);
+        String normalizedDescription = normalize(description);
+        String normalizedCta = normalize(cta);
+
+        return candidates.stream()
+                .filter(variant -> normalizedPrimary.equals(normalize(variant.getPrimaryText())))
+                .filter(variant -> normalizedHeadline.equals(normalize(variant.getHeadline())))
+                .filter(variant -> normalizedDescription.equals(normalize(variant.getDescription())))
+                .filter(variant -> normalizedCta.equals(normalize(variant.getCta())))
+                .map(CopyVariant::getId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     // ──────── Utilities ────────

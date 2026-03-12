@@ -6,6 +6,11 @@ import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
+import com.amp.creatives.CopyVariant;
+import com.amp.creatives.CopyVariantRepository;
+import com.amp.creatives.CreativePackageItem;
+import com.amp.creatives.CreativePackageItemRepository;
+import com.amp.creatives.CreativeService;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
 import com.amp.meta.MetaGraphApiClient;
@@ -28,8 +33,10 @@ import com.amp.campaigns.Campaign;
 import com.amp.campaigns.CampaignRepository;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -55,6 +62,9 @@ public class ExecutorService {
     private final CampaignRepository campaignRepo;
     private final AdsetRepository adsetRepo;
     private final AdRepository adRepo;
+    private final CreativePackageItemRepository creativePackageItemRepository;
+    private final CopyVariantRepository copyVariantRepository;
+    private final CreativeService creativeService;
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
     private final ClientRepository clientRepo;
@@ -69,6 +79,9 @@ public class ExecutorService {
                            CampaignRepository campaignRepo,
                            AdsetRepository adsetRepo,
                            AdRepository adRepo,
+                           CreativePackageItemRepository creativePackageItemRepository,
+                           CopyVariantRepository copyVariantRepository,
+                           CreativeService creativeService,
                            NotificationHelper notificationHelper,
                            EmailProperties emailProperties,
                            ClientRepository clientRepo) {
@@ -82,6 +95,9 @@ public class ExecutorService {
         this.campaignRepo = campaignRepo;
         this.adsetRepo = adsetRepo;
         this.adRepo = adRepo;
+        this.creativePackageItemRepository = creativePackageItemRepository;
+        this.copyVariantRepository = copyVariantRepository;
+        this.creativeService = creativeService;
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
         this.clientRepo = clientRepo;
@@ -265,17 +281,20 @@ public class ExecutorService {
 
         String accessToken = metaService.getAccessToken(conn);
         String adAccountId = conn.getAdAccountId();
-
-        AiActionLog actionLog = new AiActionLog();
-        actionLog.setAgencyId(agencyId);
-        actionLog.setClientId(campaign.getClientId());
-        actionLog.setSuggestionId(campaignId); // re-use field for campaign reference
-        actionLog.setExecutedBy("SYSTEM");
-        actionLog.setCreatedAt(OffsetDateTime.now());
+    List<Adset> adsets = adsetRepo.findAllByCampaignId(campaignId);
+    List<Ad> allAds = new ArrayList<>();
+    for (Adset adset : adsets) {
+        allAds.addAll(adRepo.findAllByAdsetId(adset.getId()));
+    }
 
         try {
-            // 1. Create campaign in Meta
+        // 1. Create campaign in Meta as PAUSED
             log.info("Publishing campaign '{}' to Meta account {}", campaign.getName(), adAccountId);
+            ObjectNode createCampaignRequest = objectMapper.createObjectNode()
+                .put("name", campaign.getName())
+                .put("objective", campaign.getObjective())
+                .put("status", "PAUSED");
+            createCampaignRequest.putArray("special_ad_categories");
             JsonNode metaCampaign = metaClient.createCampaign(
                     accessToken, adAccountId,
                     campaign.getName(), campaign.getObjective(), "PAUSED");
@@ -283,28 +302,59 @@ public class ExecutorService {
             String metaCampaignId = metaCampaign.get("id").asText();
             campaign.setMetaCampaignId(metaCampaignId);
             campaignRepo.save(campaign);
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "CAMPAIGN_CREATE",
+            createCampaignRequest,
+            metaCampaign,
+            true,
+            objectMapper.createObjectNode().put("meta_campaign_id", metaCampaignId));
             log.info("Created Meta campaign: {}", metaCampaignId);
 
             // 2. Create adsets
-            List<Adset> adsets = adsetRepo.findAllByCampaignId(campaignId);
             for (Adset adset : adsets) {
                 long budgetCents = adset.getDailyBudget().multiply(java.math.BigDecimal.valueOf(100)).longValue();
+        ObjectNode createAdsetRequest = objectMapper.createObjectNode()
+            .put("campaign_id", metaCampaignId)
+            .put("name", adset.getName())
+            .put("daily_budget", budgetCents)
+            .put("optimization_goal", adset.getOptimizationGoal() != null ? adset.getOptimizationGoal() : "CONVERSIONS")
+            .put("billing_event", "IMPRESSIONS")
+            .put("status", "PAUSED");
+        JsonNode targetingNode = parseJson(adset.getTargetingJson());
+        if (targetingNode != null) {
+            createAdsetRequest.set("targeting", targetingNode);
+        }
+
                 JsonNode metaAdset = metaClient.createAdset(
                         accessToken, metaCampaignId,
                         adset.getName(), budgetCents,
                         adset.getTargetingJson(),
-                        "CONVERSIONS", "IMPRESSIONS");
+            adset.getOptimizationGoal() != null ? adset.getOptimizationGoal() : "CONVERSIONS",
+            "IMPRESSIONS");
 
                 String metaAdsetId = metaAdset.get("id").asText();
                 adset.setMetaAdsetId(metaAdsetId);
                 adsetRepo.save(adset);
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "ADSET_CREATE",
+            createAdsetRequest,
+            metaAdset,
+            true,
+            objectMapper.createObjectNode()
+                .put("adset_id", adset.getId().toString())
+                .put("meta_adset_id", metaAdsetId));
                 log.info("Created Meta adset: {}", metaAdsetId);
 
                 // 3. Create ads
-                List<Ad> ads = adRepo.findAllByAdsetId(adset.getId());
-                for (Ad ad : ads) {
-                    // Build minimal creative spec
-                    String creativeSpec = "{\"creative\":{\"name\":\"" + ad.getName() + "\"}}";
+        List<Ad> adsForAdset = adRepo.findAllByAdsetId(adset.getId());
+        for (Ad ad : adsForAdset) {
+            String creativeSpec = buildCreativeSpec(agencyId, ad);
+            ObjectNode createAdRequest = objectMapper.createObjectNode()
+                .put("adset_id", metaAdsetId)
+                .put("name", ad.getName())
+                .put("status", "PAUSED");
+            createAdRequest.set("creative", parseJson(creativeSpec));
+
                     JsonNode metaAd = metaClient.createAd(
                             accessToken, metaAdsetId,
                             ad.getName(), creativeSpec);
@@ -312,20 +362,60 @@ public class ExecutorService {
                     String metaAdId = metaAd.get("id").asText();
                     ad.setMetaAdId(metaAdId);
                     adRepo.save(ad);
+            saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+                "AD_CREATE",
+                createAdRequest,
+                metaAd,
+                true,
+                objectMapper.createObjectNode()
+                    .put("ad_id", ad.getId().toString())
+                    .put("meta_ad_id", metaAdId));
                     log.info("Created Meta ad: {}", metaAdId);
                 }
             }
 
-            // Mark campaign as PUBLISHED
+        // 4. Activate the created campaign structure after everything exists.
+        JsonNode activateCampaignResponse = metaClient.updateCampaignStatus(accessToken, metaCampaignId, "ACTIVE");
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "CAMPAIGN_ACTIVATE",
+            objectMapper.createObjectNode().put("meta_campaign_id", metaCampaignId).put("status", "ACTIVE"),
+            activateCampaignResponse,
+            true,
+            objectMapper.createObjectNode().put("meta_campaign_id", metaCampaignId).put("status", "ACTIVE"));
+
+        for (Adset adset : adsets) {
+        JsonNode activateAdsetResponse = metaClient.updateAdsetStatus(accessToken, adset.getMetaAdsetId(), "ACTIVE");
+        adset.setStatus("ACTIVE");
+        adsetRepo.save(adset);
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "ADSET_ACTIVATE",
+            objectMapper.createObjectNode().put("meta_adset_id", adset.getMetaAdsetId()).put("status", "ACTIVE"),
+            activateAdsetResponse,
+            true,
+            objectMapper.createObjectNode().put("adset_id", adset.getId().toString()).put("status", "ACTIVE"));
+        }
+
+        for (Ad ad : allAds) {
+        JsonNode activateAdResponse = metaClient.updateAdStatus(accessToken, ad.getMetaAdId(), "ACTIVE");
+        ad.setStatus("ACTIVE");
+        adRepo.save(ad);
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "AD_ACTIVATE",
+            objectMapper.createObjectNode().put("meta_ad_id", ad.getMetaAdId()).put("status", "ACTIVE"),
+            activateAdResponse,
+            true,
+            objectMapper.createObjectNode().put("ad_id", ad.getId().toString()).put("status", "ACTIVE"));
+        }
+
+        // 5. Mark campaign as published in the AMP DB.
             campaign.setStatus("PUBLISHED");
             campaignRepo.save(campaign);
-
-            // Record success
-            actionLog.setMetaRequestJson("{\"campaign_id\":\"" + metaCampaignId + "\"}");
-            actionLog.setMetaResponseJson("{\"status\":\"PUBLISHED\"}");
-            actionLog.setSuccess(true);
-            actionLog.setResultSnapshotJson("{\"meta_campaign_id\":\"" + metaCampaignId + "\"}");
-            actionLogRepo.save(actionLog);
+        saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+            "CAMPAIGN_PUBLISH_COMPLETE",
+            objectMapper.createObjectNode().put("campaign_id", campaignId.toString()),
+            objectMapper.createObjectNode().put("status", "PUBLISHED"),
+            true,
+            objectMapper.createObjectNode().put("meta_campaign_id", metaCampaignId).put("status", "PUBLISHED"));
 
             // Audit
             TenantContext ctx = TenantContextHolder.get();
@@ -363,7 +453,8 @@ public class ExecutorService {
                     "status", "PUBLISHED",
                     "campaignId", campaignId,
                     "metaCampaignId", metaCampaignId,
-                    "adsetsCreated", adsets.size()
+                    "adsetsCreated", adsets.size(),
+                    "adsCreated", allAds.size()
             );
 
         } catch (Exception e) {
@@ -371,12 +462,12 @@ public class ExecutorService {
 
             campaign.setStatus("FAILED");
             campaignRepo.save(campaign);
-
-            actionLog.setMetaRequestJson("{}");
-            actionLog.setMetaResponseJson(
-                    "{\"error\":\"" + e.getMessage().replace("\"", "'") + "\"}");
-            actionLog.setSuccess(false);
-            actionLogRepo.save(actionLog);
+                saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
+                    "CAMPAIGN_PUBLISH_FAILED",
+                    objectMapper.createObjectNode().put("campaign_id", campaignId.toString()),
+                    objectMapper.createObjectNode().put("error", e.getMessage()),
+                    false,
+                    objectMapper.createObjectNode().put("status", "FAILED"));
 
             return Map.of(
                     "status", "FAILED",
@@ -421,5 +512,105 @@ public class ExecutorService {
             log.warn("Could not fetch snapshot for entity {}: {}", entityId, e.getMessage());
             return null;
         }
+    }
+
+    private void saveCampaignActionLog(UUID agencyId, UUID clientId, UUID campaignId,
+                                       String stage, JsonNode request, JsonNode response,
+                                       boolean success, JsonNode snapshot) {
+        AiActionLog actionLog = new AiActionLog();
+        actionLog.setAgencyId(agencyId);
+        actionLog.setClientId(clientId);
+        actionLog.setSuggestionId(campaignId);
+        actionLog.setExecutedBy("SYSTEM");
+        actionLog.setCreatedAt(OffsetDateTime.now());
+
+        ObjectNode requestNode = objectMapper.createObjectNode().put("stage", stage);
+        if (request != null) {
+            requestNode.set("payload", request);
+        }
+        ObjectNode responseNode = objectMapper.createObjectNode().put("stage", stage);
+        if (response != null) {
+            responseNode.set("payload", response);
+        }
+        ObjectNode snapshotNode = objectMapper.createObjectNode().put("stage", stage);
+        if (snapshot != null) {
+            snapshotNode.set("result", snapshot);
+        }
+
+        actionLog.setMetaRequestJson(requestNode.toString());
+        actionLog.setMetaResponseJson(responseNode.toString());
+        actionLog.setSuccess(success);
+        actionLog.setResultSnapshotJson(snapshotNode.toString());
+        actionLogRepo.save(actionLog);
+    }
+
+    private String buildCreativeSpec(UUID agencyId, Ad ad) {
+        UUID creativeAssetId = ad.getCreativeAssetId();
+        UUID copyVariantId = ad.getCopyVariantId();
+
+        if ((creativeAssetId == null || copyVariantId == null) && ad.getCreativePackageItemId() != null) {
+            Optional<CreativePackageItem> packageItem = creativePackageItemRepository.findById(ad.getCreativePackageItemId());
+            if (packageItem.isPresent()) {
+                if (creativeAssetId == null) {
+                    creativeAssetId = packageItem.get().getCreativeAssetId();
+                }
+                if (copyVariantId == null) {
+                    copyVariantId = packageItem.get().getCopyVariantId();
+                }
+            }
+        }
+
+        CopyVariant copyVariant = copyVariantId != null
+                ? copyVariantRepository.findById(copyVariantId).orElse(null)
+                : null;
+
+        if (copyVariant == null && creativeAssetId != null) {
+            List<CopyVariant> variants = copyVariantRepository.findByCreativeAssetIdAndStatusOrderByCreatedAtDesc(creativeAssetId, "APPROVED");
+            if (!variants.isEmpty()) {
+                copyVariant = variants.get(0);
+            }
+        }
+
+        String primaryText = firstNonBlank(ad.getPrimaryText(), copyVariant != null ? copyVariant.getPrimaryText() : null);
+        String headline = firstNonBlank(ad.getHeadline(), copyVariant != null ? copyVariant.getHeadline() : null, ad.getName());
+        String description = firstNonBlank(ad.getDescription(), copyVariant != null ? copyVariant.getDescription() : null);
+        String cta = firstNonBlank(ad.getCta(), copyVariant != null ? copyVariant.getCta() : null, "LEARN_MORE");
+        String destinationUrl = firstNonBlank(ad.getDestinationUrl(), emailProperties.getBaseUrl());
+
+        ObjectNode creativeNode = objectMapper.createObjectNode();
+        if (creativeAssetId != null) {
+            try {
+                String imageUrl = creativeService.getPresignedViewUrl(agencyId, creativeAssetId);
+                creativeNode.put("image_url", imageUrl);
+            } catch (Exception e) {
+                throw new IllegalStateException("Creative asset not found or unavailable for ad '" + ad.getName() + "': " + creativeAssetId, e);
+            }
+        }
+        creativeNode.put("primary_text", primaryText);
+        creativeNode.put("headline", headline);
+        creativeNode.put("description", description != null ? description : "");
+        creativeNode.put("cta", cta);
+        creativeNode.put("url", destinationUrl);
+        return creativeNode.toString();
+    }
+
+    private JsonNode parseJson(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception e) {
+            return objectMapper.createObjectNode().put("raw", value);
+        }
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 }

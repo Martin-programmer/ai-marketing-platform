@@ -40,6 +40,27 @@ public class Ad {
     @Column(name = "creative_package_item_id")
     private UUID creativePackageItemId;
 
+    @Column(name = "creative_asset_id")
+    private UUID creativeAssetId;
+
+    @Column(name = "copy_variant_id")
+    private UUID copyVariantId;
+
+    @Column(name = "primary_text")
+    private String primaryText;
+
+    @Column(name = "headline")
+    private String headline;
+
+    @Column(name = "description")
+    private String description;
+
+    @Column(name = "cta")
+    private String cta;
+
+    @Column(name = "destination_url")
+    private String destinationUrl;
+
     @Column(name = "status", nullable = false)
     private String status;
 
@@ -76,6 +97,27 @@ public class Ad {
 
     public UUID getCreativePackageItemId() { return creativePackageItemId; }
     public void setCreativePackageItemId(UUID creativePackageItemId) { this.creativePackageItemId = creativePackageItemId; }
+
+    public UUID getCreativeAssetId() { return creativeAssetId; }
+    public void setCreativeAssetId(UUID creativeAssetId) { this.creativeAssetId = creativeAssetId; }
+
+    public UUID getCopyVariantId() { return copyVariantId; }
+    public void setCopyVariantId(UUID copyVariantId) { this.copyVariantId = copyVariantId; }
+
+    public String getPrimaryText() { return primaryText; }
+    public void setPrimaryText(String primaryText) { this.primaryText = primaryText; }
+
+    public String getHeadline() { return headline; }
+    public void setHeadline(String headline) { this.headline = headline; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getCta() { return cta; }
+    public void setCta(String cta) { this.cta = cta; }
+
+    public String getDestinationUrl() { return destinationUrl; }
+    public void setDestinationUrl(String destinationUrl) { this.destinationUrl = destinationUrl; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

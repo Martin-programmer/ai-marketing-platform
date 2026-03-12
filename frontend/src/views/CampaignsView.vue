@@ -24,11 +24,11 @@
     </v-alert>
 
     <template v-if="selectedClient">
-      <div class="d-flex justify-space-between align-center mb-3">
+      <div class="d-flex justify-space-between align-center mb-3 flex-wrap ga-3">
         <h2>Campaigns</h2>
         <div class="d-flex ga-2">
-          <v-btn color="deep-purple" variant="outlined" @click="showAiProposal = true" :disabled="!selectedClient">
-            <v-icon start>mdi-robot</v-icon> AI Campaign Proposal
+          <v-btn color="deep-purple" size="large" elevation="3" @click="openAiProposalDialog" :disabled="!selectedClient">
+            <v-icon start>mdi-robot-excited-outline</v-icon> AI Campaign Proposal
           </v-btn>
           <v-btn color="primary" @click="showCreateCampaign = true">
             <v-icon start>mdi-plus</v-icon> New Campaign
@@ -412,6 +412,19 @@
       </v-card>
     </v-dialog>
 
+    <v-overlay
+      :model-value="store.proposalLoading"
+      class="align-center justify-center"
+      persistent
+      contained
+    >
+      <v-card min-width="360" max-width="520" class="pa-4 text-center">
+        <v-progress-circular indeterminate color="deep-purple" size="56" width="5" class="mb-4" />
+        <div class="text-h6 mb-2">AI генерира кампания...</div>
+        <div class="text-body-2 text-medium-emphasis">15-30 секунди</div>
+      </v-card>
+    </v-overlay>
+
     <!-- AI Campaign Proposal Dialog (brief input) -->
     <v-dialog v-model="showAiProposal" max-width="560">
       <v-card title="AI Campaign Proposal" prepend-icon="mdi-robot">
@@ -422,8 +435,8 @@
           </p>
           <v-textarea
             v-model="aiBrief"
-            label="Brief (optional)"
-            placeholder="E.g. 'Focus on summer sale, target 25-45 age group, budget around $50/day'"
+            label="Опишете целта на кампанията (опционално)"
+            placeholder="Напр. 'Лятна промоция, жени 25-45, бюджет около $50 на ден'"
             rows="3"
             auto-grow
             variant="outlined"
@@ -444,13 +457,13 @@
     </v-dialog>
 
     <!-- AI Proposal Result Dialog -->
-    <v-dialog v-model="showProposalResult" max-width="900" scrollable>
-      <v-card v-if="store.proposal">
-        <v-card-title class="d-flex align-center ga-2">
+    <v-dialog v-model="showProposalResult" max-width="1280" scrollable>
+      <v-card v-if="draftProposal">
+        <v-card-title class="d-flex align-center ga-2 flex-wrap">
           <v-icon color="deep-purple">mdi-robot</v-icon>
-          {{ store.proposal.campaignName }}
-          <v-chip size="small" color="info" class="ml-2">{{ store.proposal.objective }}</v-chip>
-          <v-chip size="small" color="grey">{{ store.proposal.status }}</v-chip>
+          <span>Campaign Proposal Preview</span>
+          <v-chip size="small" color="info">{{ draftProposal.objective }}</v-chip>
+          <v-chip size="small" color="grey">{{ draftProposal.status }}</v-chip>
           <v-spacer />
           <v-btn icon size="small" @click="showProposalResult = false">
             <v-icon>mdi-close</v-icon>
@@ -459,67 +472,223 @@
 
         <v-divider />
 
-        <v-card-text style="max-height: 70vh; overflow-y: auto">
-          <!-- Rationale -->
-          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-brain">
-            <div class="font-weight-bold mb-1">AI Rationale</div>
-            {{ store.proposal.rationale }}
+        <v-card-text style="max-height: 78vh; overflow-y: auto">
+          <v-alert
+            v-if="proposalBanner.text"
+            :type="proposalBanner.type"
+            variant="tonal"
+            class="mb-4"
+          >
+            {{ proposalBanner.text }}
           </v-alert>
 
-          <!-- Budget & Estimated Results -->
-          <div class="d-flex ga-4 mb-4">
-            <v-card variant="tonal" color="success" class="pa-3 flex-grow-1">
-              <div class="text-caption">Suggested Daily Budget</div>
-              <div class="text-h6">${{ store.proposal.suggestedDailyBudget?.toFixed(2) }}</div>
-            </v-card>
-            <v-card variant="tonal" color="primary" class="pa-3 flex-grow-1">
-              <div class="text-caption">Estimated Results</div>
-              <div class="text-body-2">{{ store.proposal.estimatedResults }}</div>
-            </v-card>
-          </div>
+          <v-card variant="outlined" class="mb-6 proposal-campaign-card">
+            <v-card-text>
+              <div class="d-flex align-start flex-wrap ga-3 mb-4">
+                <div class="flex-grow-1">
+                  <div class="text-caption text-medium-emphasis mb-1">Campaign name</div>
+                  <v-text-field
+                    v-model="draftProposal.campaignName"
+                    variant="outlined"
+                    density="comfortable"
+                    hide-details
+                  />
+                </div>
+                <v-chip color="info" size="small">{{ draftProposal.objective }}</v-chip>
+                <v-chip :color="proposalRiskColor" size="small">{{ proposalRiskLevel }}</v-chip>
+              </div>
 
-          <!-- Warnings -->
-          <v-alert
-            v-for="(w, wi) in store.proposal.warnings"
-            :key="wi"
-            type="warning"
-            variant="tonal"
-            density="compact"
-            class="mb-2"
-          >{{ w }}</v-alert>
+              <v-row>
+                <v-col cols="12" md="3">
+                  <v-card variant="tonal" color="success" class="h-100">
+                    <v-card-text>
+                      <div class="text-caption">Total daily budget</div>
+                      <v-text-field
+                        v-model.number="draftProposal.suggestedDailyBudget"
+                        type="number"
+                        prefix="$"
+                        variant="outlined"
+                        density="compact"
+                        hide-details
+                        class="mt-2"
+                      />
+                    </v-card-text>
+                  </v-card>
+                </v-col>
+                <v-col cols="12" md="3">
+                  <v-card variant="tonal" color="primary" class="h-100">
+                    <v-card-text>
+                      <div class="text-caption">Confidence score</div>
+                      <div class="d-flex align-center ga-3 mt-3">
+                        <v-progress-circular
+                          :model-value="proposalConfidence"
+                          :color="proposalConfidence >= 75 ? 'success' : proposalConfidence >= 50 ? 'warning' : 'error'"
+                          size="54"
+                          width="6"
+                        >
+                          {{ proposalConfidence }}%
+                        </v-progress-circular>
+                        <div class="text-body-2 text-medium-emphasis">
+                          Based on warnings, budget fit and structure completeness.
+                        </div>
+                      </div>
+                    </v-card-text>
+                  </v-card>
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-card variant="tonal" color="deep-purple" class="h-100">
+                    <v-card-text>
+                      <div class="text-caption mb-2">Estimated results</div>
+                      <div class="d-flex flex-wrap ga-2 mb-2">
+                        <v-chip v-for="metric in estimatedResultChips" :key="metric" size="small" variant="outlined">
+                          {{ metric }}
+                        </v-chip>
+                      </div>
+                      <div class="text-body-2">{{ draftProposal.estimatedResults || 'No estimate returned by AI.' }}</div>
+                    </v-card-text>
+                  </v-card>
+                </v-col>
+              </v-row>
 
-          <!-- Adsets tree -->
-          <div v-for="(adset, ai) in store.proposal.adsets" :key="adset.adsetId" class="mb-4">
-            <v-card variant="outlined">
-              <v-card-title class="text-subtitle-1 d-flex align-center">
-                <v-icon start size="small" color="blue">mdi-folder-outline</v-icon>
-                {{ adset.name }}
-                <v-chip size="x-small" class="ml-2">${{ adset.dailyBudget?.toFixed(2) }}/day</v-chip>
-                <v-chip size="x-small" class="ml-1" color="grey">{{ adset.optimizationGoal }}</v-chip>
+              <v-expansion-panels variant="accordion" class="mt-4">
+                <v-expansion-panel>
+                  <v-expansion-panel-title>
+                    AI rationale
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text>
+                    <v-textarea
+                      v-model="draftProposal.rationale"
+                      variant="outlined"
+                      rows="4"
+                      auto-grow
+                      hide-details
+                    />
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+              </v-expansion-panels>
+
+              <div v-if="draftProposal.warnings.length" class="mt-4">
+                <div class="text-subtitle-2 mb-2">Warnings</div>
+                <v-alert
+                  v-for="(warning, wi) in draftProposal.warnings"
+                  :key="wi"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  class="mb-2"
+                >
+                  {{ warning }}
+                </v-alert>
+              </div>
+            </v-card-text>
+          </v-card>
+
+          <div class="text-subtitle-1 font-weight-medium mb-3">Campaign structure</div>
+          <div v-for="(adset, ai) in draftProposal.adsets" :key="adset.adsetId" class="mb-5">
+            <v-card variant="outlined" class="proposal-adset-card">
+              <v-card-title class="d-flex align-center flex-wrap ga-2">
+                <v-icon size="18" color="blue">mdi-folder-outline</v-icon>
+                <span>Adset {{ ai + 1 }}</span>
+                <v-spacer />
+                <v-chip size="x-small" color="grey">{{ adset.optimizationGoal }}</v-chip>
               </v-card-title>
-              <v-card-subtitle>
-                Targeting: {{ formatTargeting(adset.targetingJson) }}
-              </v-card-subtitle>
-              <v-divider />
-              <v-list density="compact">
-                <v-list-item v-for="(ad, adi) in adset.ads" :key="ad.adId" :title="ad.name">
-                  <template #prepend>
-                    <v-icon size="small" color="orange">mdi-bullhorn</v-icon>
-                  </template>
-                  <template #subtitle>
-                    <div class="text-body-2 mt-1">
-                      <strong>Headline:</strong> {{ ad.headline }}<br />
-                      <strong>Primary:</strong> {{ ad.primaryText }}<br />
-                      <strong>Description:</strong> {{ ad.description }}<br />
-                      <v-chip size="x-small" class="mr-1">{{ ad.cta }}</v-chip>
-                      <span v-if="ad.creativeAssetId" class="text-caption text-grey">
-                        Asset: {{ ad.creativeAssetId.substring(0, 8) }}…
-                      </span>
-                      <v-chip v-else size="x-small" color="warning">No creative</v-chip>
-                    </div>
-                  </template>
-                </v-list-item>
-              </v-list>
+              <v-card-text>
+                <v-row>
+                  <v-col cols="12" md="5">
+                    <div class="text-caption text-medium-emphasis mb-1">Adset name</div>
+                    <v-text-field v-model="adset.name" variant="outlined" density="compact" hide-details />
+                  </v-col>
+                  <v-col cols="12" md="2">
+                    <div class="text-caption text-medium-emphasis mb-1">Daily budget</div>
+                    <v-text-field v-model.number="adset.dailyBudget" type="number" prefix="$" variant="outlined" density="compact" hide-details />
+                  </v-col>
+                  <v-col cols="12" md="5">
+                    <div class="text-caption text-medium-emphasis mb-1">Optimization goal</div>
+                    <v-select
+                      v-model="adset.optimizationGoal"
+                      :items="['CONVERSIONS', 'LINK_CLICKS', 'IMPRESSIONS', 'REACH']"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                    />
+                  </v-col>
+                  <v-col cols="12">
+                    <v-card variant="tonal" color="blue-grey-lighten-5">
+                      <v-card-text>
+                        <div class="text-caption text-medium-emphasis mb-2">Targeting summary</div>
+                        <div class="text-body-2 mb-2">{{ targetingSummary(adset.targetingJson) }}</div>
+                        <v-textarea
+                          v-model="adset.targetingJson"
+                          label="Targeting JSON"
+                          rows="3"
+                          auto-grow
+                          variant="outlined"
+                          hide-details
+                        />
+                      </v-card-text>
+                    </v-card>
+                  </v-col>
+                </v-row>
+
+                <div class="proposal-tree-branch mt-4">
+                  <v-row>
+                    <v-col v-for="(ad, adi) in adset.ads" :key="ad.adId" cols="12" xl="6">
+                      <v-card variant="outlined" class="proposal-ad-card h-100">
+                        <v-card-title class="d-flex align-center flex-wrap ga-2">
+                          <v-icon size="18" color="orange">mdi-bullhorn-outline</v-icon>
+                          <span>Ad {{ ai + 1 }}.{{ adi + 1 }}</span>
+                        </v-card-title>
+                        <v-card-text>
+                          <v-row>
+                            <v-col cols="12" md="4">
+                              <div class="creative-preview-wrap">
+                                <img
+                                  v-if="ad.creativeAssetId && creativePreviewUrls[ad.creativeAssetId]"
+                                  :src="creativePreviewUrls[ad.creativeAssetId]"
+                                  class="creative-preview"
+                                />
+                                <div v-else class="creative-preview-empty">
+                                  <v-icon size="44" color="grey">mdi-image-off-outline</v-icon>
+                                  <div class="text-caption text-medium-emphasis text-center mt-2">
+                                    {{ creativePreviewErrors[ad.creativeAssetId || `missing-${ad.adId}`] || 'Creative not found in library' }}
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="d-flex flex-wrap ga-1 mt-2">
+                                <v-chip v-if="ad.creativeAssetId" size="x-small" variant="outlined">
+                                  {{ shortId(ad.creativeAssetId) }}
+                                </v-chip>
+                                <v-chip v-else size="x-small" color="warning">No asset</v-chip>
+                              </div>
+                            </v-col>
+                            <v-col cols="12" md="8">
+                              <v-text-field v-model="ad.name" label="Ad name" variant="outlined" density="compact" class="mb-2" hide-details />
+                              <v-textarea v-model="ad.primaryText" label="Primary text" variant="outlined" rows="3" auto-grow class="mb-2" hide-details />
+                              <v-text-field v-model="ad.headline" label="Headline" variant="outlined" density="compact" class="mb-2" hide-details />
+                              <v-text-field v-model="ad.description" label="Description" variant="outlined" density="compact" class="mb-2" hide-details />
+                              <v-row>
+                                <v-col cols="12" md="4">
+                                  <v-select
+                                    v-model="ad.cta"
+                                    :items="ctaOptions"
+                                    label="CTA"
+                                    variant="outlined"
+                                    density="compact"
+                                    hide-details
+                                  />
+                                </v-col>
+                                <v-col cols="12" md="8">
+                                  <v-text-field v-model="ad.url" label="Destination URL" variant="outlined" density="compact" hide-details />
+                                </v-col>
+                              </v-row>
+                            </v-col>
+                          </v-row>
+                        </v-card-text>
+                      </v-card>
+                    </v-col>
+                  </v-row>
+                </div>
+              </v-card-text>
             </v-card>
           </div>
         </v-card-text>
@@ -527,17 +696,20 @@
         <v-divider />
 
         <v-card-actions>
-          <v-btn variant="text" @click="onRegenerate">
+          <v-btn variant="text" :disabled="publishLoading" @click="onRegenerate">
             <v-icon start>mdi-refresh</v-icon> Regenerate
           </v-btn>
+          <v-btn variant="outlined" :disabled="publishLoading" @click="onSaveDraft">
+            <v-icon start>mdi-content-save-outline</v-icon> Save as Draft
+          </v-btn>
           <v-spacer />
-          <v-btn @click="showProposalResult = false">Close</v-btn>
+          <v-btn :disabled="publishLoading" @click="onCancelProposal">Cancel</v-btn>
           <v-btn
             color="success"
             :loading="publishLoading"
             @click="onApproveAndPublish"
           >
-            <v-icon start>mdi-rocket-launch</v-icon> Approve & Publish to Meta
+            <v-icon start>mdi-rocket-launch</v-icon> Approve & Publish
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -546,11 +718,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, reactive } from 'vue'
+import { computed, ref, onMounted, reactive, watch } from 'vue'
+import api from '@/api/client'
 import { useCampaignStore } from '@/stores/campaigns'
 import { useClientStore } from '@/stores/clients'
 import { useCreativeStore } from '@/stores/creatives'
 import { useDashboardStore } from '@/stores/dashboard'
+import type { CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
 
 const store = useCampaignStore()
 const clientStore = useClientStore()
@@ -576,6 +750,13 @@ const showAiProposal = ref(false)
 const showProposalResult = ref(false)
 const aiBrief = ref('')
 const publishLoading = ref(false)
+const publishStep = ref('')
+const draftProposal = ref<CampaignProposal | null>(null)
+const proposalBanner = ref<{ text: string; type: 'success' | 'error' | 'info' | 'warning' }>({ text: '', type: 'info' })
+const creativePreviewUrls = reactive<Record<string, string>>({})
+const creativePreviewErrors = reactive<Record<string, string>>({})
+
+const ctaOptions = ['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'GET_OFFER', 'CONTACT_US']
 
 const pacingColor = computed(() => {
   const status = dashStore.budgetAnalysis?.pacing?.pacingStatus
@@ -629,6 +810,73 @@ function formatTargeting(json: any): string {
   const str = typeof json === 'string' ? json : JSON.stringify(json)
   return str.length > 50 ? str.substring(0, 50) + '…' : str
 }
+
+function parseTargeting(json: any): Record<string, any> {
+  if (!json) return {}
+  if (typeof json === 'object') return json
+  try {
+    return JSON.parse(json)
+  } catch {
+    return {}
+  }
+}
+
+function targetingSummary(json: any): string {
+  const targeting = parseTargeting(json)
+  const parts: string[] = []
+  if (targeting.interests?.length) parts.push(`Audiences: ${targeting.interests.join(', ')}`)
+  if (targeting.age_min || targeting.age_max) parts.push(`Age: ${targeting.age_min || '?'}-${targeting.age_max || '?'}`)
+  if (targeting.genders?.length) parts.push(`Gender: ${targeting.genders.join(', ')}`)
+  if (targeting.geo_locations?.countries?.length) parts.push(`Locations: ${targeting.geo_locations.countries.join(', ')}`)
+  if (targeting.locations?.length) parts.push(`Locations: ${targeting.locations.join(', ')}`)
+  return parts.length ? parts.join(' • ') : 'No targeting summary available.'
+}
+
+function shortId(value: string | null | undefined): string {
+  return value ? `${value.slice(0, 8)}…` : '—'
+}
+
+function cloneProposal(proposal: CampaignProposal): CampaignProposal {
+  return JSON.parse(JSON.stringify(proposal))
+}
+
+const proposalConfidence = computed(() => {
+  if (!draftProposal.value) return 0
+  const warningPenalty = Math.min((draftProposal.value.warnings?.length || 0) * 10, 40)
+  const missingCreativePenalty = draftProposal.value.adsets.flatMap((adset) => adset.ads).filter((ad) => !ad.creativeAssetId).length * 5
+  return Math.max(35, Math.min(96, 90 - warningPenalty - missingCreativePenalty))
+})
+
+const proposalRiskLevel = computed(() => {
+  const score = proposalConfidence.value
+  if (score >= 75) return 'LOW RISK'
+  if (score >= 55) return 'MEDIUM RISK'
+  return 'HIGH RISK'
+})
+
+const proposalRiskColor = computed(() => {
+  if (proposalRiskLevel.value === 'LOW RISK') return 'success'
+  if (proposalRiskLevel.value === 'MEDIUM RISK') return 'warning'
+  return 'error'
+})
+
+const estimatedResultChips = computed(() => {
+  if (!draftProposal.value?.estimatedResults) return []
+  return draftProposal.value.estimatedResults
+    .split(/[,;]|\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+})
+
+watch(() => store.proposal, async (proposal) => {
+  if (!proposal) {
+    draftProposal.value = null
+    return
+  }
+  draftProposal.value = cloneProposal(proposal)
+  await loadCreativePreviews(draftProposal.value)
+}, { deep: true })
 
 async function onClientChange(clientId: string) {
   if (clientId) {
@@ -722,6 +970,7 @@ async function onCreateAd() {
 async function onGenerateProposal() {
   if (!selectedClient.value) return
   try {
+    proposalBanner.value = { text: '', type: 'info' }
     await store.generateProposal(selectedClient.value, aiBrief.value)
     showAiProposal.value = false
     showProposalResult.value = true
@@ -733,25 +982,130 @@ async function onGenerateProposal() {
 async function onRegenerate() {
   if (!selectedClient.value) return
   showProposalResult.value = false
-  showAiProposal.value = true
+  await onGenerateProposal()
 }
 
 async function onApproveAndPublish() {
-  if (!store.proposal) return
+  if (!draftProposal.value) return
   publishLoading.value = true
+  publishStep.value = 'Creating campaign...'
+  proposalBanner.value = { text: 'Creating campaign...', type: 'info' }
+  const stepTimers = [
+    window.setTimeout(() => {
+      publishStep.value = 'Creating adsets...'
+      proposalBanner.value = { text: 'Creating adsets...', type: 'info' }
+    }, 700),
+    window.setTimeout(() => {
+      publishStep.value = 'Creating ads...'
+      proposalBanner.value = { text: 'Creating ads...', type: 'info' }
+    }, 1500),
+  ]
   try {
-    const result = await store.metaPublish(store.proposal.campaignId)
+    const result = await store.metaPublish(draftProposal.value.campaignId)
     if (result.status === 'PUBLISHED') {
+      proposalBanner.value = { text: 'Campaign published successfully.', type: 'success' }
       showProposalResult.value = false
       // Refresh campaigns list
       if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
     }
   } catch (e: any) {
     store.error = e.response?.data?.message || e.message
+    proposalBanner.value = { text: store.error || 'Publish failed. Campaign remains in DRAFT.', type: 'error' }
   } finally {
+    stepTimers.forEach((timer) => window.clearTimeout(timer))
     publishLoading.value = false
+    publishStep.value = ''
   }
+}
+
+function openAiProposalDialog() {
+  if (!selectedClient.value) return
+  proposalBanner.value = { text: '', type: 'info' }
+  showAiProposal.value = true
+}
+
+function onCancelProposal() {
+  showProposalResult.value = false
+  proposalBanner.value = { text: 'Proposal discarded from preview. The generated campaign remains in DRAFT.', type: 'warning' }
+}
+
+async function onSaveDraft() {
+  if (!draftProposal.value || !selectedClient.value) return
+  showProposalResult.value = false
+  await store.fetchCampaigns(selectedClient.value)
+  proposalBanner.value = { text: 'Draft saved. You can publish it later from the campaigns list.', type: 'success' }
+}
+
+async function loadCreativePreviews(proposal: CampaignProposal | null) {
+  if (!proposal) return
+  const assetIds = proposal.adsets
+    .flatMap((adset: ProposedAdset) => adset.ads)
+    .map((ad: ProposedAd) => ad.creativeAssetId)
+    .filter((assetId): assetId is string => Boolean(assetId))
+
+  await Promise.all(assetIds.map(async (assetId) => {
+    if (creativePreviewUrls[assetId] || creativePreviewErrors[assetId]) return
+    try {
+      const { data } = await api.get(`/creatives/${assetId}/url`)
+      creativePreviewUrls[assetId] = data.url
+    } catch {
+      creativePreviewErrors[assetId] = 'Creative not found in library'
+    }
+  }))
 }
 
 onMounted(() => clientStore.fetchClients())
 </script>
+
+<style scoped>
+.proposal-campaign-card {
+  border-width: 2px;
+}
+
+.proposal-adset-card {
+  position: relative;
+}
+
+.proposal-adset-card::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 56px;
+  bottom: 18px;
+  width: 2px;
+  background: rgba(63, 81, 181, 0.15);
+}
+
+.proposal-tree-branch {
+  margin-left: 12px;
+  padding-left: 18px;
+}
+
+.proposal-ad-card {
+  border-style: dashed;
+}
+
+.creative-preview-wrap {
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.creative-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.creative-preview-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+</style>

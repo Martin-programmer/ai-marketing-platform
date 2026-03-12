@@ -48,6 +48,9 @@ public class Adset {
     @Column(name = "targeting_json", nullable = false, columnDefinition = "jsonb")
     private String targetingJson;
 
+    @Column(name = "optimization_goal", nullable = false)
+    private String optimizationGoal;
+
     @Column(name = "status", nullable = false)
     private String status;
 
@@ -87,6 +90,9 @@ public class Adset {
 
     public String getTargetingJson() { return targetingJson; }
     public void setTargetingJson(String targetingJson) { this.targetingJson = targetingJson; }
+
+    public String getOptimizationGoal() { return optimizationGoal; }
+    public void setOptimizationGoal(String optimizationGoal) { this.optimizationGoal = optimizationGoal; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

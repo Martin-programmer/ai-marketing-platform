@@ -158,6 +158,9 @@ public class CampaignService {
         a.setName(req.name());
         a.setDailyBudget(req.dailyBudget());
         a.setTargetingJson(req.targetingJson() != null ? req.targetingJson() : "{}");
+        a.setOptimizationGoal(req.optimizationGoal() != null && !req.optimizationGoal().isBlank()
+            ? req.optimizationGoal()
+            : "CONVERSIONS");
         a.setStatus("DRAFT");
         a.setCreatedAt(OffsetDateTime.now());
         a.setUpdatedAt(OffsetDateTime.now());

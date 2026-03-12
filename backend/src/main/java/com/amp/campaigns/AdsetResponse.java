@@ -16,6 +16,7 @@ public record AdsetResponse(
         String name,
         BigDecimal dailyBudget,
         String targetingJson,
+        String optimizationGoal,
         String status,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
@@ -24,7 +25,7 @@ public record AdsetResponse(
         return new AdsetResponse(
                 e.getId(), e.getAgencyId(), e.getClientId(),
                 e.getCampaignId(), e.getMetaAdsetId(),
-                e.getName(), e.getDailyBudget(), e.getTargetingJson(),
+                e.getName(), e.getDailyBudget(), e.getTargetingJson(), e.getOptimizationGoal(),
                 e.getStatus(), e.getCreatedAt(), e.getUpdatedAt()
         );
     }

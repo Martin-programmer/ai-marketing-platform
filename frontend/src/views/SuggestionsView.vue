@@ -984,8 +984,9 @@ async function submitSuggestionFeedback() {
 
 onMounted(async () => {
   await clientStore.fetchClients()
-  if (!selectedClient.value && clientStore.clients.length > 0) {
-    selectedClient.value = clientStore.clients[0].id
+  const firstClient = clientStore.clients[0]
+  if (!selectedClient.value && firstClient) {
+    selectedClient.value = firstClient.id
     await onClientChange(selectedClient.value)
   }
 })

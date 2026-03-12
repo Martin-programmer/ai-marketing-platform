@@ -23,6 +23,10 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const budgetAnalysis = ref<any>(null)
   const budgetLoading = ref(false)
 
+  // Audience Architect
+  const audienceSuggestions = ref<any>(null)
+  const audienceLoading = ref(false)
+
   // Anomaly Detector
   const anomalies = ref<any>(null)
   const anomalyLoading = ref(false)
@@ -66,6 +70,18 @@ export const useDashboardStore = defineStore('dashboard', () => {
     }
   }
 
+  async function fetchAudienceSuggestions(clientId: string) {
+    audienceLoading.value = true
+    try {
+      const { data } = await api.post(`/clients/${clientId}/ai-audiences`)
+      audienceSuggestions.value = data
+    } catch (e: any) {
+      audienceSuggestions.value = { error: e.response?.data?.message || e.message }
+    } finally {
+      audienceLoading.value = false
+    }
+  }
+
   async function runAnomalyCheck(clientId: string) {
     anomalyLoading.value = true
     try {
@@ -82,7 +98,8 @@ export const useDashboardStore = defineStore('dashboard', () => {
   return {
     kpis, clients, campaigns, loading, error,
     budgetAnalysis, budgetLoading,
+    audienceSuggestions, audienceLoading,
     anomalies, anomalyLoading, highAnomalyCount,
-    fetchDashboard, fetchClients, fetchBudgetAnalysis, runAnomalyCheck,
+    fetchDashboard, fetchClients, fetchBudgetAnalysis, fetchAudienceSuggestions, runAnomalyCheck,
   }
 })

@@ -49,6 +49,32 @@
       </v-col>
     </v-row>
 
+    <v-row class="mb-4">
+      <v-col cols="12">
+        <div class="d-flex flex-wrap ga-2">
+          <v-btn
+            color="deep-purple"
+            :loading="dashStore.budgetLoading"
+            :disabled="!selectedClient"
+            @click="loadBudgetAnalysis"
+          >
+            <v-icon start>mdi-chart-donut</v-icon>
+            Budget Analysis
+          </v-btn>
+          <v-btn
+            color="indigo"
+            variant="outlined"
+            :loading="dashStore.audienceLoading"
+            :disabled="!selectedClient"
+            @click="loadAudienceSuggestions"
+          >
+            <v-icon start>mdi-account-group-outline</v-icon>
+            AI Audiences
+          </v-btn>
+        </div>
+      </v-col>
+    </v-row>
+
     <!-- Loading -->
     <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
 
@@ -236,6 +262,190 @@
           <template #item.roas="{ item }">{{ formatRoas(item.roas) }}</template>
         </v-data-table>
       </v-card>
+
+      <v-divider class="my-6" />
+
+      <div class="d-flex align-center mb-4">
+        <h2 class="text-h6">Budget Analysis</h2>
+        <v-spacer />
+        <v-chip v-if="budgetHasEnoughData" color="success" size="small" variant="tonal">Enough insight data</v-chip>
+        <v-chip v-else color="warning" size="small" variant="tonal">Needs at least 7 days</v-chip>
+      </div>
+
+      <v-alert v-if="selectedClient && !budgetHasEnoughData" type="info" variant="tonal" class="mb-4">
+        Budget analysis needs at least 7 days of insight data to be useful.
+      </v-alert>
+
+      <template v-if="dashStore.budgetAnalysis && !dashStore.budgetAnalysis.error">
+        <v-card variant="tonal" color="deep-purple" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            <v-icon class="mr-2">mdi-robot</v-icon>AI Recommendation
+          </v-card-title>
+          <v-card-text class="text-body-2" style="white-space: pre-line">
+            {{ dashStore.budgetAnalysis.narrative }}
+          </v-card-text>
+        </v-card>
+
+        <v-row class="mb-4">
+          <v-col cols="12" md="4">
+            <v-card variant="outlined" class="h-100">
+              <v-card-title class="text-subtitle-2">Pacing gauge</v-card-title>
+              <v-card-text class="text-center">
+                <v-progress-circular
+                  :model-value="budgetPacingGauge"
+                  :color="budgetPacingColor"
+                  size="148"
+                  width="12"
+                >
+                  {{ Math.round(budgetPacingGauge) }}%
+                </v-progress-circular>
+                <div class="text-body-1 font-weight-medium mt-4">
+                  {{ Math.round(budgetSpentPct) }}% spent, {{ Math.round(monthElapsedPct) }}% of month
+                </div>
+                <div class="text-body-2 text-medium-emphasis mt-2">
+                  {{ budgetPacingSummary }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+
+          <v-col cols="12" md="8">
+            <v-card variant="outlined" class="h-100">
+              <v-card-title class="text-subtitle-2">Day-of-week table</v-card-title>
+              <v-card-text>
+                <v-table density="compact">
+                  <thead>
+                    <tr>
+                      <th>Day</th>
+                      <th class="text-end">Avg Conversions</th>
+                      <th class="text-end">Avg CPA</th>
+                      <th class="text-end">Avg ROAS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="d in budgetDaysOfWeek"
+                      :key="d.day"
+                      :class="{
+                        'bg-green-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.bestDay,
+                        'bg-red-lighten-5': d.day === dashStore.budgetAnalysis.dayOfWeek?.worstDay,
+                      }"
+                    >
+                      <td>{{ shortDayName(d.day) }}</td>
+                      <td class="text-end">{{ formatTrimmedNumber(d.conversions) }}</td>
+                      <td class="text-end">{{ formatCurrency(dayCpa(d)) }}</td>
+                      <td class="text-end">{{ formatRoas(d.roas) }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  {{ dashStore.budgetAnalysis.dayOfWeek?.recommendation }}
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <v-card v-if="budgetCampaignRanking.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">Campaign ranking</v-card-title>
+          <v-data-table :headers="budgetRankHeaders" :items="budgetCampaignRanking" density="compact">
+            <template #item.dailyBudget="{ item }">
+              {{ formatCurrency(dashboardRow(item).dailyBudget) }}
+            </template>
+            <template #item.roas30d="{ item }">
+              <span :class="rankingRoasClass(dashboardRow(item).roas30d)">{{ formatRoas(dashboardRow(item).roas30d) }}</span>
+            </template>
+            <template #item.status="{ item }">
+              <v-chip :color="campaignStatusColor(dashboardRow(item).status)" size="x-small">{{ dashboardRow(item).status }}</v-chip>
+            </template>
+            <template #item.suggestion="{ item }">
+              <v-chip :color="budgetRecommendationColor(dashboardRow(item).suggestion)" size="x-small">
+                {{ dashboardRow(item).suggestion?.replace(/_/g, ' ') }}
+              </v-chip>
+            </template>
+          </v-data-table>
+        </v-card>
+      </template>
+
+      <v-alert v-else-if="dashStore.budgetAnalysis?.error" type="warning" variant="tonal" class="mb-6">
+        {{ dashStore.budgetAnalysis.error }}
+      </v-alert>
+
+      <v-alert v-else type="info" variant="tonal" class="mb-6">
+        No budget analysis yet. Click Budget Analysis to fetch it.
+      </v-alert>
+
+      <div class="d-flex align-center mb-4">
+        <h2 class="text-h6">AI Audiences</h2>
+      </div>
+
+      <template v-if="dashStore.audienceSuggestions && !dashStore.audienceSuggestions.error">
+        <v-card v-if="dashStore.audienceSuggestions.strategy_notes" variant="tonal" color="indigo" class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            <v-icon class="mr-2">mdi-brain</v-icon>Strategy notes
+          </v-card-title>
+          <v-card-text>{{ dashStore.audienceSuggestions.strategy_notes }}</v-card-text>
+        </v-card>
+
+        <v-alert
+          v-for="(warning, index) in audienceOverlapWarnings"
+          :key="`overlap-${index}`"
+          type="warning"
+          variant="tonal"
+          class="mb-2"
+        >
+          {{ warning }}
+        </v-alert>
+
+        <v-row v-if="recommendedAudiences.length" class="mb-4">
+          <v-col v-for="(audience, index) in recommendedAudiences" :key="index" cols="12" md="6" xl="4">
+            <v-card variant="outlined" class="h-100">
+              <v-card-title class="d-flex align-center flex-wrap ga-2">
+                <span>{{ audience.name || `Audience ${Number(index) + 1}` }}</span>
+                <v-spacer />
+                <v-chip size="x-small" :color="audienceTypeColor(audience.type)">{{ audience.type || 'UNKNOWN' }}</v-chip>
+              </v-card-title>
+              <v-card-text>
+                <div class="text-body-2 mb-3">{{ audience.rationale || 'No rationale provided.' }}</div>
+                <div class="d-flex flex-wrap ga-2 mb-3">
+                  <v-chip size="x-small" variant="tonal">{{ audience.funnel_stage || 'Stage n/a' }}</v-chip>
+                  <v-chip size="x-small" variant="tonal">Size: {{ audience.estimated_size || 'n/a' }}</v-chip>
+                </div>
+                <div class="text-caption mb-1">Confidence</div>
+                <v-progress-linear
+                  :model-value="audienceConfidenceValue(audience.confidence)"
+                  :color="audienceConfidenceColor(audience.confidence)"
+                  rounded
+                  height="8"
+                />
+                <div class="text-caption text-medium-emphasis mt-1">{{ audience.confidence || 'UNKNOWN' }}</div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <v-card v-if="audienceExclusions.length" variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2">Exclusion recommendations</v-card-title>
+          <v-list lines="two">
+            <v-list-item v-for="(item, index) in audienceExclusions" :key="index">
+              <v-list-item-title>{{ item.description }}</v-list-item-title>
+              <v-list-item-subtitle>{{ item.targeting_spec }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card>
+
+        <v-alert v-if="!recommendedAudiences.length && !audienceExclusions.length && !audienceOverlapWarnings.length" type="info" variant="tonal">
+          No audience recommendations yet.
+        </v-alert>
+      </template>
+
+      <v-alert v-else-if="dashStore.audienceSuggestions?.error" type="warning" variant="tonal">
+        {{ dashStore.audienceSuggestions.error }}
+      </v-alert>
+
+      <v-alert v-else type="info" variant="tonal">
+        No audience suggestions yet. Click AI Audiences to fetch them.
+      </v-alert>
     </template>
   </div>
 </template>
@@ -299,6 +509,8 @@ function onClientChange() {
   selectedCampaignId.value = null
   currentInsights.value = []
   previousInsights.value = []
+  dashStore.budgetAnalysis = null
+  dashStore.audienceSuggestions = null
   loadDashboard()
 }
 
@@ -450,11 +662,11 @@ const campaignRows = computed(() => sortedCampaigns.value.map((campaign: any) =>
   roas: campaignMetrics.value[campaign.id]?.avgRoas ?? 0,
 })))
 
-function dashboardRow(item: unknown) {
+function dashboardRow(item: unknown): any {
   if (item && typeof item === 'object' && 'raw' in item) {
-    return (item as { raw: { id: string } }).raw
+    return (item as { raw: any }).raw
   }
-  return item as { id: string }
+  return item as any
 }
 
 function onCampaignRowClick(_event: unknown, row: unknown) {
@@ -476,6 +688,40 @@ const campaignTableHeaders = [
   { title: 'CTR', key: 'ctr', align: 'end' as const },
   { title: 'ROAS', key: 'roas', align: 'end' as const },
 ]
+const budgetRankHeaders = [
+  { title: 'Campaign', key: 'campaignName' },
+  { title: 'Daily Budget', key: 'dailyBudget', align: 'end' as const },
+  { title: 'ROAS', key: 'roas30d', align: 'end' as const },
+  { title: 'Status', key: 'status' },
+  { title: 'Recommendation', key: 'suggestion' },
+]
+
+const budgetHasEnoughData = computed(() => dailyData.value.length >= 7)
+const monthElapsedPct = computed(() => Number(dashStore.budgetAnalysis?.pacing?.pctMonthElapsed || 0))
+const budgetSpentPct = computed(() => {
+  const current = Number(dashStore.budgetAnalysis?.pacing?.currentMonthSpend || 0)
+  const projected = Number(dashStore.budgetAnalysis?.pacing?.projectedMonthSpend || 0)
+  return projected > 0 ? (current / projected) * 100 : 0
+})
+const budgetPacingGauge = computed(() => Math.min(100, Math.max(0, budgetSpentPct.value)))
+const budgetPacingColor = computed(() => {
+  const status = dashStore.budgetAnalysis?.pacing?.pacingStatus
+  if (status === 'ON_TRACK') return 'success'
+  if (status === 'UNDERSPENDING') return 'warning'
+  return 'error'
+})
+const budgetPacingSummary = computed(() => {
+  const diff = budgetSpentPct.value - monthElapsedPct.value
+  if (Math.abs(diff) < 10) return 'On track with current monthly pacing.'
+  if (diff > 0) return 'Slightly ahead of pace.'
+  return 'Behind pace and likely underspending.'
+})
+const budgetDaysOfWeek = computed(() => dashStore.budgetAnalysis?.dayOfWeek?.days || [])
+const budgetCampaignRanking = computed(() => [...(dashStore.budgetAnalysis?.campaignRanking || [])]
+  .sort((a: any, b: any) => Number(b.roas30d || 0) - Number(a.roas30d || 0)))
+const recommendedAudiences = computed(() => dashStore.audienceSuggestions?.recommended_audiences || [])
+const audienceExclusions = computed(() => dashStore.audienceSuggestions?.exclusion_recommendations || [])
+const audienceOverlapWarnings = computed(() => dashStore.audienceSuggestions?.overlap_warnings || [])
 
 const metricConfig: Record<string, { label: string; color: string; format: 'currency' | 'number' | 'percent' | 'roas' }> = {
   spend: { label: 'Spend', color: '#1976D2', format: 'currency' },
@@ -488,6 +734,59 @@ const metricConfig: Record<string, { label: string; color: string; format: 'curr
   roas: { label: 'ROAS', color: '#00897B', format: 'roas' },
   reach: { label: 'Reach', color: '#6D4C41', format: 'number' },
   frequency: { label: 'Frequency', color: '#546E7A', format: 'number' },
+}
+
+function shortDayName(day: string) {
+  return day ? day.substring(0, 3) : '—'
+}
+
+function dayCpa(day: any) {
+  const spend = Number(day?.spend || 0)
+  const conversions = Number(day?.conversions || 0)
+  return conversions > 0 ? spend / conversions : 0
+}
+
+function rankingRoasClass(roas: number) {
+  if (Number(roas) >= 3) return 'text-success font-weight-bold'
+  if (Number(roas) < 1) return 'text-error font-weight-bold'
+  return 'text-medium-emphasis'
+}
+
+function budgetRecommendationColor(suggestion: string) {
+  if (suggestion === 'INCREASE_BUDGET') return 'success'
+  if (suggestion === 'DECREASE_BUDGET') return 'warning'
+  if (suggestion === 'PAUSE_OR_RESTRUCTURE') return 'error'
+  return 'grey'
+}
+
+function audienceTypeColor(type: string) {
+  const value = String(type || '').toLowerCase()
+  if (value.includes('lookalike')) return 'deep-purple'
+  if (value.includes('retarget')) return 'warning'
+  if (value.includes('interest')) return 'primary'
+  return 'grey'
+}
+
+function audienceConfidenceValue(confidence: string) {
+  const map: Record<string, number> = { HIGH: 85, MEDIUM: 60, LOW: 35 }
+  return map[String(confidence || '').toUpperCase()] || 40
+}
+
+function audienceConfidenceColor(confidence: string) {
+  const value = String(confidence || '').toUpperCase()
+  if (value === 'HIGH') return 'success'
+  if (value === 'MEDIUM') return 'warning'
+  return 'error'
+}
+
+async function loadBudgetAnalysis() {
+  if (!selectedClient.value) return
+  await dashStore.fetchBudgetAnalysis(selectedClient.value)
+}
+
+async function loadAudienceSuggestions() {
+  if (!selectedClient.value) return
+  await dashStore.fetchAudienceSuggestions(selectedClient.value)
 }
 
 const chartMetricOptions = computed(() => Object.entries(metricConfig).map(([key, value]) => ({

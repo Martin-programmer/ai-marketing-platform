@@ -33,6 +33,7 @@ public record CampaignProposalResponse(
             UUID adId,
             String name,
             UUID creativeAssetId,
+            UUID copyVariantId,
             String primaryText,
             String headline,
             String description,
