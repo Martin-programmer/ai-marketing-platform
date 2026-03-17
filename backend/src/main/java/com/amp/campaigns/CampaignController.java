@@ -101,12 +101,16 @@ public class CampaignController {
     }
 
     @PostMapping("/campaigns/{campaignId}/publish")
-    public CampaignResponse publishCampaign(@PathVariable UUID campaignId) {
+    public ResponseEntity<?> publishCampaign(@PathVariable UUID campaignId) {
         accessControl.requireAgencyRole();
         UUID agencyId = agencyId();
         Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
         accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_PUBLISH);
-        return CampaignResponse.from(campaignService.publishCampaign(agencyId, campaignId));
+        var result = executorService.publishCampaign(agencyId, campaignId);
+        if ("FAILED".equals(result.get("status"))) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+        }
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/campaigns/{campaignId}/ai-analyze")
@@ -144,6 +148,9 @@ public class CampaignController {
         Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
         accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_PUBLISH);
         var result = executorService.publishCampaign(agencyId, campaignId);
+        if ("FAILED".equals(result.get("status"))) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+        }
         return ResponseEntity.ok(result);
     }
 

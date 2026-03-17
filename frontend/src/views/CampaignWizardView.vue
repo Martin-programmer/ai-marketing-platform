@@ -535,6 +535,40 @@
       </v-card>
     </v-dialog>
 
+    <!-- Publish Progress Dialog -->
+    <v-dialog v-model="publishDialog.show" persistent max-width="550">
+      <v-card>
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon :color="publishDialog.error ? 'error' : publishDialog.done ? 'success' : 'primary'">
+            {{ publishDialog.error ? 'mdi-alert-circle' : publishDialog.done ? 'mdi-check-circle' : 'mdi-rocket-launch' }}
+          </v-icon>
+          <span>{{ publishDialog.error ? 'Publish Failed' : publishDialog.done ? 'Published!' : 'Publishing to Meta...' }}</span>
+        </v-card-title>
+        <v-card-text>
+          <v-progress-linear v-if="!publishDialog.done && !publishDialog.error" indeterminate color="primary" class="mb-4" />
+
+          <div v-for="(s, i) in publishDialog.steps" :key="i" class="d-flex align-center ga-2 mb-2">
+            <v-icon size="18" :color="s.status === 'done' ? 'success' : s.status === 'warning' ? 'warning' : s.status === 'error' ? 'error' : 'grey'">
+              {{ s.status === 'done' ? 'mdi-check-circle' : s.status === 'warning' ? 'mdi-alert' : s.status === 'error' ? 'mdi-close-circle' : 'mdi-circle-outline' }}
+            </v-icon>
+            <span class="text-body-2">{{ s.message }}</span>
+          </div>
+
+          <v-alert v-if="publishDialog.error" type="error" variant="tonal" class="mt-4">
+            {{ publishDialog.error }}
+          </v-alert>
+
+          <v-alert v-if="publishDialog.done" type="success" variant="tonal" class="mt-4">
+            Campaign is now live on Meta! Redirecting to campaigns list...
+          </v-alert>
+        </v-card-text>
+        <v-card-actions v-if="publishDialog.error">
+          <v-spacer />
+          <v-btn @click="publishDialog.show = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="4000">
       {{ snackbar.text }}
     </v-snackbar>
@@ -562,6 +596,14 @@ const showCreativeSelector = ref(false)
 const pendingCreativeSlot = ref<{ adsetIdx: number; adIdx: number } | null>(null)
 const generatingCopy = reactive<Record<string, boolean>>({})
 const snackbar = ref({ show: false, text: '', color: 'success' as string })
+
+// Publish progress dialog
+const publishDialog = reactive({
+  show: false,
+  done: false,
+  error: '' as string,
+  steps: [] as { step: string; status: string; message: string }[],
+})
 
 // Search state
 const locationResults = reactive<Record<number, { key: string; display: string; name: string; type: string; country_name: string; country_code: string }[]>>({})
@@ -1045,15 +1087,49 @@ async function saveDraft() {
 async function saveAndPublish() {
   if (validationErrors.value.length > 0) return
   publishing.value = true
+
+  // Reset and show progress dialog
+  publishDialog.show = true
+  publishDialog.done = false
+  publishDialog.error = ''
+  publishDialog.steps = [{ step: 'save', status: 'done', message: 'Saving campaign draft...' }]
+
   try {
     const payload = buildPayload()
     const { data } = await api.post(`/clients/${clientId.value}/campaigns/create`, payload)
-    // Now publish
-    await api.post(`/campaigns/${data.campaignId}/meta-publish`)
-    snackbar.value = { show: true, text: 'Campaign published to Meta!', color: 'success' }
-    router.push({ name: 'campaigns', query: { clientId: clientId.value } })
+    publishDialog.steps[0] = { step: 'save', status: 'done', message: 'Campaign saved ✓' }
+    publishDialog.steps.push({ step: 'publish', status: 'pending', message: 'Publishing to Meta...' })
+
+    // Now publish — this may take a while
+    const { data: result } = await api.post(`/campaigns/${data.campaignId}/meta-publish`)
+
+    // Replace the generic "publishing" step with actual steps from backend
+    publishDialog.steps.pop() // remove the "Publishing to Meta..." placeholder
+    if (result.steps && Array.isArray(result.steps)) {
+      for (const s of result.steps) {
+        publishDialog.steps.push(s)
+      }
+    }
+
+    if (result.status === 'PUBLISHED') {
+      publishDialog.done = true
+      setTimeout(() => {
+        publishDialog.show = false
+        router.push({ name: 'campaigns', query: { clientId: clientId.value } })
+      }, 2000)
+    } else {
+      publishDialog.error = result.error || 'Unknown error during publish'
+    }
   } catch (e: any) {
-    snackbar.value = { show: true, text: e.response?.data?.message || e.message || 'Failed to publish', color: 'error' }
+    const errorData = e.response?.data
+    // If the backend returned steps, show them
+    if (errorData?.steps && Array.isArray(errorData.steps)) {
+      publishDialog.steps = [
+        { step: 'save', status: 'done', message: 'Campaign saved ✓' },
+        ...errorData.steps,
+      ]
+    }
+    publishDialog.error = errorData?.error || e.response?.data?.message || e.message || 'Failed to publish'
   } finally {
     publishing.value = false
   }

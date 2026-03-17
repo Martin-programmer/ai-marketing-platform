@@ -123,8 +123,13 @@ export const useCampaignStore = defineStore('campaigns', () => {
 
   async function publishCampaign(campaignId: string) {
     const { data } = await api.post(`/campaigns/${campaignId}/publish`)
+    // Backend now returns { status, campaignId, steps, ... }
     const idx = campaigns.value.findIndex(c => c.id === campaignId)
-    if (idx >= 0) campaigns.value[idx] = data
+    const campaign = idx >= 0 ? campaigns.value[idx] : undefined
+    if (campaign && data.status) {
+      campaign.status = data.status as string
+    }
+    return data
   }
 
   async function pauseCampaign(campaignId: string) {
@@ -183,9 +188,9 @@ export const useCampaignStore = defineStore('campaigns', () => {
     const { data } = await api.post(`/campaigns/${campaignId}/meta-publish`)
     // Refresh the campaign in the list
     const idx = campaigns.value.findIndex(c => c.id === campaignId)
-    const existing = idx >= 0 ? campaigns.value[idx] : null
-    if (existing && data.status === 'PUBLISHED') {
-      campaigns.value[idx] = { ...existing, status: 'PUBLISHED' }
+    const campaign = idx >= 0 ? campaigns.value[idx] : undefined
+    if (campaign && data.status) {
+      campaign.status = data.status as string
     }
     return data
   }

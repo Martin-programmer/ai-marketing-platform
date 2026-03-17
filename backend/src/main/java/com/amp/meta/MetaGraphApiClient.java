@@ -377,20 +377,51 @@ public class MetaGraphApiClient {
     public JsonNode createAdset(String accessToken, String metaCampaignId,
                                 String name, long dailyBudgetCents,
                                 String targetingJson, String optimizationGoal,
-                                String billingEvent) {
+                                String billingEvent, String status,
+                                String startTimeIso) {
         String url = metaProps.getGraphUrl(metaCampaignId + "/adsets");
-        String body = "access_token=" + accessToken
-                + "&name=" + urlEncode(name)
-                + "&daily_budget=" + dailyBudgetCents
-                + "&targeting=" + urlEncode(targetingJson)
-                + "&optimization_goal=" + optimizationGoal
-                + "&billing_event=" + billingEvent
-                + "&status=PAUSED";
-        return postForm(url, body);
+        StringBuilder body = new StringBuilder();
+        body.append("access_token=").append(accessToken)
+            .append("&name=").append(urlEncode(name))
+            .append("&daily_budget=").append(dailyBudgetCents)
+            .append("&targeting=").append(urlEncode(targetingJson))
+            .append("&optimization_goal=").append(optimizationGoal)
+            .append("&billing_event=").append(billingEvent)
+            .append("&status=").append(status != null ? status : "PAUSED");
+        if (startTimeIso != null && !startTimeIso.isBlank()) {
+            body.append("&start_time=").append(urlEncode(startTimeIso));
+        }
+        return postForm(url, body.toString());
+    }
+
+    /**
+     * Backward-compatible overload (defaults to PAUSED, no start_time).
+     */
+    public JsonNode createAdset(String accessToken, String metaCampaignId,
+                                String name, long dailyBudgetCents,
+                                String targetingJson, String optimizationGoal,
+                                String billingEvent) {
+        return createAdset(accessToken, metaCampaignId, name, dailyBudgetCents,
+                targetingJson, optimizationGoal, billingEvent, "PAUSED", null);
     }
 
     /**
      * Create an ad in Meta.
+     */
+    public JsonNode createAd(String accessToken, String metaAdsetId,
+                             String name, String creativeId, String status) {
+        String url = metaProps.getGraphUrl(metaAdsetId + "/ads");
+        // creative must be a JSON object: {"creative_id":"..."}
+        String creativeJson = "{\"creative_id\":\"" + creativeId + "\"}";
+        String body = "access_token=" + accessToken
+                + "&name=" + urlEncode(name)
+                + "&creative=" + urlEncode(creativeJson)
+                + "&status=" + (status != null ? status : "PAUSED");
+        return postForm(url, body);
+    }
+
+    /**
+     * Backward-compatible overload: creates ad using raw creative spec string (PAUSED).
      */
     public JsonNode createAd(String accessToken, String metaAdsetId,
                              String name, String creativeSpec) {
@@ -399,6 +430,79 @@ public class MetaGraphApiClient {
                 + "&name=" + urlEncode(name)
                 + "&creative=" + urlEncode(creativeSpec)
                 + "&status=PAUSED";
+        return postForm(url, body);
+    }
+
+    /**
+     * Upload an image to a Meta ad account.
+     * POST /{adAccountId}/adimages  (multipart/form-data with "filename" part)
+     * Returns the full response; caller should parse image hash from it.
+     */
+    public JsonNode uploadImage(String accessToken, String adAccountId, byte[] imageBytes, String filename) {
+        String url = metaProps.getGraphUrl(adAccountId + "/adimages");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        org.springframework.util.LinkedMultiValueMap<String, Object> parts = new org.springframework.util.LinkedMultiValueMap<>();
+        parts.add("access_token", accessToken);
+
+        // Wrap bytes in a ByteArrayResource with a filename so Spring sends it as a file part
+        org.springframework.core.io.ByteArrayResource resource = new org.springframework.core.io.ByteArrayResource(imageBytes) {
+            @Override
+            public String getFilename() {
+                return filename != null ? filename : "image.jpg";
+            }
+        };
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+        HttpEntity<org.springframework.core.io.ByteArrayResource> filePart = new HttpEntity<>(resource, fileHeaders);
+        parts.add("filename", filePart);
+
+        HttpEntity<org.springframework.util.LinkedMultiValueMap<String, Object>> entity = new HttpEntity<>(parts, headers);
+        ResponseEntity<JsonNode> resp = restTemplate.postForEntity(url, entity, JsonNode.class);
+        return resp.getBody();
+    }
+
+    /**
+     * Create an ad creative in Meta with proper object_story_spec for image link ads.
+     * POST /{adAccountId}/adcreatives
+     */
+    public JsonNode createAdCreative(String accessToken, String adAccountId,
+                                     String name, String imageHash, String pageId,
+                                     String primaryText, String headline,
+                                     String description, String ctaType, String link) {
+        // Build the object_story_spec JSON
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode spec = mapper.createObjectNode();
+        spec.put("page_id", pageId);
+
+        com.fasterxml.jackson.databind.node.ObjectNode linkData = mapper.createObjectNode();
+        if (imageHash != null) {
+            linkData.put("image_hash", imageHash);
+        }
+        linkData.put("message", primaryText != null ? primaryText : "");
+        linkData.put("name", headline != null ? headline : "");
+        if (description != null && !description.isBlank()) {
+            linkData.put("description", description);
+        }
+        linkData.put("link", link != null ? link : "");
+
+        if (ctaType != null && !ctaType.isBlank()) {
+            com.fasterxml.jackson.databind.node.ObjectNode cta = mapper.createObjectNode();
+            cta.put("type", ctaType);
+            com.fasterxml.jackson.databind.node.ObjectNode ctaValue = mapper.createObjectNode();
+            ctaValue.put("link", link != null ? link : "");
+            cta.set("value", ctaValue);
+            linkData.set("call_to_action", cta);
+        }
+
+        spec.set("link_data", linkData);
+
+        String url = metaProps.getGraphUrl(adAccountId + "/adcreatives");
+        String body = "access_token=" + accessToken
+                + "&name=" + urlEncode(name)
+                + "&object_story_spec=" + urlEncode(spec.toString());
         return postForm(url, body);
     }
 

@@ -71,7 +71,7 @@
               </template>
               <span>AI Analyze</span>
             </v-tooltip>
-            <v-btn v-if="rowItem(item).status === 'DRAFT'" size="small" variant="text" color="success" title="Publish" @click="store.publishCampaign(rowItem(item).id)">
+            <v-btn v-if="rowItem(item).status === 'DRAFT'" size="small" variant="text" color="success" title="Publish" @click="onPublishFromTable(rowItem(item).id)">
               <v-icon>mdi-rocket-launch</v-icon>
             </v-btn>
             <v-btn v-if="rowItem(item).status === 'PUBLISHED'" size="small" variant="text" color="warning" title="Pause" @click="store.pauseCampaign(rowItem(item).id)">
@@ -1060,33 +1060,65 @@ async function onRegenerate() {
 async function onApproveAndPublish() {
   if (!draftProposal.value) return
   publishLoading.value = true
-  publishStep.value = 'Creating campaign...'
-  proposalBanner.value = { text: 'Creating campaign...', type: 'info' }
-  const stepTimers = [
-    window.setTimeout(() => {
-      publishStep.value = 'Creating adsets...'
-      proposalBanner.value = { text: 'Creating adsets...', type: 'info' }
-    }, 700),
-    window.setTimeout(() => {
-      publishStep.value = 'Creating ads...'
-      proposalBanner.value = { text: 'Creating ads...', type: 'info' }
-    }, 1500),
-  ]
+  publishStep.value = 'Publishing to Meta...'
+  proposalBanner.value = { text: 'Publishing to Meta...', type: 'info' }
   try {
     const result = await store.metaPublish(draftProposal.value.campaignId)
+
     if (result.status === 'PUBLISHED') {
-      proposalBanner.value = { text: 'Campaign published successfully.', type: 'success' }
+      // Build step summary from backend response
+      const stepsText = (result.steps || [])
+        .filter((s: any) => s.status === 'done')
+        .map((s: any) => s.message)
+        .join(' → ')
+      proposalBanner.value = {
+        text: `Campaign published successfully. ${stepsText ? '(' + stepsText + ')' : ''}`,
+        type: 'success',
+      }
       showProposalResult.value = false
-      // Refresh campaigns list
+      if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
+    } else {
+      // Backend returned FAILED with steps
+      const failedSteps = (result.steps || [])
+        .filter((s: any) => s.status === 'error')
+        .map((s: any) => s.message)
+        .join('; ')
+      proposalBanner.value = {
+        text: result.error || failedSteps || 'Publish failed. Campaign remains in DRAFT.',
+        type: 'error',
+      }
       if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
     }
   } catch (e: any) {
-    store.error = e.response?.data?.message || e.message
+    const errorData = e.response?.data
+    const failedSteps = (errorData?.steps || [])
+      .filter((s: any) => s.status === 'error')
+      .map((s: any) => s.message)
+      .join('; ')
+    store.error = failedSteps || errorData?.error || e.response?.data?.message || e.message
     proposalBanner.value = { text: store.error || 'Publish failed. Campaign remains in DRAFT.', type: 'error' }
+    if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
   } finally {
-    stepTimers.forEach((timer) => window.clearTimeout(timer))
     publishLoading.value = false
     publishStep.value = ''
+  }
+}
+
+async function onPublishFromTable(campaignId: string) {
+  snackbar.value = { show: true, text: 'Publishing to Meta...', color: 'info' }
+  try {
+    const result = await store.publishCampaign(campaignId)
+    if (result.status === 'PUBLISHED') {
+      snackbar.value = { show: true, text: 'Campaign published successfully!', color: 'success' }
+    } else {
+      const errMsg = result.error || (result.steps || []).filter((s: any) => s.status === 'error').map((s: any) => s.message).join('; ')
+      snackbar.value = { show: true, text: errMsg || 'Publish failed', color: 'error' }
+    }
+    if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
+  } catch (e: any) {
+    const errorData = e.response?.data
+    snackbar.value = { show: true, text: errorData?.error || e.message || 'Publish failed', color: 'error' }
+    if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
   }
 }
 
