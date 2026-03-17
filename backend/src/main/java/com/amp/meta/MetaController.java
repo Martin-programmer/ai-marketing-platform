@@ -4,6 +4,8 @@ import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
 import com.amp.common.RoleGuard;
 import com.amp.tenancy.TenantContextHolder;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -29,13 +33,16 @@ public class MetaController {
     private final MetaGraphApiClient metaGraphApiClient;
     private final MetaSyncService metaSyncService;
     private final AccessControl accessControl;
+    private final ObjectMapper objectMapper;
 
     public MetaController(MetaService metaService, MetaGraphApiClient metaGraphApiClient,
-                          MetaSyncService metaSyncService, AccessControl accessControl) {
+                          MetaSyncService metaSyncService, AccessControl accessControl,
+                          ObjectMapper objectMapper) {
         this.metaService = metaService;
         this.metaGraphApiClient = metaGraphApiClient;
         this.metaSyncService = metaSyncService;
         this.accessControl = accessControl;
+        this.objectMapper = objectMapper;
     }
 
     // ──────── helper ────────
@@ -124,9 +131,11 @@ public class MetaController {
 
             // Try to exchange for long-lived token
             String tokenToStore = request.accessToken();
+            Long expiresInSeconds = null;
             try {
                 var longLived = metaGraphApiClient.exchangeForLongLivedToken(request.accessToken());
                 tokenToStore = longLived.accessToken();
+                expiresInSeconds = longLived.expiresInSeconds();
             } catch (Exception e) {
                 // Token might already be long-lived, continue with original
                 log.info("Could not exchange for long-lived token, using original: {}", e.getMessage());
@@ -135,7 +144,7 @@ public class MetaController {
             // Save connection
             MetaConnection conn = metaService.completeOAuthConnect(
                     agencyId(), clientId, tokenToStore,
-                    selectedAccount.id(), pixelId, pageId
+                    selectedAccount.id(), pixelId, pageId, expiresInSeconds
             );
 
             return ResponseEntity.ok(Map.of(
@@ -149,6 +158,16 @@ public class MetaController {
             return ResponseEntity.badRequest()
                     .body(Map.of("code", "CONNECT_FAILED", "message", e.getMessage()));
         }
+    }
+
+    @PostMapping("/clients/{clientId}/meta/connect/select-account")
+    public ResponseEntity<?> selectAdAccount(@PathVariable UUID clientId,
+                                             @RequestBody SelectMetaAdAccountRequest request) {
+        accessControl.requireClientPermission(clientId, Permission.META_MANAGE);
+        if (request.adAccountId() == null || request.adAccountId().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ad account is required"));
+        }
+        return ResponseEntity.ok(metaService.completeOAuthConnectWithSelectedAccount(agencyId(), clientId, request.adAccountId()));
     }
 
     /**
@@ -195,7 +214,7 @@ public class MetaController {
 
         try {
             // Decode state to get agencyId and clientId
-            String decoded = new String(Base64.getUrlDecoder().decode(state));
+            String decoded = new String(Base64.getUrlDecoder().decode(state), StandardCharsets.UTF_8);
             String[] parts = decoded.split(":");
             UUID agencyId = UUID.fromString(parts[0]);
             UUID clientId = UUID.fromString(parts[1]);
@@ -214,27 +233,54 @@ public class MetaController {
                 return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
             }
 
-            // Auto-select first ad account for MVP
-            var selectedAccount = adAccounts.get(0);
+            long selectableCount = adAccounts.stream().filter(MetaGraphApiClient::isSelectableAdAccount).count();
 
-            // Get pages
-            var pages = metaGraphApiClient.getPages(longLivedResult.accessToken());
-            String pageId = pages.isEmpty() ? null : pages.get(0).id();
+            if (adAccounts.size() == 1) {
+                var selectedAccount = adAccounts.get(0);
+                if (!MetaGraphApiClient.isSelectableAdAccount(selectedAccount)) {
+                    String html = buildCallbackHtml(false, "No active ad accounts available for this Facebook user", null);
+                    return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
+                }
+
+                // Get pages
+                var pages = metaGraphApiClient.getPages(longLivedResult.accessToken());
+                String pageId = pages.isEmpty() ? null : pages.get(0).id();
 
                 // Get pixels for selected ad account
                 var pixels = metaGraphApiClient.getAdAccountPixels(longLivedResult.accessToken(), selectedAccount.id());
                 String pixelId = pixels.isEmpty() ? null : pixels.get(0).id();
 
-            // Save connection
-            metaService.completeOAuthConnect(
-                    agencyId, clientId,
-                    longLivedResult.accessToken(),
-                    selectedAccount.id(),
-                    pixelId,
-                    pageId
-            );
+                // Save connection
+                metaService.completeOAuthConnect(
+                        agencyId, clientId,
+                        longLivedResult.accessToken(),
+                        selectedAccount.id(),
+                        pixelId,
+                    pageId,
+                    longLivedResult.expiresInSeconds()
+                );
 
-            String html = buildCallbackHtml(true, "Successfully connected to Meta!", selectedAccount.name());
+                String html = buildCallbackHtml(true, "Successfully connected to Meta!", selectedAccount.name());
+                return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
+            }
+
+            if (selectableCount == 0) {
+                String html = buildCallbackHtml(false, "No active ad accounts available for this Facebook user", null);
+                return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
+            }
+
+                metaService.storePendingOAuthToken(
+                    agencyId,
+                    clientId,
+                    longLivedResult.accessToken(),
+                    OffsetDateTime.now().plusSeconds(longLivedResult.expiresInSeconds())
+                );
+
+            String html = buildSelectionRequiredHtml(
+                    clientId,
+                    "Select the ad account to connect",
+                    serializeAdAccounts(adAccounts)
+            );
             return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
 
         } catch (Exception e) {
@@ -328,5 +374,136 @@ public class MetaController {
                 success,
                 escapedMessage
         );
+    }
+
+    private String buildSelectionRequiredHtml(UUID clientId, String message, String adAccountsJson) {
+        String escapedMessage = message.replace("'", "\\'");
+        return """
+                <!DOCTYPE html>
+                <html>
+                <head><title>Select Meta Ad Account</title></head>
+                <body>
+                <h2>One more step</h2>
+                <p>%s</p>
+                <script>
+                if (window.opener) {
+                    window.opener.postMessage(
+                        {
+                          type: 'META_OAUTH_RESULT',
+                          success: true,
+                          selectionRequired: true,
+                          message: '%s',
+                          clientId: '%s',
+                          adAccounts: %s
+                        },
+                        '*'
+                    );
+                    setTimeout(() => window.close(), 500);
+                }
+                </script>
+                </body>
+                </html>
+                """.formatted(message, escapedMessage, clientId, adAccountsJson);
+    }
+
+    private String serializeAdAccounts(List<MetaGraphApiClient.AdAccountInfo> adAccounts) {
+        try {
+            return objectMapper.writeValueAsString(adAccounts.stream().map(account -> Map.of(
+                    "id", account.id(),
+                    "name", account.name(),
+                    "accountId", account.accountId(),
+                    "currency", account.currency(),
+                    "timezone", account.timezone(),
+                    "status", account.status(),
+                    "statusLabel", MetaGraphApiClient.adAccountStatusLabel(account.status()),
+                    "selectable", MetaGraphApiClient.isSelectableAdAccount(account)
+            )).toList());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize ad account selection response", e);
+        }
+    }
+
+    // ──────── Targeting search endpoints ────────
+
+    /**
+     * Search ad interests via Meta Graph API.
+     */
+    @GetMapping("/meta/interests/search")
+    public ResponseEntity<List<Map<String, Object>>> searchInterests(
+            @RequestParam String q,
+            @RequestParam UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        UUID agencyId = agencyId();
+
+        MetaConnection conn = metaService.getConnectionOrThrow(agencyId, clientId);
+        String accessToken = metaService.getAccessToken(conn);
+
+        List<Map<String, Object>> results = metaGraphApiClient.searchInterests(accessToken, q)
+                .stream()
+                .map(node -> {
+                    Map<String, Object> item = new java.util.LinkedHashMap<>();
+                    item.put("id", node.has("id") ? node.get("id").asText() : "");
+                    item.put("name", node.has("name") ? node.get("name").asText() : "");
+                    item.put("audience_size", node.has("audience_size") ? node.get("audience_size").asLong() : 0);
+                    return item;
+                })
+                .toList();
+
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * Search geo locations for ad targeting.
+     */
+    @GetMapping("/meta/locations/search")
+    public ResponseEntity<List<Map<String, Object>>> searchLocations(
+            @RequestParam String q,
+            @RequestParam(required = false) String type,
+            @RequestParam UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        UUID agencyId = agencyId();
+
+        MetaConnection conn = metaService.getConnectionOrThrow(agencyId, clientId);
+        String accessToken = metaService.getAccessToken(conn);
+
+        List<Map<String, Object>> results = metaGraphApiClient.searchGeoLocations(accessToken, q, type)
+                .stream()
+                .map(node -> {
+                    Map<String, Object> item = new java.util.LinkedHashMap<>();
+                    item.put("key", node.has("key") ? node.get("key").asText() : "");
+                    item.put("name", node.has("name") ? node.get("name").asText() : "");
+                    item.put("type", node.has("type") ? node.get("type").asText() : "");
+                    item.put("country_name", node.has("country_name") ? node.get("country_name").asText() : "");
+                    item.put("country_code", node.has("country_code") ? node.get("country_code").asText() : "");
+                    return item;
+                })
+                .toList();
+
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * Get custom audiences for a client's ad account.
+     */
+    @GetMapping("/clients/{clientId}/meta/audiences")
+    public ResponseEntity<List<Map<String, Object>>> getCustomAudiences(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        UUID agencyId = agencyId();
+
+        MetaConnection conn = metaService.getConnectionOrThrow(agencyId, clientId);
+        String accessToken = metaService.getAccessToken(conn);
+
+        List<Map<String, Object>> results = metaGraphApiClient.getCustomAudiences(accessToken, conn.getAdAccountId())
+                .stream()
+                .map(node -> {
+                    Map<String, Object> item = new java.util.LinkedHashMap<>();
+                    item.put("id", node.has("id") ? node.get("id").asText() : "");
+                    item.put("name", node.has("name") ? node.get("name").asText() : "");
+                    item.put("approximate_count", node.has("approximate_count") ? node.get("approximate_count").asLong() : 0);
+                    return item;
+                })
+                .toList();
+
+        return ResponseEntity.ok(results);
     }
 }

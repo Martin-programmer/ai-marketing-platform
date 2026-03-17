@@ -3,6 +3,7 @@ package com.amp.campaigns;
 import com.amp.ai.CampaignCreatorService;
 import com.amp.ai.CampaignProposalResponse;
 import com.amp.ai.ExecutorService;
+import com.amp.ai.PerformanceOptimizerService;
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
 import com.amp.tenancy.TenantContextHolder;
@@ -26,15 +27,18 @@ public class CampaignController {
     private final AccessControl accessControl;
     private final CampaignCreatorService campaignCreatorService;
     private final ExecutorService executorService;
+    private final PerformanceOptimizerService performanceOptimizerService;
 
     public CampaignController(CampaignService campaignService,
                               AccessControl accessControl,
                               CampaignCreatorService campaignCreatorService,
-                              ExecutorService executorService) {
+                              ExecutorService executorService,
+                              PerformanceOptimizerService performanceOptimizerService) {
         this.campaignService = campaignService;
         this.accessControl = accessControl;
         this.campaignCreatorService = campaignCreatorService;
         this.executorService = executorService;
+        this.performanceOptimizerService = performanceOptimizerService;
     }
 
     private UUID agencyId() {
@@ -58,6 +62,15 @@ public class CampaignController {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
         UUID agencyId = agencyId();
         return CampaignResponse.from(campaignService.createCampaign(agencyId, clientId, req));
+    }
+
+    @PostMapping("/clients/{clientId}/campaigns/create")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ManualCampaignResponse createFullCampaign(@PathVariable UUID clientId,
+                                                      @Valid @RequestBody ManualCampaignRequest req) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
+        UUID agencyId = agencyId();
+        return campaignService.createFullCampaign(agencyId, clientId, req);
     }
 
     @GetMapping("/campaigns/{campaignId}")
@@ -94,6 +107,15 @@ public class CampaignController {
         Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
         accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_PUBLISH);
         return CampaignResponse.from(campaignService.publishCampaign(agencyId, campaignId));
+    }
+
+    @PostMapping("/campaigns/{campaignId}/ai-analyze")
+    public ResponseEntity<?> aiAnalyzeCampaign(@PathVariable UUID campaignId) {
+        accessControl.requireAgencyRole();
+        UUID agencyId = agencyId();
+        Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
+        accessControl.requireClientPermission(campaign.getClientId(), Permission.AI_VIEW);
+        return ResponseEntity.ok(performanceOptimizerService.runForCampaign(agencyId, campaign.getClientId(), campaignId));
     }
 
     // ──────── AI Campaign Proposal ────────

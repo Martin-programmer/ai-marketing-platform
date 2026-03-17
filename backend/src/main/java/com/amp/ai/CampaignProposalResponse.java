@@ -32,6 +32,7 @@ public record CampaignProposalResponse(
     public record ProposedAd(
             UUID adId,
             String name,
+            UUID creativePackageItemId,
             UUID creativeAssetId,
             UUID copyVariantId,
             String primaryText,

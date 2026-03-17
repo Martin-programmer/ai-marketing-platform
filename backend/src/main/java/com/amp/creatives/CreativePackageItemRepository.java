@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface CreativePackageItemRepository extends JpaRepository<CreativePackageItem, UUID> {
 
     List<CreativePackageItem> findAllByPackageId(UUID packageId);
+
+    List<CreativePackageItem> findAllByPackageIdOrderByCreatedAtAsc(UUID packageId);
+
+    java.util.Optional<CreativePackageItem> findByIdAndPackageId(UUID id, UUID packageId);
 }

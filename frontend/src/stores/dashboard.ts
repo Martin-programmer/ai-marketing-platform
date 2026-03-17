@@ -12,6 +12,13 @@ export interface KpiSummary {
   avgRoas: number
 }
 
+export interface AiStoredResult {
+  id: string
+  createdAt: string
+  preview: string
+  data: any
+}
+
 export const useDashboardStore = defineStore('dashboard', () => {
   const kpis = ref<KpiSummary | null>(null)
   const clients = ref<any[]>([])
@@ -21,10 +28,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   // Budget Strategist
   const budgetAnalysis = ref<any>(null)
+  const budgetAnalysisHistory = ref<AiStoredResult[]>([])
   const budgetLoading = ref(false)
 
   // Audience Architect
   const audienceSuggestions = ref<any>(null)
+  const audienceSuggestionHistory = ref<AiStoredResult[]>([])
   const audienceLoading = ref(false)
 
   // Anomaly Detector
@@ -63,8 +72,43 @@ export const useDashboardStore = defineStore('dashboard', () => {
     try {
       const { data } = await api.get(`/clients/${clientId}/ai-budget-analysis`)
       budgetAnalysis.value = data
+      if (!data?.error) {
+        await loadBudgetAnalysisHistory(clientId, false)
+      }
+      return data
     } catch (e: any) {
       budgetAnalysis.value = { error: e.response?.data?.message || e.message }
+      return budgetAnalysis.value
+    } finally {
+      budgetLoading.value = false
+    }
+  }
+
+  async function loadBudgetAnalysisHistory(clientId: string, useLoading = true) {
+    if (useLoading) budgetLoading.value = true
+    try {
+      const { data } = await api.get(`/clients/${clientId}/ai-budget-analyses`)
+      budgetAnalysisHistory.value = data || []
+      budgetAnalysis.value = budgetAnalysisHistory.value[0]?.data ?? null
+      return budgetAnalysisHistory.value
+    } catch (e: any) {
+      budgetAnalysisHistory.value = []
+      budgetAnalysis.value = { error: e.response?.data?.message || e.message }
+      return []
+    } finally {
+      if (useLoading) budgetLoading.value = false
+    }
+  }
+
+  async function fetchBudgetAnalysisById(id: string) {
+    budgetLoading.value = true
+    try {
+      const { data } = await api.get(`/ai-budget-analyses/${id}`)
+      budgetAnalysis.value = data?.data ?? data
+      return data
+    } catch (e: any) {
+      budgetAnalysis.value = { error: e.response?.data?.message || e.message }
+      return budgetAnalysis.value
     } finally {
       budgetLoading.value = false
     }
@@ -75,8 +119,43 @@ export const useDashboardStore = defineStore('dashboard', () => {
     try {
       const { data } = await api.post(`/clients/${clientId}/ai-audiences`)
       audienceSuggestions.value = data
+      if (!data?.error) {
+        await loadAudienceSuggestionHistory(clientId, false)
+      }
+      return data
     } catch (e: any) {
       audienceSuggestions.value = { error: e.response?.data?.message || e.message }
+      return audienceSuggestions.value
+    } finally {
+      audienceLoading.value = false
+    }
+  }
+
+  async function loadAudienceSuggestionHistory(clientId: string, useLoading = true) {
+    if (useLoading) audienceLoading.value = true
+    try {
+      const { data } = await api.get(`/clients/${clientId}/ai-audiences/history`)
+      audienceSuggestionHistory.value = data || []
+      audienceSuggestions.value = audienceSuggestionHistory.value[0]?.data ?? null
+      return audienceSuggestionHistory.value
+    } catch (e: any) {
+      audienceSuggestionHistory.value = []
+      audienceSuggestions.value = { error: e.response?.data?.message || e.message }
+      return []
+    } finally {
+      if (useLoading) audienceLoading.value = false
+    }
+  }
+
+  async function fetchAudienceSuggestionById(id: string) {
+    audienceLoading.value = true
+    try {
+      const { data } = await api.get(`/ai-audiences/${id}`)
+      audienceSuggestions.value = data?.data ?? data
+      return data
+    } catch (e: any) {
+      audienceSuggestions.value = { error: e.response?.data?.message || e.message }
+      return audienceSuggestions.value
     } finally {
       audienceLoading.value = false
     }
@@ -97,9 +176,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   return {
     kpis, clients, campaigns, loading, error,
-    budgetAnalysis, budgetLoading,
-    audienceSuggestions, audienceLoading,
+    budgetAnalysis, budgetAnalysisHistory, budgetLoading,
+    audienceSuggestions, audienceSuggestionHistory, audienceLoading,
     anomalies, anomalyLoading, highAnomalyCount,
-    fetchDashboard, fetchClients, fetchBudgetAnalysis, fetchAudienceSuggestions, runAnomalyCheck,
+    fetchDashboard, fetchClients,
+    fetchBudgetAnalysis, loadBudgetAnalysisHistory, fetchBudgetAnalysisById,
+    fetchAudienceSuggestions, loadAudienceSuggestionHistory, fetchAudienceSuggestionById,
+    runAnomalyCheck,
   }
 })

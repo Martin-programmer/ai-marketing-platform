@@ -45,7 +45,9 @@ export interface Ad {
 export interface ProposedAd {
   adId: string
   name: string
+  creativePackageItemId: string | null
   creativeAssetId: string | null
+  copyVariantId: string | null
   primaryText: string
   headline: string
   description: string
@@ -73,6 +75,21 @@ export interface CampaignProposal {
   estimatedResults: string
   warnings: string[]
   adsets: ProposedAdset[]
+}
+
+export interface CampaignAiAnalyzeSuggestion {
+  id: string
+  suggestionType: string
+  rationale: string
+  scopeType: string
+  scopeId: string
+}
+
+export interface CampaignAiAnalyzeResult {
+  findingsCount: number
+  suggestionsCreated: number
+  message?: string
+  suggestions: CampaignAiAnalyzeSuggestion[]
 }
 
 export const useCampaignStore = defineStore('campaigns', () => {
@@ -173,11 +190,16 @@ export const useCampaignStore = defineStore('campaigns', () => {
     return data
   }
 
+  async function aiAnalyzeCampaign(campaignId: string): Promise<CampaignAiAnalyzeResult> {
+    const { data } = await api.post(`/campaigns/${campaignId}/ai-analyze`)
+    return data
+  }
+
   return {
     campaigns, adsets, ads, selectedClientId, loading, error,
     proposal, proposalLoading,
     fetchCampaigns, createCampaign, publishCampaign, pauseCampaign, resumeCampaign,
     fetchAdsets, createAdset, fetchAds, createAd,
-    generateProposal, metaPublish,
+    generateProposal, metaPublish, aiAnalyzeCampaign,
   }
 })

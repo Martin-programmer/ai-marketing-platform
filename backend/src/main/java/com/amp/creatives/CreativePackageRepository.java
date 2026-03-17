@@ -12,5 +12,7 @@ public interface CreativePackageRepository extends JpaRepository<CreativePackage
 
     List<CreativePackage> findAllByAgencyIdAndClientId(UUID agencyId, UUID clientId);
 
+    List<CreativePackage> findAllByAgencyIdAndClientIdAndStatusOrderByApprovedAtDesc(UUID agencyId, UUID clientId, String status);
+
     Optional<CreativePackage> findByIdAndAgencyId(UUID id, UUID agencyId);
 }

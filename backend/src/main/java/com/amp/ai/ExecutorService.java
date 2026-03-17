@@ -547,6 +547,8 @@ public class ExecutorService {
     private String buildCreativeSpec(UUID agencyId, Ad ad) {
         UUID creativeAssetId = ad.getCreativeAssetId();
         UUID copyVariantId = ad.getCopyVariantId();
+        String packageCta = null;
+        String packageDestinationUrl = null;
 
         if ((creativeAssetId == null || copyVariantId == null) && ad.getCreativePackageItemId() != null) {
             Optional<CreativePackageItem> packageItem = creativePackageItemRepository.findById(ad.getCreativePackageItemId());
@@ -557,6 +559,8 @@ public class ExecutorService {
                 if (copyVariantId == null) {
                     copyVariantId = packageItem.get().getCopyVariantId();
                 }
+                packageCta = packageItem.get().getCtaType();
+                packageDestinationUrl = packageItem.get().getDestinationUrl();
             }
         }
 
@@ -574,8 +578,8 @@ public class ExecutorService {
         String primaryText = firstNonBlank(ad.getPrimaryText(), copyVariant != null ? copyVariant.getPrimaryText() : null);
         String headline = firstNonBlank(ad.getHeadline(), copyVariant != null ? copyVariant.getHeadline() : null, ad.getName());
         String description = firstNonBlank(ad.getDescription(), copyVariant != null ? copyVariant.getDescription() : null);
-        String cta = firstNonBlank(ad.getCta(), copyVariant != null ? copyVariant.getCta() : null, "LEARN_MORE");
-        String destinationUrl = firstNonBlank(ad.getDestinationUrl(), emailProperties.getBaseUrl());
+        String cta = firstNonBlank(ad.getCta(), packageCta, copyVariant != null ? copyVariant.getCta() : null, "LEARN_MORE");
+        String destinationUrl = firstNonBlank(ad.getDestinationUrl(), packageDestinationUrl, emailProperties.getBaseUrl());
 
         ObjectNode creativeNode = objectMapper.createObjectNode();
         if (creativeAssetId != null) {

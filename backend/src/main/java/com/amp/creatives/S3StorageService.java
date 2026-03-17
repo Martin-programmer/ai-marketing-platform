@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -161,6 +162,31 @@ public class S3StorageService {
                 .bucket(props.getBucket())
                 .key(s3Key)
                 .build());
+    }
+
+    /**
+     * Download file from S3 as byte array.
+     * Returns null when S3 is disabled (local dev) or on error.
+     */
+    public byte[] downloadFile(String s3Key) {
+        if (!props.isEnabled()) {
+            log.info("S3 disabled — cannot download file: {}", s3Key);
+            return null;
+        }
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(props.getBucket())
+                    .key(s3Key)
+                    .build();
+            ResponseBytes<software.amazon.awssdk.services.s3.model.GetObjectResponse> response =
+                    s3Client.getObjectAsBytes(request);
+            byte[] bytes = response.asByteArray();
+            log.info("Downloaded S3 object: {} ({}KB)", s3Key, bytes.length / 1024);
+            return bytes;
+        } catch (Exception e) {
+            log.error("Failed to download S3 object {}: {}", s3Key, e.getMessage());
+            return null;
+        }
     }
 
     /**

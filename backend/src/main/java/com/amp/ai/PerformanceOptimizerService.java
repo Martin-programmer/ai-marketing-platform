@@ -2,6 +2,10 @@ package com.amp.ai;
 
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
+import com.amp.campaigns.AdRepository;
+import com.amp.campaigns.AdsetRepository;
+import com.amp.tenancy.TenantContext;
+import com.amp.tenancy.TenantContextHolder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -32,12 +36,15 @@ import java.util.stream.Collectors;
 public class PerformanceOptimizerService {
 
     private static final Logger log = LoggerFactory.getLogger(PerformanceOptimizerService.class);
+    private static final UUID SYSTEM_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     private final AiProperties aiProps;
     private final ClaudeApiClient claudeClient;
     private final GuardrailsEngine guardrails;
     private final AiSuggestionRepository suggestionRepo;
     private final InsightDailyRepository insightRepo;
+    private final AdsetRepository adsetRepo;
+    private final AdRepository adRepo;
     private final MetaConnectionRepository metaConnRepo;
     private final ClientRepository clientRepo;
     private final AiContextBuilder aiContextBuilder;
@@ -49,6 +56,8 @@ public class PerformanceOptimizerService {
                                        GuardrailsEngine guardrails,
                                        AiSuggestionRepository suggestionRepo,
                                        InsightDailyRepository insightRepo,
+                                       AdsetRepository adsetRepo,
+                                       AdRepository adRepo,
                                        MetaConnectionRepository metaConnRepo,
                                        ClientRepository clientRepo,
                                        AiContextBuilder aiContextBuilder,
@@ -59,6 +68,8 @@ public class PerformanceOptimizerService {
         this.guardrails = guardrails;
         this.suggestionRepo = suggestionRepo;
         this.insightRepo = insightRepo;
+        this.adsetRepo = adsetRepo;
+        this.adRepo = adRepo;
         this.metaConnRepo = metaConnRepo;
         this.clientRepo = clientRepo;
         this.aiContextBuilder = aiContextBuilder;
@@ -100,12 +111,15 @@ public class PerformanceOptimizerService {
 
         for (MetaConnection conn : connections) {
             try {
+                TenantContextHolder.set(systemTenantContext(conn.getAgencyId(), conn.getClientId()));
                 var result = runForClient(conn.getAgencyId(), conn.getClientId());
                 totalFindings += (int) result.getOrDefault("findingsCount", 0);
                 totalSuggestions += (int) result.getOrDefault("suggestionsCreated", 0);
             } catch (Exception e) {
                 log.error("Optimization failed for client {}: {}", conn.getClientId(), e.getMessage());
                 errors.add(conn.getClientId() + ": " + e.getMessage());
+            } finally {
+                TenantContextHolder.clear();
             }
         }
 
@@ -137,8 +151,72 @@ public class PerformanceOptimizerService {
 
         if (insights14.isEmpty()) {
             log.info("No insights data for client {}, skipping", clientId);
-            return Map.of("findingsCount", 0, "suggestionsCreated", 0);
+            return Map.of("findingsCount", 0, "suggestionsCreated", 0, "message", "Not enough data to analyze");
         }
+
+        AnalysisResult analysis = analyzeInsights(agencyId, clientId, insights30, insights14, insights7);
+
+        return Map.of(
+                "findingsCount", analysis.findingsCount(),
+                "suggestionsCreated", analysis.createdSuggestions().size());
+    }
+
+    /**
+     * Run optimisation for a single campaign by limiting the scope to its ads/adsets.
+     */
+    @Transactional
+    public Map<String, Object> runForCampaign(UUID agencyId, UUID clientId, UUID campaignId) {
+        log.info("Running campaign-scoped optimization for campaign {}", campaignId);
+
+        LocalDate today = LocalDate.now();
+        LocalDate from30 = today.minusDays(30);
+        LocalDate from14 = today.minusDays(14);
+        LocalDate from7 = today.minusDays(7);
+
+        List<UUID> adsetIds = adsetRepo.findIdsByCampaignId(campaignId);
+        List<UUID> adIds = adsetIds.isEmpty() ? List.of() : adRepo.findIdsByAdsetIdIn(adsetIds);
+
+        List<InsightDaily> insights30 = loadCampaignScopedInsights(agencyId, clientId, adsetIds, adIds, from30, today);
+        List<InsightDaily> insights14 = loadCampaignScopedInsights(agencyId, clientId, adsetIds, adIds, from14, today);
+        List<InsightDaily> insights7 = loadCampaignScopedInsights(agencyId, clientId, adsetIds, adIds, from7, today);
+
+        if (insights14.isEmpty()) {
+            log.info("No scoped insights data for campaign {}, skipping", campaignId);
+            return Map.of(
+                    "findingsCount", 0,
+                    "suggestionsCreated", 0,
+                    "message", "Not enough data to analyze",
+                    "suggestions", List.of());
+        }
+
+        AnalysisResult analysis = analyzeInsights(agencyId, clientId, insights30, insights14, insights7);
+
+        return Map.of(
+                "findingsCount", analysis.findingsCount(),
+                "suggestionsCreated", analysis.createdSuggestions().size(),
+                "message", analysis.createdSuggestions().isEmpty() ? "No issues found for this campaign" : "Analysis complete",
+                "suggestions", analysis.createdSuggestions().stream().map(SuggestionResponse::from).toList());
+    }
+
+    private List<InsightDaily> loadCampaignScopedInsights(UUID agencyId, UUID clientId,
+                                                          List<UUID> adsetIds, List<UUID> adIds,
+                                                          LocalDate from, LocalDate to) {
+        List<InsightDaily> insights = new ArrayList<>();
+        if (!adsetIds.isEmpty()) {
+            insights.addAll(insightRepo.findAllByAgencyIdAndClientIdAndEntityTypeAndEntityIdInAndDateBetween(
+                    agencyId, clientId, "ADSET", adsetIds, from, to));
+        }
+        if (!adIds.isEmpty()) {
+            insights.addAll(insightRepo.findAllByAgencyIdAndClientIdAndEntityTypeAndEntityIdInAndDateBetween(
+                    agencyId, clientId, "AD", adIds, from, to));
+        }
+        return insights;
+    }
+
+    private AnalysisResult analyzeInsights(UUID agencyId, UUID clientId,
+                                           List<InsightDaily> insights30,
+                                           List<InsightDaily> insights14,
+                                           List<InsightDaily> insights7) {
 
         // Group insights by entity
         Map<String, List<InsightDaily>> byEntity14 = insights14.stream()
@@ -197,7 +275,7 @@ public class PerformanceOptimizerService {
         log.info("{} findings passed guardrails for client {}", passed.size(), clientId);
 
         // Enrich with LLM and save as suggestions
-        int created = 0;
+        List<AiSuggestion> createdSuggestions = new ArrayList<>();
         for (RuleFinding f : passed) {
             try {
             CompletableFuture<AiCrossModuleSupportService.CreativeSuggestionEnrichment> creativeEnrichmentFuture =
@@ -206,14 +284,18 @@ public class PerformanceOptimizerService {
                         agencyId, clientId, f.scopeType(), f.scopeId(), isCopyRefreshFinding(f))
                     : CompletableFuture.completedFuture(AiCrossModuleSupportService.CreativeSuggestionEnrichment.empty());
                 String enrichedRationale = enrichWithLlm(f, agencyId, clientId);
-            saveSuggestion(f, enrichedRationale, creativeEnrichmentFuture, agencyId, clientId);
-                created++;
+                AiSuggestion saved = saveSuggestion(f, enrichedRationale, creativeEnrichmentFuture, agencyId, clientId);
+                createdSuggestions.add(saved);
             } catch (Exception e) {
                 log.warn("Failed to create suggestion for finding {}: {}", f.suggestionType(), e.getMessage());
             }
         }
 
-        return Map.of("findingsCount", findings.size(), "suggestionsCreated", created);
+        return new AnalysisResult(findings.size(), createdSuggestions);
+    }
+
+    private TenantContext systemTenantContext(UUID agencyId, UUID clientId) {
+        return new TenantContext(agencyId, SYSTEM_USER_ID, "system@scheduled-job.local", "SYSTEM", clientId);
     }
 
     // ══════════════════════════════════════════
@@ -486,9 +568,9 @@ public class PerformanceOptimizerService {
     // SAVE SUGGESTION
     // ══════════════════════════════════════════
 
-    private void saveSuggestion(RuleFinding finding, String enrichedRationale,
-                                 CompletableFuture<AiCrossModuleSupportService.CreativeSuggestionEnrichment> creativeEnrichmentFuture,
-                                 UUID agencyId, UUID clientId) {
+    private AiSuggestion saveSuggestion(RuleFinding finding, String enrichedRationale,
+                                        CompletableFuture<AiCrossModuleSupportService.CreativeSuggestionEnrichment> creativeEnrichmentFuture,
+                                        UUID agencyId, UUID clientId) {
         AiCrossModuleSupportService.CreativeSuggestionEnrichment creativeEnrichment = creativeEnrichmentFuture.join();
         String finalRationale = enrichedRationale + creativeEnrichment.rationaleSuffix();
 
@@ -506,9 +588,10 @@ public class PerformanceOptimizerService {
         suggestion.setCreatedBy("AI");
         suggestion.setCreatedAt(OffsetDateTime.now());
 
-        suggestionRepo.save(suggestion);
+        AiSuggestion saved = suggestionRepo.save(suggestion);
         log.info("Created {} suggestion for {} {} (confidence: {})",
                 finding.suggestionType(), finding.scopeType(), finding.scopeId(), finding.confidence());
+        return saved;
     }
 
     private boolean shouldAttachCreativeRecommendations(RuleFinding finding) {
@@ -571,4 +654,6 @@ public class PerformanceOptimizerService {
                 .mapToDouble(i -> i.getConversionValue() != null ? i.getConversionValue().doubleValue() : 0)
                 .sum();
     }
+
+    private record AnalysisResult(int findingsCount, List<AiSuggestion> createdSuggestions) {}
 }

@@ -111,17 +111,19 @@
         density="compact"
         no-data-text="No campaign data for this period"
       >
+        <template #item.status="{ item }">
+          <v-chip :color="campaignStatusColor(item.status)" size="small">
+            {{ item.status }}
+          </v-chip>
+        </template>
         <template #item.spend="{ item }">
           {{ formatCurrency(item.spend) }}
         </template>
-        <template #item.impressions="{ item }">
-          {{ formatNumber(item.impressions) }}
-        </template>
-        <template #item.clicks="{ item }">
-          {{ formatNumber(item.clicks) }}
-        </template>
         <template #item.conversions="{ item }">
           {{ formatDecimal(item.conversions) }}
+        </template>
+        <template #item.roas="{ item }">
+          {{ formatRoas(item.roas) }}
         </template>
         <template #item.ctr="{ item }">
           {{ formatPercent(item.ctr) }}
@@ -494,13 +496,12 @@ const trafficChartOptions = computed(() => ({
 // ── Top Campaigns Table ──
 
 const topCampaignHeaders = [
-  { title: 'Type', key: 'entityType', width: '80px' },
-  { title: 'Entity ID', key: 'entityId' },
+  { title: 'Campaign Name', key: 'campaignName' },
+  { title: 'Status', key: 'status', width: '120px' },
   { title: 'Spend', key: 'spend', align: 'end' as const },
-  { title: 'Impressions', key: 'impressions', align: 'end' as const },
-  { title: 'Clicks', key: 'clicks', align: 'end' as const },
   { title: 'Conversions', key: 'conversions', align: 'end' as const },
-  { title: 'CTR %', key: 'ctr', align: 'end' as const },
+  { title: 'ROAS', key: 'roas', align: 'end' as const },
+  { title: 'CTR', key: 'ctr', align: 'end' as const },
   { title: 'CPC', key: 'cpc', align: 'end' as const },
 ]
 
@@ -528,5 +529,21 @@ function formatPercent(val: any): string {
 function formatDecimal(val: any): string {
   if (val == null) return '—'
   return Number(val).toFixed(2)
+}
+
+function formatRoas(val: any): string {
+  if (val == null) return '—'
+  return `${Number(val).toFixed(2)}x`
+}
+
+function campaignStatusColor(status: string): string {
+  const map: Record<string, string> = {
+    PUBLISHED: 'success',
+    ACTIVE: 'success',
+    PAUSED: 'grey',
+    DRAFT: 'grey',
+    ARCHIVED: 'error',
+  }
+  return map[status] || 'grey'
 }
 </script>

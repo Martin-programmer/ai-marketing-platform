@@ -63,6 +63,22 @@ export interface CreativePackage {
   approvedAt: string | null
 }
 
+export interface PackageItem {
+  id: string
+  agencyId: string
+  clientId: string
+  packageId: string
+  creativeAssetId: string
+  copyVariantId: string
+  ctaType: string | null
+  destinationUrl: string | null
+  weight: number
+  createdAt: string
+  creativeAsset: CreativeAsset | null
+  copyVariant: CopyVariant | null
+  qualityScore: number | null
+}
+
 export const useCreativeStore = defineStore('creatives', () => {
   const assets = ref<CreativeAsset[]>([])
   const packages = ref<CreativePackage[]>([])
@@ -72,6 +88,8 @@ export const useCreativeStore = defineStore('creatives', () => {
   const copyVariantsByAsset = ref<Record<string, CopyVariant[]>>({})
   const copyVariantsLoaded = ref<Record<string, boolean>>({})
   const copyVariantsLoadingByAsset = ref<Record<string, boolean>>({})
+  const packageItemsByPackage = ref<Record<string, PackageItem[]>>({})
+  const packageItemsLoadingByPackage = ref<Record<string, boolean>>({})
   const analyzeRunningByAsset = ref<Record<string, boolean>>({})
   const generateCopyRunningByAsset = ref<Record<string, boolean>>({})
   const copyVariantActionLoading = ref<Record<string, boolean>>({})
@@ -85,6 +103,8 @@ export const useCreativeStore = defineStore('creatives', () => {
     copyVariantsByAsset.value = {}
     copyVariantsLoaded.value = {}
     copyVariantsLoadingByAsset.value = {}
+    packageItemsByPackage.value = {}
+    packageItemsLoadingByPackage.value = {}
     analyzeRunningByAsset.value = {}
     generateCopyRunningByAsset.value = {}
     copyVariantActionLoading.value = {}
@@ -138,16 +158,63 @@ export const useCreativeStore = defineStore('creatives', () => {
     return data
   }
 
+  async function updatePackage(packageId: string, payload: { name: string; objective?: string; notes?: string }) {
+    const { data } = await api.put(`/creative-packages/${packageId}`, payload)
+    const idx = packages.value.findIndex((item) => item.id === packageId)
+    if (idx >= 0) packages.value[idx] = data
+    return data
+  }
+
   async function submitPackage(packageId: string) {
     const { data } = await api.post(`/creative-packages/${packageId}/submit`)
     const idx = packages.value.findIndex(p => p.id === packageId)
     if (idx >= 0) packages.value[idx] = data
+    return data
   }
 
   async function approvePackage(packageId: string) {
     const { data } = await api.post(`/creative-packages/${packageId}/approve`)
     const idx = packages.value.findIndex(p => p.id === packageId)
     if (idx >= 0) packages.value[idx] = data
+    return data
+  }
+
+  async function rejectPackage(packageId: string) {
+    const { data } = await api.post(`/creative-packages/${packageId}/reject`)
+    const idx = packages.value.findIndex(p => p.id === packageId)
+    if (idx >= 0) packages.value[idx] = data
+    return data
+  }
+
+  async function fetchPackageItems(packageId: string, force = false) {
+    if (!force && packageItemsByPackage.value[packageId]) {
+      return packageItemsByPackage.value[packageId]
+    }
+    packageItemsLoadingByPackage.value[packageId] = true
+    try {
+      const { data } = await api.get(`/creative-packages/${packageId}/items`)
+      packageItemsByPackage.value[packageId] = data
+      return data
+    } finally {
+      packageItemsLoadingByPackage.value[packageId] = false
+    }
+  }
+
+  async function addPackageItem(packageId: string, payload: {
+    creativeAssetId: string
+    copyVariantId: string
+    ctaType: string
+    destinationUrl: string
+    weight: number
+  }) {
+    const { data } = await api.post(`/creative-packages/${packageId}/items`, payload)
+    packageItemsByPackage.value[packageId] = [...(packageItemsByPackage.value[packageId] ?? []), data]
+    return data
+  }
+
+  async function deletePackageItem(packageId: string, itemId: string) {
+    await api.delete(`/creative-packages/${packageId}/items/${itemId}`)
+    packageItemsByPackage.value[packageId] = (packageItemsByPackage.value[packageId] ?? []).filter((item) => item.id !== itemId)
   }
 
   async function fetchAnalysis(assetId: string, force = false) {
@@ -220,6 +287,29 @@ export const useCreativeStore = defineStore('creatives', () => {
     }
   }
 
+  async function createCopyVariant(clientId: string, payload: {
+    assetId?: string | null
+    primaryText: string
+    headline: string
+    description?: string | null
+    cta?: string
+    tone?: string
+    language?: string
+  }) {
+    const { data } = await api.post(`/clients/${clientId}/copy-variants`, {
+      clientId,
+      assetId: payload.assetId,
+      primaryText: payload.primaryText,
+      headline: payload.headline,
+      description: payload.description,
+      cta: payload.cta,
+      tone: payload.tone,
+      language: payload.language,
+    })
+    upsertCopyVariant(data)
+    return data
+  }
+
   async function updateCopyVariantStatus(variantId: string, nextStatus: 'APPROVED' | 'REJECTED') {
     copyVariantActionLoading.value[variantId] = true
     error.value = null
@@ -245,6 +335,8 @@ export const useCreativeStore = defineStore('creatives', () => {
     copyVariantsByAsset,
     copyVariantsLoaded,
     copyVariantsLoadingByAsset,
+    packageItemsByPackage,
+    packageItemsLoadingByPackage,
     analyzeRunningByAsset,
     generateCopyRunningByAsset,
     copyVariantActionLoading,
@@ -254,12 +346,18 @@ export const useCreativeStore = defineStore('creatives', () => {
     fetchAssets,
     fetchPackages,
     createPackage,
+    updatePackage,
     submitPackage,
     approvePackage,
+    rejectPackage,
+    fetchPackageItems,
+    addPackageItem,
+    deletePackageItem,
     fetchAnalysis,
     fetchCopyVariants,
     analyzeAsset,
     generateCopy,
+    createCopyVariant,
     updateCopyVariantStatus,
   }
 })

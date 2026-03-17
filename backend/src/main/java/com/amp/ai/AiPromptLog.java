@@ -22,6 +22,8 @@ public class AiPromptLog {
     @Column(name = "duration_ms") private int durationMs;
     @Column(nullable = false) private boolean success;
     @Column(name = "error_message") private String errorMessage;
+    @Column(name = "input_text", columnDefinition = "text") private String inputText;
+    @Column(name = "output_text", columnDefinition = "text") private String outputText;
     @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt = OffsetDateTime.now();
 
     public UUID getId() { return id; }
@@ -48,6 +50,10 @@ public class AiPromptLog {
     public void setSuccess(boolean v) { this.success = v; }
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String v) { this.errorMessage = v; }
+    public String getInputText() { return inputText; }
+    public void setInputText(String v) { this.inputText = v; }
+    public String getOutputText() { return outputText; }
+    public void setOutputText(String v) { this.outputText = v; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime v) { this.createdAt = v; }
 }

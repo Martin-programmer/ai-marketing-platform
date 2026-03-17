@@ -11,6 +11,7 @@ public record CreatePackageRequest(
         UUID clientId,
         @NotBlank(message = "name is required")
         String name,
-        String objective
+        String objective,
+        String notes
 ) {
 }

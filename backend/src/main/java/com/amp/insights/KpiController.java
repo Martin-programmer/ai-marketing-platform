@@ -2,6 +2,8 @@ package com.amp.insights;
 
 import com.amp.auth.AccessControl;
 import com.amp.auth.Permission;
+import com.amp.campaigns.CampaignPerformanceResponse;
+import com.amp.campaigns.CampaignService;
 import com.amp.tenancy.TenantContextHolder;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -26,10 +28,13 @@ public class KpiController {
 
     private final InsightDailyRepository insightRepo;
     private final AccessControl accessControl;
+    private final CampaignService campaignService;
 
-    public KpiController(InsightDailyRepository insightRepo, AccessControl accessControl) {
+    public KpiController(InsightDailyRepository insightRepo, AccessControl accessControl,
+                         CampaignService campaignService) {
         this.insightRepo = insightRepo;
         this.accessControl = accessControl;
+        this.campaignService = campaignService;
     }
 
     private UUID agencyId() {
@@ -152,41 +157,11 @@ public class KpiController {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
         UUID agency = agencyId();
 
-        List<InsightDaily> insights = insightRepo.findAllByAgencyIdAndClientIdAndDateBetween(
-                agency, clientId, from, to);
-
-        // Aggregate by entity
-        Map<String, CampaignAggregate> byEntity = new LinkedHashMap<>();
-        for (InsightDaily i : insights) {
-            String key = i.getEntityType() + ":" + i.getEntityId();
-            byEntity.computeIfAbsent(key,
-                    k -> new CampaignAggregate(i.getEntityType(), i.getEntityId())).add(i);
-        }
-
-        // Sort by spend DESC, take top N
-        List<Map<String, Object>> topList = byEntity.values().stream()
-                .sorted((a, b) -> b.spend.compareTo(a.spend))
-                .limit(limit)
-                .map(agg -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("entityType", agg.entityType);
-                    m.put("entityId", agg.entityId);
-                    m.put("spend", agg.spend.setScale(2, RoundingMode.HALF_UP));
-                    m.put("impressions", agg.impressions);
-                    m.put("clicks", agg.clicks);
-                    m.put("conversions", agg.conversions.setScale(2, RoundingMode.HALF_UP));
-                    m.put("ctr", agg.impressions > 0
-                            ? BigDecimal.valueOf(agg.clicks)
-                                .divide(BigDecimal.valueOf(agg.impressions), 4, RoundingMode.HALF_UP)
-                                .multiply(BigDecimal.valueOf(100))
-                                .setScale(2, RoundingMode.HALF_UP)
-                            : BigDecimal.ZERO);
-                    m.put("cpc", agg.clicks > 0
-                            ? agg.spend.divide(BigDecimal.valueOf(agg.clicks), 2, RoundingMode.HALF_UP)
-                            : BigDecimal.ZERO);
-                    return m;
-                })
-                .toList();
+        List<CampaignPerformanceResponse> topList = campaignService
+            .listCampaignPerformance(agency, clientId, from, to)
+            .stream()
+            .limit(limit)
+            .toList();
 
         return ResponseEntity.ok(topList);
     }
@@ -263,24 +238,4 @@ public class KpiController {
         }
     }
 
-    private static class CampaignAggregate {
-        final String entityType;
-        final UUID entityId;
-        BigDecimal spend = BigDecimal.ZERO;
-        long impressions;
-        long clicks;
-        BigDecimal conversions = BigDecimal.ZERO;
-
-        CampaignAggregate(String entityType, UUID entityId) {
-            this.entityType = entityType;
-            this.entityId = entityId;
-        }
-
-        void add(InsightDaily i) {
-            spend = spend.add(i.getSpend() != null ? i.getSpend() : BigDecimal.ZERO);
-            impressions += i.getImpressions();
-            clicks += i.getClicks();
-            conversions = conversions.add(i.getConversions() != null ? i.getConversions() : BigDecimal.ZERO);
-        }
-    }
 }

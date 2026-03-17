@@ -1,6 +1,7 @@
 package com.amp.meta;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
@@ -17,6 +18,10 @@ public record MetaConnectionResponse(
         String status,
         OffsetDateTime connectedAt,
         OffsetDateTime lastSyncAt,
+        OffsetDateTime tokenExpiresAt,
+        OffsetDateTime lastTokenRefreshAt,
+        boolean tokenRefreshFailed,
+        Long daysUntilExpiry,
         String lastErrorCode,
         String lastErrorMessage,
         OffsetDateTime createdAt,
@@ -28,8 +33,17 @@ public record MetaConnectionResponse(
                 e.getAdAccountId(), e.getPixelId(), e.getPageId(),
                 e.getTokenKeyId(), e.getStatus(),
                 e.getConnectedAt(), e.getLastSyncAt(),
+                e.getTokenExpiresAt(), e.getLastTokenRefreshAt(), e.isTokenRefreshFailed(),
+                daysUntilExpiry(e.getTokenExpiresAt()),
                 e.getLastErrorCode(), e.getLastErrorMessage(),
                 e.getCreatedAt(), e.getUpdatedAt()
         );
+    }
+
+    private static Long daysUntilExpiry(OffsetDateTime tokenExpiresAt) {
+        if (tokenExpiresAt == null) {
+            return null;
+        }
+        return ChronoUnit.DAYS.between(OffsetDateTime.now(), tokenExpiresAt);
     }
 }

@@ -8,7 +8,10 @@ import com.amp.common.NotificationHelper;
 import jakarta.annotation.PostConstruct;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
+import com.amp.meta.MetaService;
 import com.amp.meta.MetaSyncService;
+import com.amp.tenancy.TenantContext;
+import com.amp.tenancy.TenantContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,11 +33,16 @@ import java.util.UUID;
 public class ScheduledJobsService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledJobsService.class);
+    private static final UUID SYSTEM_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     @Value("${ops.daily-sync.cron:0 30 3 * * *}")
     private String cronExpression;
 
+    @Value("${ops.meta-token-refresh.cron:0 0 2 * * *}")
+    private String metaTokenRefreshCronExpression;
+
     private final MetaConnectionRepository metaConnectionRepository;
+    private final MetaService metaService;
     private final MetaSyncService metaSyncService;
     private final PerformanceOptimizerService performanceOptimizerService;
     private final NotificationHelper notificationHelper;
@@ -42,12 +50,14 @@ public class ScheduledJobsService {
     private final ClientRepository clientRepository;
 
     public ScheduledJobsService(MetaConnectionRepository metaConnectionRepository,
+                                MetaService metaService,
                                 MetaSyncService metaSyncService,
                                 PerformanceOptimizerService performanceOptimizerService,
                                 NotificationHelper notificationHelper,
                                 EmailService emailService,
                                 ClientRepository clientRepository) {
         this.metaConnectionRepository = metaConnectionRepository;
+        this.metaService = metaService;
         this.metaSyncService = metaSyncService;
         this.performanceOptimizerService = performanceOptimizerService;
         this.notificationHelper = notificationHelper;
@@ -59,6 +69,15 @@ public class ScheduledJobsService {
     public void onInit() {
         log.info("ScheduledJobsService initialized, daily sync enabled");
         log.info("ScheduledJobsService daily sync cron: {}", cronExpression);
+        log.info("ScheduledJobsService token refresh cron: {}", metaTokenRefreshCronExpression);
+    }
+
+    @Scheduled(cron = "${ops.meta-token-refresh.cron:0 0 2 * * *}", zone = "Europe/Sofia")
+    public void refreshMetaTokens() {
+        log.info("Meta token refresh job started (Europe/Sofia 02:00 schedule)");
+        MetaService.TokenRefreshResult result = metaService.refreshExpiringConnections();
+        log.info("Meta token refresh complete: {} refreshed, {} failed, {} considered",
+                result.refreshed(), result.failed(), result.considered());
     }
 
     /**
@@ -86,6 +105,8 @@ public class ScheduledJobsService {
             UUID clientId = conn.getClientId();
 
             try {
+                TenantContextHolder.set(systemTenantContext(agencyId, clientId));
+
                 // Uses existing logic (includes anomaly detection inside MetaSyncService).
                 metaSyncService.runDailySync(agencyId, clientId);
                 clientsSynced++;
@@ -96,6 +117,8 @@ public class ScheduledJobsService {
                 log.error("Daily sync failed for client {}: {}", clientId, e.getMessage(), e);
 
                 sendSyncFailureAlert(agencyId, clientId, e.getMessage());
+            } finally {
+                TenantContextHolder.clear();
             }
         }
 
@@ -158,6 +181,10 @@ public class ScheduledJobsService {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    private TenantContext systemTenantContext(UUID agencyId, UUID clientId) {
+        return new TenantContext(agencyId, SYSTEM_USER_ID, "system@scheduled-job.local", "SYSTEM", clientId);
     }
 
     public record DailySyncResult(

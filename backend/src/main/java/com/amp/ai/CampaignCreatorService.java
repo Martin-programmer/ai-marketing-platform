@@ -7,6 +7,10 @@ import com.amp.creatives.CopyVariant;
 import com.amp.creatives.CopyVariantRepository;
 import com.amp.creatives.CreativeAsset;
 import com.amp.creatives.CreativeAssetRepository;
+import com.amp.creatives.CreativePackageItem;
+import com.amp.creatives.CreativePackageItemRepository;
+import com.amp.creatives.CreativePackageRepository;
+import com.amp.creatives.CreativeService;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
@@ -45,6 +49,9 @@ public class CampaignCreatorService {
     private final ClientRepository clientRepo;
     private final CreativeAssetRepository creativeRepo;
     private final CopyVariantRepository copyRepo;
+    private final CreativePackageRepository creativePackageRepository;
+    private final CreativePackageItemRepository creativePackageItemRepository;
+    private final CreativeService creativeService;
     private final InsightDailyRepository insightRepo;
     private final CampaignRepository campaignRepo;
     private final AdsetRepository adsetRepo;
@@ -59,6 +66,9 @@ public class CampaignCreatorService {
                                   ClientRepository clientRepo,
                                   CreativeAssetRepository creativeRepo,
                                   CopyVariantRepository copyRepo,
+                                  CreativePackageRepository creativePackageRepository,
+                                  CreativePackageItemRepository creativePackageItemRepository,
+                                  CreativeService creativeService,
                                   InsightDailyRepository insightRepo,
                                   CampaignRepository campaignRepo,
                                   AdsetRepository adsetRepo,
@@ -72,6 +82,9 @@ public class CampaignCreatorService {
         this.clientRepo = clientRepo;
         this.creativeRepo = creativeRepo;
         this.copyRepo = copyRepo;
+        this.creativePackageRepository = creativePackageRepository;
+        this.creativePackageItemRepository = creativePackageItemRepository;
+        this.creativeService = creativeService;
         this.insightRepo = insightRepo;
         this.campaignRepo = campaignRepo;
         this.adsetRepo = adsetRepo;
@@ -223,6 +236,11 @@ public class CampaignCreatorService {
             }
         }
 
+        List<CreativePackageItem> approvedPackageItems = creativeService.listApprovedPackageItems(agencyId, clientId, objective);
+        if (!approvedPackageItems.isEmpty()) {
+            warnings.add("Using approved creative package items for ad creatives.");
+        }
+
         // Create campaign
         Campaign campaign = new Campaign();
         campaign.setAgencyId(agencyId);
@@ -264,8 +282,43 @@ public class CampaignCreatorService {
 
                 // Create ads
                 List<CampaignProposalResponse.ProposedAd> proposedAds = new ArrayList<>();
-                JsonNode adsJson = adsetJson.get("ads");
-                if (adsJson != null && adsJson.isArray()) {
+                if (!approvedPackageItems.isEmpty()) {
+                    for (CreativePackageItem packageItem : approvedPackageItems) {
+                        CopyVariant copyVariant = copyRepo.findById(packageItem.getCopyVariantId()).orElse(null);
+                        Ad ad = new Ad();
+                        ad.setAgencyId(agencyId);
+                        ad.setClientId(clientId);
+                        ad.setAdsetId(adset.getId());
+                        ad.setName(buildPackageAdName(copyVariant, packageItem));
+                        ad.setCreativePackageItemId(packageItem.getId());
+                        ad.setCreativeAssetId(packageItem.getCreativeAssetId());
+                        ad.setCopyVariantId(packageItem.getCopyVariantId());
+                        ad.setPrimaryText(copyVariant != null ? copyVariant.getPrimaryText() : null);
+                        ad.setHeadline(copyVariant != null ? copyVariant.getHeadline() : null);
+                        ad.setDescription(copyVariant != null ? copyVariant.getDescription() : null);
+                        ad.setCta(firstNonBlank(packageItem.getCtaType(), copyVariant != null ? copyVariant.getCta() : null, "LEARN_MORE"));
+                        ad.setDestinationUrl(packageItem.getDestinationUrl());
+                        ad.setStatus("DRAFT");
+                        ad.setCreatedAt(OffsetDateTime.now());
+                        ad.setUpdatedAt(OffsetDateTime.now());
+                        ad = adRepo.save(ad);
+
+                        proposedAds.add(new CampaignProposalResponse.ProposedAd(
+                                ad.getId(),
+                                ad.getName(),
+                                ad.getCreativePackageItemId(),
+                                ad.getCreativeAssetId(),
+                                ad.getCopyVariantId(),
+                                ad.getPrimaryText(),
+                                ad.getHeadline(),
+                                ad.getDescription(),
+                                ad.getCta(),
+                                ad.getDestinationUrl()
+                        ));
+                    }
+                } else {
+                    JsonNode adsJson = adsetJson.get("ads");
+                    if (adsJson != null && adsJson.isArray()) {
                     for (JsonNode adJson : adsJson) {
                         UUID creativeAssetId = null;
                         if (adJson.has("creative_asset_id")
@@ -305,6 +358,7 @@ public class CampaignCreatorService {
                         proposedAds.add(new CampaignProposalResponse.ProposedAd(
                                 ad.getId(),
                                 ad.getName(),
+                            ad.getCreativePackageItemId(),
                                 creativeAssetId,
                                 copyVariantId,
                                 primaryText,
@@ -313,6 +367,7 @@ public class CampaignCreatorService {
                                 cta,
                                 destinationUrl
                         ));
+                    }
                     }
                 }
 
@@ -363,8 +418,25 @@ public class CampaignCreatorService {
                 .orElse(null);
     }
 
+    private String buildPackageAdName(CopyVariant copyVariant, CreativePackageItem item) {
+        String headline = copyVariant != null ? copyVariant.getHeadline() : null;
+        if (headline != null && !headline.isBlank()) {
+            return headline;
+        }
+        return "Package Ad " + item.getId().toString().substring(0, 8);
+    }
+
     private String normalize(String value) {
         return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     // ──────── Utilities ────────

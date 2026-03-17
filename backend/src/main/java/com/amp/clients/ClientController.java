@@ -2,7 +2,10 @@ package com.amp.clients;
 
 import com.amp.ai.AnomalyDetectorService;
 import com.amp.ai.AiAudienceSuggestion;
+import com.amp.ai.AiAudienceSuggestionRepository;
 import com.amp.ai.AiBudgetAnalysis;
+import com.amp.ai.AiBudgetAnalysisRepository;
+import com.amp.ai.AiStoredResultResponse;
 import com.amp.ai.AudienceArchitectService;
 import com.amp.ai.BudgetStrategistService;
 import com.amp.ai.ClientBrieferService;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for client management (API v1).
@@ -37,6 +41,8 @@ public class ClientController {
     private final AudienceArchitectService audienceService;
     private final BudgetStrategistService budgetStrategist;
     private final AnomalyDetectorService anomalyDetector;
+    private final AiAudienceSuggestionRepository aiAudienceSuggestionRepository;
+    private final AiBudgetAnalysisRepository aiBudgetAnalysisRepository;
     private final ObjectMapper objectMapper;
 
     public ClientController(ClientService clientService,
@@ -46,6 +52,8 @@ public class ClientController {
                             AudienceArchitectService audienceService,
                             BudgetStrategistService budgetStrategist,
                             AnomalyDetectorService anomalyDetector,
+                            AiAudienceSuggestionRepository aiAudienceSuggestionRepository,
+                            AiBudgetAnalysisRepository aiBudgetAnalysisRepository,
                             ObjectMapper objectMapper) {
         this.clientService = clientService;
         this.profileService = profileService;
@@ -54,6 +62,8 @@ public class ClientController {
         this.audienceService = audienceService;
         this.budgetStrategist = budgetStrategist;
         this.anomalyDetector = anomalyDetector;
+        this.aiAudienceSuggestionRepository = aiAudienceSuggestionRepository;
+        this.aiBudgetAnalysisRepository = aiBudgetAnalysisRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -237,6 +247,28 @@ public class ClientController {
         }
     }
 
+    @GetMapping("/{clientId}/ai-budget-analyses")
+    public ResponseEntity<List<AiStoredResultResponse>> listBudgetAnalyses(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        List<AiStoredResultResponse> result = aiBudgetAnalysisRepository
+                .findTop20ByAgencyIdAndClientIdOrderByCreatedAtDesc(agencyId(), clientId)
+                .stream()
+                .map(this::toBudgetAnalysisResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/{clientId}/ai-audiences/history")
+    public ResponseEntity<List<AiStoredResultResponse>> listAudienceSuggestionHistory(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_VIEW);
+        List<AiStoredResultResponse> result = aiAudienceSuggestionRepository
+                .findTop20ByAgencyIdAndClientIdOrderByCreatedAtDesc(agencyId(), clientId)
+                .stream()
+                .map(this::toAudienceSuggestionResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
     // ---- AI Anomaly Detector ----
 
     /**
@@ -255,5 +287,30 @@ public class ClientController {
         } catch (Exception e) {
             return Map.of("error", "Failed to parse saved AI response");
         }
+    }
+
+    private AiStoredResultResponse toBudgetAnalysisResponse(AiBudgetAnalysis analysis) {
+        Map<String, Object> data = readJsonMap(analysis.getAnalysisJson());
+        String preview = previewText(String.valueOf(data.getOrDefault("narrative", "Budget analysis")));
+        return new AiStoredResultResponse(analysis.getId(), analysis.getCreatedAt(), preview, data);
+    }
+
+    private AiStoredResultResponse toAudienceSuggestionResponse(AiAudienceSuggestion suggestion) {
+        Map<String, Object> data = readJsonMap(suggestion.getSuggestionJson());
+        Object rawAudiences = data.get("recommended_audiences");
+        String preview = "Audience suggestion";
+        if (rawAudiences instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
+            Object name = first.get("name");
+            if (name != null && !String.valueOf(name).isBlank()) {
+                preview = String.valueOf(name);
+            }
+        }
+        return new AiStoredResultResponse(suggestion.getId(), suggestion.getCreatedAt(), previewText(preview), data);
+    }
+
+    private String previewText(String text) {
+        if (text == null) return "";
+        String trimmed = text.replaceAll("\\s+", " ").trim();
+        return trimmed.length() <= 100 ? trimmed : trimmed.substring(0, 100) + "...";
     }
 }

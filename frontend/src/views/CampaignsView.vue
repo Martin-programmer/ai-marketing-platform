@@ -30,7 +30,7 @@
           <v-btn color="deep-purple" size="large" elevation="3" @click="openAiProposalDialog" :disabled="!selectedClient">
             <v-icon start>mdi-robot-excited-outline</v-icon> AI Campaign Proposal
           </v-btn>
-          <v-btn color="primary" @click="showCreateCampaign = true">
+          <v-btn color="primary" :disabled="!selectedClient" @click="goToWizard">
             <v-icon start>mdi-plus</v-icon> New Campaign
           </v-btn>
         </div>
@@ -55,6 +55,22 @@
             {{ new Date(item.createdAt).toLocaleDateString() }}
           </template>
           <template #item.actions="{ item }">
+            <v-tooltip location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :loading="aiAnalyzeLoadingById[rowItem(item).id]"
+                  title="AI Analyze"
+                  @click="onAiAnalyze(rowItem(item))"
+                >
+                  <v-icon>mdi-brain</v-icon>
+                </v-btn>
+              </template>
+              <span>AI Analyze</span>
+            </v-tooltip>
             <v-btn v-if="rowItem(item).status === 'DRAFT'" size="small" variant="text" color="success" title="Publish" @click="store.publishCampaign(rowItem(item).id)">
               <v-icon>mdi-rocket-launch</v-icon>
             </v-btn>
@@ -423,18 +439,24 @@
         <div class="text-h6 mb-2">AI генерира кампания...</div>
         <div class="text-body-2 text-medium-emphasis">15-30 секунди</div>
       </v-card>
+
+      <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="4000">
+        {{ snackbar.text }}
+      </v-snackbar>
     </v-overlay>
 
     <!-- AI Campaign Proposal Dialog (brief input) -->
     <v-dialog v-model="showAiProposal" max-width="560">
       <v-card title="AI Campaign Proposal" prepend-icon="mdi-robot">
         <v-card-text>
+  import { useRouter } from 'vue-router'
           <p class="text-body-2 mb-3">
             Claude will analyze this client's profile, creatives, historical performance
             and active campaigns to generate a full campaign structure.
           </p>
-          <v-textarea
+  import type { Campaign, CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
             v-model="aiBrief"
+  const router = useRouter()
             label="Опишете целта на кампанията (опционално)"
             placeholder="Напр. 'Лятна промоция, жени 25-45, бюджет около $50 на ден'"
             rows="3"
@@ -641,20 +663,18 @@
                         <v-card-text>
                           <v-row>
                             <v-col cols="12" md="4">
-                              <div class="creative-preview-wrap">
-                                <img
-                                  v-if="ad.creativeAssetId && creativePreviewUrls[ad.creativeAssetId]"
-                                  :src="creativePreviewUrls[ad.creativeAssetId]"
-                                  class="creative-preview"
-                                />
-                                <div v-else class="creative-preview-empty">
-                                  <v-icon size="44" color="grey">mdi-image-off-outline</v-icon>
-                                  <div class="text-caption text-medium-emphasis text-center mt-2">
-                                    {{ creativePreviewErrors[ad.creativeAssetId || `missing-${ad.adId}`] || 'Creative not found in library' }}
-                                  </div>
-                                </div>
-                              </div>
+                              <AdPreviewCard
+                                :image-url="ad.creativeAssetId ? creativePreviewUrls[ad.creativeAssetId] : null"
+                                :headline="ad.headline"
+                                :primary-text="ad.primaryText"
+                                :description="ad.description"
+                                :cta="ad.cta"
+                                :destination-url="ad.url"
+                              />
                               <div class="d-flex flex-wrap ga-1 mt-2">
+                                <v-chip v-if="ad.creativePackageItemId" size="x-small" color="primary" variant="outlined">
+                                  Package item {{ shortId(ad.creativePackageItemId) }}
+                                </v-chip>
                                 <v-chip v-if="ad.creativeAssetId" size="x-small" variant="outlined">
                                   {{ shortId(ad.creativeAssetId) }}
                                 </v-chip>
@@ -719,13 +739,16 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, reactive, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '@/api/client'
 import { useCampaignStore } from '@/stores/campaigns'
 import { useClientStore } from '@/stores/clients'
 import { useCreativeStore } from '@/stores/creatives'
 import { useDashboardStore } from '@/stores/dashboard'
-import type { CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
+import type { Campaign, CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
+import AdPreviewCard from '@/components/AdPreviewCard.vue'
 
+const router = useRouter()
 const store = useCampaignStore()
 const clientStore = useClientStore()
 const creativeStore = useCreativeStore()
@@ -755,6 +778,12 @@ const draftProposal = ref<CampaignProposal | null>(null)
 const proposalBanner = ref<{ text: string; type: 'success' | 'error' | 'info' | 'warning' }>({ text: '', type: 'info' })
 const creativePreviewUrls = reactive<Record<string, string>>({})
 const creativePreviewErrors = reactive<Record<string, string>>({})
+const aiAnalyzeLoadingById = reactive<Record<string, boolean>>({})
+const snackbar = ref<{ show: boolean; text: string; color: 'success' | 'error' | 'info' | 'warning' }>({
+  show: false,
+  text: '',
+  color: 'info',
+})
 
 const ctaOptions = ['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'GET_OFFER', 'CONTACT_US']
 
@@ -801,7 +830,7 @@ function rowItem<T = any>(item: any): T {
 }
 
 function campaignStatusColor(status: string) {
-  const map: Record<string, string> = { DRAFT: 'grey', PUBLISHED: 'success', PAUSED: 'warning', ARCHIVED: 'error' }
+  const map: Record<string, string> = { DRAFT: 'grey', PUBLISHED: 'success', PAUSED: 'warning', ARCHIVED: 'error', FAILED: 'error', ACTIVE: 'success' }
   return map[status] || 'grey'
 }
 
@@ -979,6 +1008,49 @@ async function onGenerateProposal() {
   }
 }
 
+async function onAiAnalyze(campaign: Campaign) {
+  if (!selectedClient.value) return
+
+  aiAnalyzeLoadingById[campaign.id] = true
+  try {
+    const result = await store.aiAnalyzeCampaign(campaign.id)
+    const created = Number(result.suggestionsCreated || 0)
+    const suggestionIds = (result.suggestions || []).map((suggestion) => suggestion.id)
+
+    if (created > 0 && suggestionIds.length > 0) {
+      snackbar.value = {
+        show: true,
+        text: `AI generated ${created} suggestions for ${campaign.name}`,
+        color: 'success',
+      }
+      await router.push({
+        name: 'suggestions',
+        query: {
+          clientId: selectedClient.value,
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          suggestionIds: suggestionIds.join(','),
+        },
+      })
+      return
+    }
+
+    snackbar.value = {
+      show: true,
+      text: result.message || 'No issues found for this campaign',
+      color: result.message === 'Not enough data to analyze' ? 'warning' : 'info',
+    }
+  } catch (e: any) {
+    snackbar.value = {
+      show: true,
+      text: e.response?.data?.message || e.message || 'AI analysis failed',
+      color: 'error',
+    }
+  } finally {
+    aiAnalyzeLoadingById[campaign.id] = false
+  }
+}
+
 async function onRegenerate() {
   if (!selectedClient.value) return
   showProposalResult.value = false
@@ -1022,6 +1094,11 @@ function openAiProposalDialog() {
   if (!selectedClient.value) return
   proposalBanner.value = { text: '', type: 'info' }
   showAiProposal.value = true
+}
+
+function goToWizard() {
+  if (!selectedClient.value) return
+  router.push({ name: 'campaign-wizard', params: { clientId: selectedClient.value } })
 }
 
 function onCancelProposal() {

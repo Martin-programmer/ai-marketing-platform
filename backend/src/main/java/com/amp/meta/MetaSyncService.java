@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +53,7 @@ public class MetaSyncService {
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
     private final ClientRepository clientRepository;
+    private final CacheManager cacheManager;
 
     public MetaSyncService(MetaGraphApiClient graphApiClient,
                            MetaService metaService,
@@ -64,7 +66,8 @@ public class MetaSyncService {
                            AnomalyDetectorService anomalyDetector,
                            NotificationHelper notificationHelper,
                            EmailProperties emailProperties,
-                           ClientRepository clientRepository) {
+                           ClientRepository clientRepository,
+                           CacheManager cacheManager) {
         this.graphApiClient = graphApiClient;
         this.metaService = metaService;
         this.connectionRepository = connectionRepository;
@@ -77,6 +80,7 @@ public class MetaSyncService {
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
         this.clientRepository = clientRepository;
+        this.cacheManager = cacheManager;
     }
 
     // ──────── Public entry points ────────
@@ -187,6 +191,9 @@ public class MetaSyncService {
             conn.setUpdatedAt(OffsetDateTime.now());
             connectionRepository.save(conn);
 
+            // Evict stale caches so UI picks up freshly-synced data
+            evictCachesAfterSync(agencyId, clientId);
+
             // Run anomaly detection on fresh data (no-fail — don't break the sync)
             try {
                 anomalyDetector.detectAnomalies(agencyId, clientId);
@@ -206,10 +213,15 @@ public class MetaSyncService {
                     + "\",\"type\":\"" + e.getClass().getSimpleName() + "\"}");
             syncJobRepository.save(job);
 
-            conn.setLastErrorCode("SYNC_FAILED");
-            conn.setLastErrorMessage(e.getMessage());
-            conn.setUpdatedAt(OffsetDateTime.now());
-            connectionRepository.save(conn);
+            boolean authFailure = isAuthFailure(e);
+            if (authFailure) {
+                metaService.markTokenExpired(conn, e.getMessage(), true);
+            } else {
+                conn.setLastErrorCode("SYNC_FAILED");
+                conn.setLastErrorMessage(e.getMessage());
+                conn.setUpdatedAt(OffsetDateTime.now());
+                connectionRepository.save(conn);
+            }
 
             // Send sync-failed alert to AGENCY_ADMINs
             try {
@@ -219,11 +231,13 @@ public class MetaSyncService {
                 List<String> admins = notificationHelper.getAgencyAdminEmails(agencyId);
                 for (String email : admins) {
                     notificationHelper.sendTemplatedAsync(email,
-                            "Sync Failed — " + clientName,
+                                authFailure ? "Meta Authentication Failed — " + clientName : "Sync Failed — " + clientName,
                             "alert",
                             Map.of(
-                                    "alertTitle", "Daily Sync Failed",
-                                    "alertMessage", "Daily sync failed for " + clientName + ". Error: " + e.getMessage(),
+                                    "alertTitle", authFailure ? "Meta Connection Requires Reconnect" : "Daily Sync Failed",
+                                    "alertMessage", authFailure
+                                        ? "Meta authentication failed for " + clientName + ". Please reconnect this client's Meta account. Error: " + e.getMessage()
+                                        : "Daily sync failed for " + clientName + ". Error: " + e.getMessage(),
                                     "clientName", clientName,
                                     "severity", "HIGH",
                                     "severityColor", "#D32F2F",
@@ -236,6 +250,41 @@ public class MetaSyncService {
             }
 
             throw new RuntimeException("Sync failed: " + e.getMessage(), e);
+        }
+    }
+
+    private boolean isAuthFailure(Exception e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("oauth")
+                || normalized.contains("error validating access token")
+                || normalized.contains("code 190")
+                || normalized.contains("190");
+    }
+
+    /**
+     * Evict Redis caches that may hold stale data after a successful sync.
+     */
+    private void evictCachesAfterSync(UUID agencyId, UUID clientId) {
+        String cacheKey = agencyId + "_" + clientId;
+        try {
+            var campaignsCache = cacheManager.getCache("campaigns");
+            if (campaignsCache != null) campaignsCache.evict(cacheKey);
+
+            var assetsCache = cacheManager.getCache("creativeAssets");
+            if (assetsCache != null) assetsCache.evict(cacheKey);
+
+            var kpisCache = cacheManager.getCache("kpis");
+            if (kpisCache != null) kpisCache.evict(cacheKey);
+
+            log.info("Evicted caches (campaigns, creativeAssets, kpis) for agency={}, client={}",
+                    agencyId, clientId);
+        } catch (Exception e) {
+            log.warn("Cache eviction failed for agency={}, client={}: {}",
+                    agencyId, clientId, e.getMessage());
         }
     }
 
@@ -318,6 +367,11 @@ public class MetaSyncService {
 
             String targetingJson = ma.has("targeting") ? ma.get("targeting").toString() : "{}";
 
+            // Handle optimization_goal
+            String optimizationGoal = ma.has("optimization_goal") && !ma.get("optimization_goal").isNull()
+                    ? ma.get("optimization_goal").asText()
+                    : "NONE";
+
             Optional<Adset> existing = adsetRepository
                     .findByAgencyIdAndClientIdAndMetaAdsetId(agencyId, clientId, metaAdsetId);
 
@@ -329,6 +383,7 @@ public class MetaSyncService {
                 adset.setCampaignId(campaignId);
                 adset.setDailyBudget(dailyBudget);
                 adset.setTargetingJson(targetingJson);
+                adset.setOptimizationGoal(optimizationGoal);
             } else {
                 adset = new Adset();
                 adset.setAgencyId(agencyId);
@@ -339,6 +394,7 @@ public class MetaSyncService {
                 adset.setDailyBudget(dailyBudget);
                 adset.setTargetingJson(targetingJson);
                 adset.setStatus(mappedStatus);
+                adset.setOptimizationGoal(optimizationGoal);
                 adset.setCreatedAt(OffsetDateTime.now());
                 adset.setUpdatedAt(OffsetDateTime.now());
             }
@@ -442,22 +498,57 @@ public class MetaSyncService {
                 BigDecimal cpm = getBigDecimal(insight, "cpm");
                 BigDecimal ctr = getBigDecimal(insight, "ctr");
 
-                Set<String> conversionTypes = Set.of(
-                        "purchase",
-                        "omni_purchase",
+                // Parse conversions - use only ONE source to avoid triple-counting
+                // Priority: offsite_conversion.fb_pixel_purchase > purchase > omni_purchase
+                BigDecimal conversions = BigDecimal.ZERO;
+                if (insight.has("actions") && insight.get("actions").isArray()) {
+                    String[] purchasePriority = {
                         "offsite_conversion.fb_pixel_purchase",
-                        "lead",
-                        "offsite_conversion.fb_pixel_lead",
-                        "complete_registration"
-                );
-                Set<String> conversionValueTypes = Set.of(
                         "purchase",
-                        "omni_purchase",
-                        "offsite_conversion.fb_pixel_purchase"
-                );
+                        "omni_purchase"
+                    };
+                    for (String actionType : purchasePriority) {
+                        for (JsonNode action : insight.get("actions")) {
+                            if (actionType.equals(action.has("action_type") ? action.get("action_type").asText() : "")) {
+                                conversions = getBigDecimal(action, "value");
+                                break;
+                            }
+                        }
+                        if (conversions.compareTo(BigDecimal.ZERO) > 0) break;
+                    }
+                    // Also check for leads if no purchases found
+                    if (conversions.compareTo(BigDecimal.ZERO) == 0) {
+                        String[] leadTypes = {"lead", "offsite_conversion.fb_pixel_lead", "complete_registration"};
+                        for (String actionType : leadTypes) {
+                            for (JsonNode action : insight.get("actions")) {
+                                if (actionType.equals(action.has("action_type") ? action.get("action_type").asText() : "")) {
+                                    conversions = getBigDecimal(action, "value");
+                                    break;
+                                }
+                            }
+                            if (conversions.compareTo(BigDecimal.ZERO) > 0) break;
+                        }
+                    }
+                }
 
-                BigDecimal conversions = sumActionValues(insight, "actions", conversionTypes);
-                BigDecimal conversionValue = sumActionValues(insight, "action_values", conversionValueTypes);
+                // Parse conversion value with same priority (from action_values)
+                BigDecimal conversionValue = BigDecimal.ZERO;
+                if (insight.has("action_values") && insight.get("action_values").isArray()) {
+                    String[] valuePriority = {
+                        "offsite_conversion.fb_pixel_purchase",
+                        "purchase",
+                        "omni_purchase"
+                    };
+                    for (String actionType : valuePriority) {
+                        for (JsonNode actionVal : insight.get("action_values")) {
+                            if (actionType.equals(actionVal.has("action_type") ? actionVal.get("action_type").asText() : "")) {
+                                conversionValue = getBigDecimal(actionVal, "value");
+                                break;
+                            }
+                        }
+                        if (conversionValue.compareTo(BigDecimal.ZERO) > 0) break;
+                    }
+                }
 
                 BigDecimal roas = BigDecimal.ZERO;
                 if (spend.compareTo(BigDecimal.ZERO) > 0 && conversionValue.compareTo(BigDecimal.ZERO) > 0) {
@@ -538,23 +629,6 @@ public class MetaSyncService {
             }
         }
         return 0L;
-    }
-
-    private BigDecimal sumActionValues(JsonNode insight, String arrayField, Set<String> actionTypes) {
-        BigDecimal sum = BigDecimal.ZERO;
-        if (!insight.has(arrayField) || !insight.get(arrayField).isArray()) {
-            return sum;
-        }
-
-        for (JsonNode actionNode : insight.get(arrayField)) {
-            String actionType = actionNode.has("action_type")
-                    ? actionNode.get("action_type").asText()
-                    : "";
-            if (actionTypes.contains(actionType)) {
-                sum = sum.add(getBigDecimal(actionNode, "value"));
-            }
-        }
-        return sum;
     }
 
     private String textOrDefault(JsonNode node, String field, String defaultValue) {

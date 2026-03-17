@@ -9,9 +9,14 @@ export interface MetaConnection {
   adAccountId: string | null
   pixelId: string | null
   pageId: string | null
+  tokenKeyId: string
   status: string
   connectedAt: string | null
   lastSyncAt: string | null
+  tokenExpiresAt: string | null
+  lastTokenRefreshAt: string | null
+  tokenRefreshFailed: boolean
+  daysUntilExpiry: number | null
   lastErrorCode: string | null
   lastErrorMessage: string | null
   createdAt: string
@@ -30,6 +35,25 @@ export interface MetaSyncJob {
   finishedAt: string | null
   statsJson: string | null
   errorJson: string | null
+}
+
+export interface MetaAdAccountOption {
+  id: string
+  name: string
+  accountId: string
+  currency: string
+  timezone: string
+  status: number
+  statusLabel: string
+  selectable: boolean
+}
+
+export interface MetaConnectResult {
+  success: boolean
+  selectionRequired?: boolean
+  message?: string
+  clientId?: string
+  adAccounts?: MetaAdAccountOption[]
 }
 
 export const useMetaStore = defineStore('meta', () => {
@@ -56,7 +80,7 @@ export const useMetaStore = defineStore('meta', () => {
    * Start Meta OAuth flow in a popup window.
    * Returns a promise that resolves to true on success, false on failure.
    */
-  async function startConnect(clientId: string): Promise<boolean> {
+  async function startConnect(clientId: string): Promise<MetaConnectResult> {
     loading.value = true
     error.value = null
     try {
@@ -71,24 +95,32 @@ export const useMetaStore = defineStore('meta', () => {
       )
 
       // Listen for postMessage from callback page
-      return new Promise<boolean>((resolve) => {
+      return new Promise<MetaConnectResult>((resolve) => {
         const timeoutId = window.setTimeout(() => {
           window.removeEventListener('message', handler)
           if (popup && !popup.closed) popup.close()
           error.value = 'Connection timed out'
-          resolve(false)
+          resolve({ success: false, message: 'Connection timed out' })
         }, 300_000)
 
         const handler = (event: MessageEvent) => {
           if (event.data?.type === 'META_OAUTH_RESULT') {
             window.removeEventListener('message', handler)
             window.clearTimeout(timeoutId)
-            if (event.data.success) {
+            if (event.data.success && !event.data.selectionRequired) {
               fetchConnection(clientId)
-              resolve(true)
+              resolve({ success: true, message: event.data.message })
+            } else if (event.data.selectionRequired) {
+              resolve({
+                success: true,
+                selectionRequired: true,
+                message: event.data.message,
+                clientId: event.data.clientId,
+                adAccounts: event.data.adAccounts || [],
+              })
             } else {
               error.value = event.data.message || 'Connection failed'
-              resolve(false)
+              resolve({ success: false, message: error.value || 'Connection failed' })
             }
           }
         }
@@ -96,7 +128,22 @@ export const useMetaStore = defineStore('meta', () => {
       })
     } catch (e: any) {
       error.value = e.response?.data?.message || 'Failed to start connection'
-      return false
+      return { success: false, message: error.value || 'Failed to start connection' }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function selectAdAccount(clientId: string, adAccountId: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const { data } = await api.post(`/clients/${clientId}/meta/connect/select-account`, { adAccountId })
+      await fetchConnection(clientId)
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || 'Failed to connect selected ad account'
+      throw e
     } finally {
       loading.value = false
     }
@@ -142,7 +189,7 @@ export const useMetaStore = defineStore('meta', () => {
 
   return {
     connection, syncJobs, loading, error,
-    fetchConnection, startConnect, disconnect,
+    fetchConnection, startConnect, selectAdAccount, disconnect,
     fetchSyncJobs, triggerSync
   }
 })

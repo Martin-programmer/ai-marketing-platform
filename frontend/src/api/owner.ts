@@ -12,4 +12,14 @@ export const ownerApi = {
   inviteAgencyUser: (agencyId: string, data: { email: string; role: string; displayName?: string; clientId?: string }) =>
     api.post(`/owner/agencies/${agencyId}/users`, data),
   getIntelligence: () => api.get('/owner/intelligence'),
+
+  /* AI Audit */
+  getAiAuditLogs: (params: Record<string, unknown>) =>
+    api.post('/owner/ai-audit/logs', null, { params }),
+  getAiAuditSummary: (params?: { from?: string; to?: string }) =>
+    api.get('/owner/ai-audit/summary', { params }),
+  getAiAuditAgency: (agencyId: string, params?: { from?: string; to?: string }) =>
+    api.get(`/owner/ai-audit/agency/${agencyId}`, { params }),
+  getAiAuditLogDetail: (logId: string) =>
+    api.get(`/owner/ai-audit/log/${logId}`),
 }

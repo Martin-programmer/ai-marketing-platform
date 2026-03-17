@@ -46,6 +46,7 @@ const router = createRouter({
     { path: '/clients/:clientId/questionnaire', name: 'client-questionnaire', component: () => import('@/views/ClientQuestionnaireView.vue') },
     { path: '/creatives', name: 'creatives', component: () => import('@/views/CreativesView.vue') },
     { path: '/campaigns', name: 'campaigns', component: () => import('@/views/CampaignsView.vue') },
+    { path: '/clients/:clientId/campaigns/create', name: 'campaign-wizard', component: () => import('@/views/CampaignWizardView.vue') },
     { path: '/suggestions', name: 'suggestions', component: () => import('@/views/SuggestionsView.vue') },
     { path: '/reports', name: 'reports', component: () => import('@/views/ReportsView.vue') },
     { path: '/meta', name: 'meta', component: () => import('@/views/MetaView.vue') },
@@ -81,6 +82,12 @@ const router = createRouter({
       component: () => import('@/views/owner/OwnerAgencyDetailView.vue'),
       meta: { requiredRole: ['OWNER_ADMIN'] }
     },
+    {
+      path: '/owner/ai-audit',
+      name: 'owner-ai-audit',
+      component: () => import('@/views/owner/OwnerAiAuditView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
     // Client Portal routes (CLIENT_USER only)
     {
       path: '/portal',
@@ -92,6 +99,12 @@ const router = createRouter({
       path: '/portal/reports',
       name: 'portal-reports',
       component: () => import('@/views/portal/PortalReportsView.vue'),
+      meta: { requiredRole: ['CLIENT_USER'] }
+    },
+    {
+      path: '/portal/questionnaire',
+      name: 'portal-questionnaire',
+      component: () => import('@/views/portal/PortalQuestionnaireView.vue'),
       meta: { requiredRole: ['CLIENT_USER'] }
     },
     {

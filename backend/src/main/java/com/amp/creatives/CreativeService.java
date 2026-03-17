@@ -10,14 +10,16 @@ import com.amp.tenancy.TenantContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * Business logic for creative assets, packages and their lifecycle.
@@ -31,6 +33,7 @@ public class CreativeService {
     private final CreativeAssetRepository assetRepository;
     private final CreativeAnalysisRepository analysisRepository;
     private final CreativePackageRepository packageRepository;
+    private final CreativePackageItemRepository packageItemRepository;
     private final CopyVariantRepository copyVariantRepository;
     private final AuditService auditService;
     private final S3StorageService s3StorageService;
@@ -42,6 +45,7 @@ public class CreativeService {
     public CreativeService(CreativeAssetRepository assetRepository,
                            CreativeAnalysisRepository analysisRepository,
                            CreativePackageRepository packageRepository,
+                           CreativePackageItemRepository packageItemRepository,
                            CopyVariantRepository copyVariantRepository,
                            AuditService auditService,
                            S3StorageService s3StorageService,
@@ -52,6 +56,7 @@ public class CreativeService {
         this.assetRepository = assetRepository;
         this.analysisRepository = analysisRepository;
         this.packageRepository = packageRepository;
+        this.packageItemRepository = packageItemRepository;
         this.copyVariantRepository = copyVariantRepository;
         this.auditService = auditService;
         this.s3StorageService = s3StorageService;
@@ -64,8 +69,8 @@ public class CreativeService {
     // ---- Assets ----
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "creativeAssets", key = "#agencyId + '_' + #clientId")
     public List<AssetResponse> listAssets(UUID agencyId, UUID clientId) {
+        log.info("Fetching creative assets for agency={}, client={}", agencyId, clientId);
         return assetRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
                 .stream()
                 .map(AssetResponse::from)
@@ -243,12 +248,19 @@ public class CreativeService {
     // ---- Packages ----
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "creativePackages", key = "#agencyId + '_' + #clientId")
     public List<PackageResponse> listPackages(UUID agencyId, UUID clientId) {
-        return packageRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
-                .stream()
-                .map(PackageResponse::from)
-                .toList();
+        log.info("Fetching creative packages for agency={}, client={}", agencyId, clientId);
+        try {
+            List<CreativePackage> packages = packageRepository.findAllByAgencyIdAndClientId(agencyId, clientId);
+            log.info("Found {} creative packages for agency={}, client={}", packages.size(), agencyId, clientId);
+            return packages.stream()
+                    .map(PackageResponse::from)
+                    .toList();
+        } catch (Exception e) {
+            log.error("Error fetching creative packages for agency={}, client={}: {}",
+                    agencyId, clientId, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @CacheEvict(value = "creativePackages", key = "#agencyId + '_' + #clientId")
@@ -262,6 +274,7 @@ public class CreativeService {
         pkg.setClientId(clientId);
         pkg.setName(request.name());
         pkg.setObjective(request.objective() != null ? request.objective() : "SALES");
+        pkg.setNotes(request.notes());
         pkg.setStatus("DRAFT");
         pkg.setCreatedBy(userId);
         pkg.setCreatedAt(now);
@@ -273,6 +286,15 @@ public class CreativeService {
                 null, saved, UUID.randomUUID().toString());
 
         return PackageResponse.from(saved);
+    }
+
+    @CacheEvict(value = "creativePackages", allEntries = true)
+    public PackageResponse updatePackage(UUID agencyId, UUID packageId, UpdatePackageRequest request) {
+        CreativePackage pkg = requireEditablePackage(agencyId, packageId);
+        pkg.setName(request.name());
+        pkg.setObjective(request.objective() != null && !request.objective().isBlank() ? request.objective() : pkg.getObjective());
+        pkg.setNotes(request.notes());
+        return PackageResponse.from(packageRepository.save(pkg));
     }
 
     @CacheEvict(value = "creativePackages", allEntries = true)
@@ -320,6 +342,76 @@ public class CreativeService {
         return PackageResponse.from(saved);
     }
 
+    @CacheEvict(value = "creativePackages", allEntries = true)
+    public PackageResponse rejectPackage(UUID agencyId, UUID packageId) {
+        CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
+
+        if (!"IN_REVIEW".equals(pkg.getStatus())) {
+            throw new IllegalStateException(
+                    "Package must be in IN_REVIEW status to reject, current: " + pkg.getStatus());
+        }
+
+        String before = pkg.getStatus();
+        pkg.setStatus("DRAFT");
+        pkg.setApprovedBy(null);
+        pkg.setApprovedAt(null);
+        CreativePackage saved = packageRepository.save(pkg);
+
+        auditService.log(agencyId, pkg.getClientId(), null, TenantContextHolder.require().getRole(),
+                AuditAction.CREATIVE_APPROVE, "CREATIVE_PACKAGE", packageId,
+                before, "DRAFT", UUID.randomUUID().toString());
+
+        return PackageResponse.from(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PackageItemResponse> listPackageItems(UUID agencyId, UUID packageId) {
+        CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
+        return toPackageItemResponses(pkg, packageItemRepository.findAllByPackageIdOrderByCreatedAtAsc(packageId));
+    }
+
+    @CacheEvict(value = "creativePackages", allEntries = true)
+    public PackageItemResponse addPackageItem(UUID agencyId, UUID packageId, CreatePackageItemRequest request) {
+        CreativePackage pkg = requireEditablePackage(agencyId, packageId);
+
+        CreativeAsset asset = assetRepository.findByIdAndAgencyId(request.creativeAssetId(), agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativeAsset", request.creativeAssetId()));
+        CopyVariant copyVariant = copyVariantRepository.findById(request.copyVariantId())
+                .filter(variant -> variant.getAgencyId().equals(agencyId))
+                .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", request.copyVariantId()));
+
+        if (!pkg.getClientId().equals(asset.getClientId()) || !pkg.getClientId().equals(copyVariant.getClientId())) {
+            throw new IllegalStateException("Package item must reference creatives and copy from the same client.");
+        }
+        if (copyVariant.getCreativeAssetId() != null && !copyVariant.getCreativeAssetId().equals(asset.getId())) {
+            throw new IllegalStateException("Selected copy variant belongs to a different creative asset.");
+        }
+
+        CreativePackageItem item = new CreativePackageItem();
+        item.setAgencyId(agencyId);
+        item.setClientId(pkg.getClientId());
+        item.setPackageId(pkg.getId());
+        item.setCreativeAssetId(asset.getId());
+        item.setCopyVariantId(copyVariant.getId());
+        item.setCtaType(firstNonBlank(request.ctaType(), copyVariant.getCta(), "LEARN_MORE"));
+        item.setDestinationUrl(request.destinationUrl());
+        item.setWeight(normalizeWeight(request.weight()));
+        item.setCreatedAt(OffsetDateTime.now());
+
+        CreativePackageItem saved = packageItemRepository.save(item);
+        return toPackageItemResponse(saved, asset, copyVariant, analysisRepository.findByCreativeAssetId(asset.getId()).orElse(null));
+    }
+
+    @CacheEvict(value = "creativePackages", allEntries = true)
+    public void deletePackageItem(UUID agencyId, UUID packageId, UUID itemId) {
+        requireEditablePackage(agencyId, packageId);
+        CreativePackageItem item = packageItemRepository.findByIdAndPackageId(itemId, packageId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackageItem", itemId));
+        packageItemRepository.delete(item);
+    }
+
     // ---- Copy Variants ----
 
     @Transactional(readOnly = true)
@@ -339,6 +431,7 @@ public class CreativeService {
         CopyVariant cv = new CopyVariant();
         cv.setAgencyId(agencyId);
         cv.setClientId(clientId);
+        cv.setCreativeAssetId(request.assetId());
         cv.setLanguage(request.language());
         cv.setPrimaryText(request.primaryText());
         cv.setHeadline(request.headline());
@@ -426,5 +519,83 @@ public class CreativeService {
                 .filter(v -> v.getAgencyId().equals(agencyId))
                 .orElseThrow(() -> new ResourceNotFoundException("CopyVariant", variantId))
                 .getClientId();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CreativePackageItem> listApprovedPackageItems(UUID agencyId, UUID clientId, String objective) {
+        List<CreativePackage> approved = packageRepository
+                .findAllByAgencyIdAndClientIdAndStatusOrderByApprovedAtDesc(agencyId, clientId, "APPROVED");
+        if (approved.isEmpty()) {
+            return List.of();
+        }
+
+        CreativePackage selectedPackage = approved.stream()
+                .filter(pkg -> objective != null && objective.equalsIgnoreCase(pkg.getObjective()))
+                .findFirst()
+                .orElse(approved.get(0));
+
+        return packageItemRepository.findAllByPackageIdOrderByCreatedAtAsc(selectedPackage.getId());
+    }
+
+    private CreativePackage requireEditablePackage(UUID agencyId, UUID packageId) {
+        CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
+        if (!"DRAFT".equals(pkg.getStatus())) {
+            throw new IllegalStateException("Only DRAFT packages can be edited.");
+        }
+        return pkg;
+    }
+
+    private List<PackageItemResponse> toPackageItemResponses(CreativePackage pkg, List<CreativePackageItem> items) {
+        Map<UUID, CreativeAsset> assetsById = assetRepository.findAllByAgencyIdAndClientId(pkg.getAgencyId(), pkg.getClientId())
+                .stream()
+                .collect(Collectors.toMap(CreativeAsset::getId, asset -> asset));
+        Map<UUID, CopyVariant> copyById = copyVariantRepository.findAllByAgencyIdAndClientId(pkg.getAgencyId(), pkg.getClientId())
+                .stream()
+                .collect(Collectors.toMap(CopyVariant::getId, variant -> variant));
+        Map<UUID, CreativeAnalysis> analysisByAssetId = assetsById.keySet().stream()
+                .map(assetId -> analysisRepository.findByCreativeAssetId(assetId).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toMap(CreativeAnalysis::getCreativeAssetId, analysis -> analysis, (left, right) -> left));
+
+        return items.stream()
+                .sorted(Comparator.comparing(CreativePackageItem::getCreatedAt))
+                .map(item -> toPackageItemResponse(item, assetsById.get(item.getCreativeAssetId()), copyById.get(item.getCopyVariantId()), analysisByAssetId.get(item.getCreativeAssetId())))
+                .toList();
+    }
+
+    private PackageItemResponse toPackageItemResponse(CreativePackageItem item,
+                                                      CreativeAsset asset,
+                                                      CopyVariant copyVariant,
+                                                      CreativeAnalysis analysis) {
+        return new PackageItemResponse(
+                item.getId(),
+                item.getAgencyId(),
+                item.getClientId(),
+                item.getPackageId(),
+                item.getCreativeAssetId(),
+                item.getCopyVariantId(),
+                item.getCtaType(),
+                item.getDestinationUrl(),
+                item.getWeight(),
+                item.getCreatedAt(),
+                asset != null ? AssetResponse.from(asset) : null,
+                copyVariant != null ? CopyVariantResponse.from(copyVariant) : null,
+                analysis != null && analysis.getQualityScore() != null ? analysis.getQualityScore().doubleValue() : null
+        );
+    }
+
+    private int normalizeWeight(Integer weight) {
+        int resolved = weight == null ? 50 : weight;
+        return Math.max(1, Math.min(100, resolved));
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

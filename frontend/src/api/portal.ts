@@ -3,6 +3,9 @@ import api from './client'
 export const portalApi = {
   getMyClient: () => api.get('/portal/me/client'),
   getMyProfile: () => api.get('/portal/me/client/profile'),
+  getQuestionnaire: () => api.get('/portal/questionnaire'),
+  saveQuestionnaire: (data: Record<string, any>, complete = false) =>
+    api.put(`/portal/questionnaire?complete=${complete}`, data),
   getReports: () => api.get('/portal/reports'),
   getReport: (id: string) => api.get(`/portal/reports/${id}`),
   getKpis: (params?: { from?: string; to?: string }) =>

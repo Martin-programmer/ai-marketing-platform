@@ -52,6 +52,15 @@ public class MetaConnection {
     @Column(name = "last_sync_at")
     private OffsetDateTime lastSyncAt;
 
+    @Column(name = "token_expires_at")
+    private OffsetDateTime tokenExpiresAt;
+
+    @Column(name = "last_token_refresh_at")
+    private OffsetDateTime lastTokenRefreshAt;
+
+    @Column(name = "token_refresh_failed", nullable = false)
+    private boolean tokenRefreshFailed;
+
     @Column(name = "last_error_code")
     private String lastErrorCode;
 
@@ -103,6 +112,15 @@ public class MetaConnection {
 
     public OffsetDateTime getLastSyncAt() { return lastSyncAt; }
     public void setLastSyncAt(OffsetDateTime lastSyncAt) { this.lastSyncAt = lastSyncAt; }
+
+    public OffsetDateTime getTokenExpiresAt() { return tokenExpiresAt; }
+    public void setTokenExpiresAt(OffsetDateTime tokenExpiresAt) { this.tokenExpiresAt = tokenExpiresAt; }
+
+    public OffsetDateTime getLastTokenRefreshAt() { return lastTokenRefreshAt; }
+    public void setLastTokenRefreshAt(OffsetDateTime lastTokenRefreshAt) { this.lastTokenRefreshAt = lastTokenRefreshAt; }
+
+    public boolean isTokenRefreshFailed() { return tokenRefreshFailed; }
+    public void setTokenRefreshFailed(boolean tokenRefreshFailed) { this.tokenRefreshFailed = tokenRefreshFailed; }
 
     public String getLastErrorCode() { return lastErrorCode; }
     public void setLastErrorCode(String lastErrorCode) { this.lastErrorCode = lastErrorCode; }

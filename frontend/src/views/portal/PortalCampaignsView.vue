@@ -4,7 +4,7 @@
     <div class="d-flex align-center mb-6">
       <div>
         <h1 class="text-h4 font-weight-bold">Campaigns</h1>
-        <p class="text-body-1 text-medium-emphasis mt-1">Your active advertising campaigns</p>
+        <p class="text-body-1 text-medium-emphasis mt-1">Your advertising campaigns</p>
       </div>
     </div>
 
@@ -84,7 +84,8 @@ const headers = [
 function statusColor(status: string): string {
   const map: Record<string, string> = {
     PUBLISHED: 'success',
-    PAUSED: 'warning',
+    ACTIVE: 'success',
+    PAUSED: 'grey',
     ARCHIVED: 'grey',
   }
   return map[status] || 'grey'

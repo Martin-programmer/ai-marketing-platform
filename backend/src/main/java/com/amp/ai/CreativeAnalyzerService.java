@@ -29,13 +29,16 @@ public class CreativeAnalyzerService {
 
     private static final String SYSTEM_PROMPT = """
             You are an expert digital-advertising creative analyst. \
-            Evaluate the provided image for use in paid social / display campaigns. \
+            Evaluate the provided creative (image or video) for use in paid social / display campaigns. \
+            If this is a video, describe: the storyline/narrative, key scenes, \
+            text overlays, call to action, pacing/energy level, music mood (if detectable), \
+            and overall production quality. \
             Return ONLY a JSON object (no markdown fences, no extra text) with exactly these keys:
             {
               "quality_score": <number 0-100>,
               "composition": "<brief assessment of layout, balance, focal point>",
               "color_palette": ["#hex1","#hex2","#hex3"],
-              "text_readability": "<assessment of any text in the image>",
+              "text_readability": "<assessment of any text in the image/video>",
               "brand_consistency": "<notes on logo placement, brand colours if detectable>",
               "platform_fit": {
                 "facebook_feed": "<suitability 1-10 and why>",
@@ -79,8 +82,9 @@ public class CreativeAnalyzerService {
             return null;
         }
 
-        if (!isAnalyzableImage(asset.getMimeType())) {
-            log.info("Asset {} is not an image ({}), skipping analysis", asset.getId(), asset.getMimeType());
+        if (!isAnalyzableAsset(asset)) {
+            log.info("Asset {} is not analyzable (type={}, mime={}), skipping",
+                    asset.getId(), asset.getAssetType(), asset.getMimeType());
             return null;
         }
 
@@ -90,20 +94,59 @@ public class CreativeAnalyzerService {
             return analysisRepository.findByCreativeAssetId(asset.getId()).orElse(null);
         }
 
-        log.info("Starting creative analysis for asset {} ({})", asset.getId(), asset.getOriginalFilename());
+        log.info("Starting creative analysis for asset {} ({}, type={})",
+                asset.getId(), asset.getOriginalFilename(), asset.getAssetType());
 
-        // Generate presigned URL for Claude to access the image
-        String imageUrl = s3StorageService.generatePresignedGetUrl(asset.getS3Key());
         String clientContext = aiContextBuilder.buildContext(asset.getAgencyId(), asset.getClientId());
+        ClaudeApiClient.ClaudeResponse response = null;
 
-        String userMessage = String.format(
-            "Analyze this creative asset. File: %s, Type: %s.%n%nShared client context:%n%s%n%n"
-                + "Provide your analysis as the JSON object described in the system prompt.",
-            asset.getOriginalFilename(), asset.getMimeType(), clientContext);
+        if ("IMAGE".equals(asset.getAssetType())) {
+            // Existing flow: send image URL to Claude Vision
+            String imageUrl = s3StorageService.generatePresignedGetUrl(asset.getS3Key());
+            String userMessage = String.format(
+                "Analyze this creative asset. File: %s, Type: %s.%n%nShared client context:%n%s%n%n"
+                    + "Provide your analysis as the JSON object described in the system prompt.",
+                asset.getOriginalFilename(), asset.getMimeType(), clientContext);
 
-        ClaudeApiClient.ClaudeResponse response = claudeClient.sendVisionMessage(
-                SYSTEM_PROMPT, userMessage, imageUrl, asset.getMimeType(),
-                MODULE, asset.getAgencyId(), asset.getClientId());
+            response = claudeClient.sendVisionMessage(
+                    SYSTEM_PROMPT, userMessage, imageUrl, asset.getMimeType(),
+                    MODULE, asset.getAgencyId(), asset.getClientId());
+
+        } else if ("VIDEO".equals(asset.getAssetType())) {
+            // New flow: download video from S3, send to Claude as base64
+            byte[] videoBytes = s3StorageService.downloadFile(asset.getS3Key());
+
+            if (videoBytes != null && videoBytes.length <= 20 * 1024 * 1024) {
+                // Video within Claude's size limit — send for full analysis
+                String videoUserMessage = "Analyze this video creative. Watch the full video and describe what happens, " +
+                    "the visual style, messaging, and how it could be used in advertising. " +
+                    "File: " + asset.getOriginalFilename() + ", Type: " + asset.getMimeType() + "." +
+                    "\n\nShared client context:\n" + clientContext + "\n\n" +
+                    "Respond ONLY in valid JSON as described in the system prompt.";
+
+                response = claudeClient.sendVideoMessage(SYSTEM_PROMPT,
+                        videoUserMessage, videoBytes, asset.getMimeType(),
+                        MODULE, asset.getAgencyId(), asset.getClientId());
+
+            } else if (videoBytes != null) {
+                // Video too large for Claude — fall back to metadata analysis
+                log.warn("Video asset {} too large for Claude vision ({}MB), falling back to metadata analysis",
+                        asset.getId(), videoBytes.length / (1024 * 1024));
+                response = claudeClient.sendMessage(SYSTEM_PROMPT,
+                    "This is a video creative that is too large to analyze visually. " +
+                    "Based on metadata: filename=" + asset.getOriginalFilename() +
+                    ", size=" + asset.getSizeBytes() + " bytes, mime=" + asset.getMimeType() +
+                    ". Provide analysis based on what you can infer. " +
+                    "\n\nShared client context:\n" + clientContext + "\n\n" +
+                    "Respond ONLY in valid JSON as described in the system prompt.",
+                    MODULE, asset.getAgencyId(), asset.getClientId());
+
+            } else {
+                // S3 download failed or S3 disabled
+                log.warn("Could not download video asset {} from S3, skipping analysis", asset.getId());
+                return null;
+            }
+        }
 
         if (!response.isSuccess()) {
             log.error("Creative analysis failed for asset {}: {}", asset.getId(), response.error());
@@ -151,8 +194,11 @@ public class CreativeAnalyzerService {
         return analyze(asset);
     }
 
-    private boolean isAnalyzableImage(String mimeType) {
-        if (mimeType == null) return false;
-        return mimeType.startsWith("image/");
+    private boolean isAnalyzableAsset(CreativeAsset asset) {
+        if (asset == null || asset.getMimeType() == null) return false;
+        String type = asset.getAssetType();
+        if ("IMAGE".equals(type)) return asset.getMimeType().startsWith("image/");
+        if ("VIDEO".equals(type)) return asset.getMimeType().startsWith("video/");
+        return false;
     }
 }

@@ -37,6 +37,12 @@ public class CreativePackageItem {
     @Column(name = "copy_variant_id", nullable = false)
     private UUID copyVariantId;
 
+    @Column(name = "cta_type")
+    private String ctaType;
+
+    @Column(name = "destination_url")
+    private String destinationUrl;
+
     @Column(name = "weight", nullable = false)
     private Integer weight;
 
@@ -64,6 +70,12 @@ public class CreativePackageItem {
 
     public UUID getCopyVariantId() { return copyVariantId; }
     public void setCopyVariantId(UUID copyVariantId) { this.copyVariantId = copyVariantId; }
+
+    public String getCtaType() { return ctaType; }
+    public void setCtaType(String ctaType) { this.ctaType = ctaType; }
+
+    public String getDestinationUrl() { return destinationUrl; }
+    public void setDestinationUrl(String destinationUrl) { this.destinationUrl = destinationUrl; }
 
     public Integer getWeight() { return weight; }
     public void setWeight(Integer weight) { this.weight = weight; }

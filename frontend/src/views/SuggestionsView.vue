@@ -8,6 +8,17 @@
       </v-chip>
     </div>
 
+    <v-alert v-if="campaignFilterActive" type="info" variant="tonal" class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-2">
+        <span>
+          Showing suggestions for campaign:
+          <strong>{{ campaignFilterDisplayName }}</strong>
+        </span>
+        <v-spacer />
+        <v-btn size="small" variant="text" @click="clearCampaignFilter">Clear filter</v-btn>
+      </div>
+    </v-alert>
+
     <v-card class="mb-4" variant="outlined">
       <v-card-text>
         <v-row>
@@ -495,6 +506,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
 import { useClientStore } from '@/stores/clients'
 import { useSuggestionStore } from '@/stores/suggestions'
@@ -517,6 +529,8 @@ interface RecommendedCreative {
 
 const store = useSuggestionStore()
 const clientStore = useClientStore()
+const route = useRoute()
+const router = useRouter()
 
 const selectedClient = ref<string | null>(null)
 const selectedType = ref<SuggestionTypeFilter>('ALL')
@@ -542,6 +556,32 @@ const scopeMaps = reactive({
   ads: {} as Record<string, string>,
 })
 const snackbar = ref({ show: false, text: '', color: 'success' })
+
+const campaignFilterId = computed(() => {
+  const value = route.query.campaignId
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+})
+
+const campaignFilterName = computed(() => {
+  const value = route.query.campaignName
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+})
+
+const suggestionIdFilter = computed(() => {
+  const value = route.query.suggestionIds
+  const raw = Array.isArray(value) ? value.join(',') : value
+  if (!raw) return null
+  const ids = raw.split(',').map((item) => item.trim()).filter(Boolean)
+  return ids.length ? new Set(ids) : null
+})
+
+const campaignFilterActive = computed(() => Boolean(campaignFilterId.value || suggestionIdFilter.value?.size))
+
+const campaignFilterDisplayName = computed(() => {
+  if (campaignFilterName.value) return campaignFilterName.value
+  if (campaignFilterId.value) return scopeMaps.campaigns[campaignFilterId.value] || shortId(campaignFilterId.value)
+  return 'Selected campaign'
+})
 
 const typeOptions: Array<{ label: string; value: SuggestionTypeFilter }> = [
   { label: 'All', value: 'ALL' },
@@ -571,6 +611,7 @@ const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto
 
 const baseFilteredSuggestions = computed(() => {
   return [...store.suggestions]
+    .filter((suggestion) => !suggestionIdFilter.value || suggestionIdFilter.value.has(suggestion.id))
     .filter((suggestion) => selectedType.value === 'ALL' || suggestion.suggestionType === selectedType.value)
     .filter((suggestion) => matchesDateRange(suggestion.createdAt))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
@@ -822,6 +863,15 @@ function setDatePreset(value: DatePreset) {
   selectedDatePreset.value = value
 }
 
+async function clearCampaignFilter() {
+  await router.replace({
+    name: 'suggestions',
+    query: {
+      clientId: selectedClient.value || undefined,
+    },
+  })
+}
+
 async function loadScopeMaps(clientId: string) {
   scopeMaps.campaigns = {}
   scopeMaps.adsets = {}
@@ -984,9 +1034,11 @@ async function submitSuggestionFeedback() {
 
 onMounted(async () => {
   await clientStore.fetchClients()
+  const routeClientId = Array.isArray(route.query.clientId) ? route.query.clientId[0] : route.query.clientId
   const firstClient = clientStore.clients[0]
-  if (!selectedClient.value && firstClient) {
-    selectedClient.value = firstClient.id
+  const initialClientId = routeClientId || firstClient?.id || null
+  if (!selectedClient.value && initialClientId) {
+    selectedClient.value = initialClientId
     await onClientChange(selectedClient.value)
   }
 })

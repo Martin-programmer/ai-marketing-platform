@@ -3,6 +3,7 @@ package com.amp.clients;
 import com.amp.ai.AiSuggestionService;
 import com.amp.ai.ClientPortalAiService;
 import com.amp.ai.SuggestionResponse;
+import com.amp.campaigns.CampaignPerformanceResponse;
 import com.amp.campaigns.CampaignResponse;
 import com.amp.campaigns.CampaignService;
 import com.amp.common.exception.ResourceNotFoundException;
@@ -30,6 +31,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -121,6 +123,21 @@ public class ClientPortalController {
     public ResponseEntity<ClientProfileResponse> myClientProfile() {
         TenantContext ctx = requireClientUser();
         return ResponseEntity.ok(ClientProfileResponse.from(profileService.getProfile(ctx.getClientId())));
+    }
+
+    @GetMapping("/questionnaire")
+    public ResponseEntity<Map<String, Object>> getQuestionnaire() {
+        TenantContext ctx = requireClientUser();
+        return ResponseEntity.ok(profileService.getQuestionnaire(ctx.getClientId()));
+    }
+
+    @PutMapping("/questionnaire")
+    public ResponseEntity<Map<String, Object>> saveQuestionnaire(
+            @RequestBody ClientQuestionnaireRequest request,
+            @RequestParam(defaultValue = "false") boolean complete) {
+        TenantContext ctx = requireClientUser();
+        profileService.saveQuestionnaire(ctx.getAgencyId(), ctx.getClientId(), request, complete);
+        return ResponseEntity.ok(profileService.getQuestionnaire(ctx.getClientId()));
     }
 
     // ── Reports ─────────────────────────────────────────────────
@@ -262,6 +279,10 @@ public class ClientPortalController {
             day.put("cpc", agg.clicks > 0
                     ? agg.spend.divide(BigDecimal.valueOf(agg.clicks), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO);
+            day.put("conversionValue", agg.conversionValue.setScale(2, RoundingMode.HALF_UP));
+            day.put("roas", agg.spend.compareTo(BigDecimal.ZERO) > 0
+                    ? agg.conversionValue.divide(agg.spend, 4, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO);
             dailyData.add(day);
         }
 
@@ -279,39 +300,11 @@ public class ClientPortalController {
         UUID agency = ctx.getAgencyId();
         UUID clientId = ctx.getClientId();
 
-        List<InsightDaily> insights = insightDailyRepository.findAllByAgencyIdAndClientIdAndDateBetween(
-                agency, clientId, from, to);
-
-        Map<String, CampaignAggregate> byEntity = new LinkedHashMap<>();
-        for (InsightDaily i : insights) {
-            String key = i.getEntityType() + ":" + i.getEntityId();
-            byEntity.computeIfAbsent(key,
-                    k -> new CampaignAggregate(i.getEntityType(), i.getEntityId())).add(i);
-        }
-
-        List<Map<String, Object>> topList = byEntity.values().stream()
-                .sorted((a, b) -> b.spend.compareTo(a.spend))
-                .limit(limit)
-                .map(agg -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("entityType", agg.entityType);
-                    m.put("entityId", agg.entityId);
-                    m.put("spend", agg.spend.setScale(2, RoundingMode.HALF_UP));
-                    m.put("impressions", agg.impressions);
-                    m.put("clicks", agg.clicks);
-                    m.put("conversions", agg.conversions.setScale(2, RoundingMode.HALF_UP));
-                    m.put("ctr", agg.impressions > 0
-                            ? BigDecimal.valueOf(agg.clicks)
-                                .divide(BigDecimal.valueOf(agg.impressions), 4, RoundingMode.HALF_UP)
-                                .multiply(BigDecimal.valueOf(100))
-                                .setScale(2, RoundingMode.HALF_UP)
-                            : BigDecimal.ZERO);
-                    m.put("cpc", agg.clicks > 0
-                            ? agg.spend.divide(BigDecimal.valueOf(agg.clicks), 2, RoundingMode.HALF_UP)
-                            : BigDecimal.ZERO);
-                    return m;
-                })
-                .toList();
+        List<CampaignPerformanceResponse> topList = campaignService
+            .listCampaignPerformance(agency, clientId, from, to)
+            .stream()
+            .limit(limit)
+            .toList();
 
         return ResponseEntity.ok(topList);
     }
@@ -324,7 +317,6 @@ public class ClientPortalController {
         List<CampaignResponse> campaigns = campaignService.listCampaigns(ctx.getAgencyId(), ctx.getClientId())
                 .stream()
                 .map(CampaignResponse::from)
-                .filter(c -> !VISIBLE_CAMPAIGN_STATUSES_EXCLUDE.contains(c.status()))
                 .toList();
         return ResponseEntity.ok(campaigns);
     }
@@ -422,33 +414,15 @@ public class ClientPortalController {
         long impressions;
         long clicks;
         BigDecimal conversions = BigDecimal.ZERO;
+        BigDecimal conversionValue = BigDecimal.ZERO;
 
         void add(InsightDaily i) {
             spend = spend.add(i.getSpend() != null ? i.getSpend() : BigDecimal.ZERO);
             impressions += i.getImpressions();
             clicks += i.getClicks();
             conversions = conversions.add(i.getConversions() != null ? i.getConversions() : BigDecimal.ZERO);
+            conversionValue = conversionValue.add(i.getConversionValue() != null ? i.getConversionValue() : BigDecimal.ZERO);
         }
     }
 
-    private static class CampaignAggregate {
-        final String entityType;
-        final UUID entityId;
-        BigDecimal spend = BigDecimal.ZERO;
-        long impressions;
-        long clicks;
-        BigDecimal conversions = BigDecimal.ZERO;
-
-        CampaignAggregate(String entityType, UUID entityId) {
-            this.entityType = entityType;
-            this.entityId = entityId;
-        }
-
-        void add(InsightDaily i) {
-            spend = spend.add(i.getSpend() != null ? i.getSpend() : BigDecimal.ZERO);
-            impressions += i.getImpressions();
-            clicks += i.getClicks();
-            conversions = conversions.add(i.getConversions() != null ? i.getConversions() : BigDecimal.ZERO);
-        }
-    }
 }

@@ -1,0 +1,1 @@
+ALTER TABLE adset ALTER COLUMN optimization_goal DROP NOT NULL;

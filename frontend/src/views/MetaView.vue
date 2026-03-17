@@ -21,6 +21,34 @@
       {{ store.error }}
     </v-alert>
 
+    <v-alert v-if="selectedClient && isTokenExpired" type="error" variant="tonal" prominent class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-3">
+        <div>
+          <div class="font-weight-bold">Meta token expired</div>
+          <div class="text-body-2">Reconnect this client before running the next sync.</div>
+        </div>
+        <v-spacer />
+        <v-btn color="error" variant="flat" @click="handleConnect">Reconnect</v-btn>
+      </div>
+    </v-alert>
+
+    <v-alert v-else-if="selectedClient && (tokenExpiresSoon || refreshWarning)" type="warning" variant="tonal" class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-3">
+        <div>
+          <div class="font-weight-bold">
+            {{ refreshWarning ? 'Automatic Meta token refresh needs attention' : 'Meta token expires soon' }}
+          </div>
+          <div class="text-body-2">
+            {{ refreshWarning
+              ? 'Automatic refresh failed. Reconnect if the next nightly refresh does not recover.'
+              : `This token expires in ${store.connection?.daysUntilExpiry ?? 0} day(s).` }}
+          </div>
+        </div>
+        <v-spacer />
+        <v-btn color="warning" variant="outlined" @click="handleConnect">Reconnect</v-btn>
+      </div>
+    </v-alert>
+
     <v-alert v-if="!selectedClient" type="info" class="mb-4">
       Select a client to manage Meta integration.
     </v-alert>
@@ -61,6 +89,18 @@
               <div class="text-caption text-grey">Last Sync At</div>
               <div>{{ store.connection.lastSyncAt ? new Date(store.connection.lastSyncAt).toLocaleString() : '—' }}</div>
             </v-col>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-grey">Token Expires</div>
+              <div>{{ store.connection.tokenExpiresAt ? new Date(store.connection.tokenExpiresAt).toLocaleString() : '—' }}</div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-grey">Days Until Expiry</div>
+              <div>{{ store.connection.daysUntilExpiry ?? '—' }}</div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="text-caption text-grey">Last Token Refresh</div>
+              <div>{{ store.connection.lastTokenRefreshAt ? new Date(store.connection.lastTokenRefreshAt).toLocaleString() : '—' }}</div>
+            </v-col>
           </v-row>
 
           <!-- Error alert -->
@@ -80,14 +120,14 @@
             No Meta connection found for this client.
           </p>
         </v-card-text>
-        <v-card-actions v-if="!store.connection || store.connection.status === 'DISCONNECTED' || store.connection.status === 'ERROR'">
+        <v-card-actions v-if="!store.connection || store.connection.status === 'DISCONNECTED' || store.connection.status === 'ERROR' || store.connection.status === 'TOKEN_EXPIRED'">
           <v-btn color="primary" :loading="store.loading" @click="handleConnect" variant="flat">
             <v-icon start>mdi-facebook</v-icon>
-            Connect with Facebook
+            {{ store.connection?.status === 'TOKEN_EXPIRED' ? 'Reconnect with Facebook' : 'Connect with Facebook' }}
           </v-btn>
           <v-btn color="secondary" @click="showManualDialog = true" variant="outlined">
             <v-icon start>mdi-key-variant</v-icon>
-            Connect with Token
+            {{ store.connection?.status === 'TOKEN_EXPIRED' ? 'Reconnect with Token' : 'Connect with Token' }}
           </v-btn>
         </v-card-actions>
         <v-card-actions v-if="store.connection?.status === 'CONNECTED'">
@@ -98,7 +138,7 @@
       </v-card>
 
       <!-- Sync Controls -->
-      <v-card class="mb-6" v-if="store.connection?.status === 'CONNECTED'">
+      <v-card class="mb-6" v-if="canSync">
         <v-card-title>
           <v-icon start>mdi-sync</v-icon>
           Data Sync
@@ -238,6 +278,58 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="showAccountSelectDialog" max-width="760" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon start>mdi-facebook</v-icon>
+          Select Ad Account
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+            Choose which Meta ad account to connect for this client.
+          </v-alert>
+
+          <v-radio-group v-model="selectedOauthAdAccount" class="mt-2">
+            <v-card
+              v-for="account in oauthAdAccounts"
+              :key="account.id"
+              variant="outlined"
+              class="mb-3"
+              :class="{ 'opacity-60': !account.selectable }"
+            >
+              <v-card-text class="py-3">
+                <div class="d-flex align-center ga-3">
+                  <v-radio :value="account.id" :disabled="!account.selectable" />
+                  <div class="flex-grow-1">
+                    <div class="font-weight-medium">{{ account.name || account.accountId }}</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ account.id }} · {{ account.currency || '—' }} · {{ account.timezone || '—' }}
+                    </div>
+                  </div>
+                  <v-chip :color="account.selectable ? 'success' : 'grey'" size="small">
+                    {{ account.statusLabel }}
+                  </v-chip>
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-radio-group>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeAccountSelection">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="store.loading"
+            :disabled="!selectedOauthAdAccount"
+            @click="submitSelectedAdAccount"
+          >
+            Connect
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
       {{ snackbar.text }}
     </v-snackbar>
@@ -245,15 +337,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useMetaStore } from '@/stores/meta'
 import { useClientStore } from '@/stores/clients'
 import api from '@/api/client'
+import type { MetaAdAccountOption } from '@/stores/meta'
+import { useRoute } from 'vue-router'
 
 const store = useMetaStore()
 const clientStore = useClientStore()
+const route = useRoute()
 const selectedClient = ref<string | null>(null)
 const snackbar = ref({ show: false, text: '', color: 'success' })
+const showAccountSelectDialog = ref(false)
+const oauthAdAccounts = ref<MetaAdAccountOption[]>([])
+const selectedOauthAdAccount = ref<string | null>(null)
 
 // Manual token connect state
 const showManualDialog = ref(false)
@@ -264,8 +362,16 @@ const tokenError = ref<string | null>(null)
 const selectedAdAccount = ref<string | null>(null)
 const selectedPage = ref<string | null>(null)
 
+const canSync = computed(() => store.connection?.status === 'CONNECTED')
+const isTokenExpired = computed(() => store.connection?.status === 'TOKEN_EXPIRED')
+const tokenExpiresSoon = computed(() => {
+  if (store.connection?.status !== 'CONNECTED') return false
+  return store.connection.daysUntilExpiry != null && store.connection.daysUntilExpiry <= 7
+})
+const refreshWarning = computed(() => !!store.connection?.tokenRefreshFailed && store.connection?.status !== 'TOKEN_EXPIRED')
+
 function connectionStatusColor(status: string | undefined) {
-  const map: Record<string, string> = { CONNECTED: 'success', DISCONNECTED: 'error', PENDING: 'warning', ERROR: 'error' }
+  const map: Record<string, string> = { CONNECTED: 'success', DISCONNECTED: 'error', PENDING: 'warning', ERROR: 'error', TOKEN_EXPIRED: 'error' }
   return map[status || ''] || 'grey'
 }
 
@@ -299,12 +405,36 @@ async function onClientChange(clientId: string) {
 
 async function handleConnect() {
   if (!selectedClient.value) return
-  const success = await store.startConnect(selectedClient.value)
-  if (success) {
+  const result = await store.startConnect(selectedClient.value)
+  if (result.selectionRequired) {
+    oauthAdAccounts.value = result.adAccounts || []
+    selectedOauthAdAccount.value = oauthAdAccounts.value.find((account) => account.selectable)?.id || null
+    showAccountSelectDialog.value = true
+    return
+  }
+  if (result.success) {
     snackbar.value = { show: true, text: 'Successfully connected to Meta!', color: 'success' }
     // Also load sync jobs now that we're connected
     await store.fetchSyncJobs(selectedClient.value)
   }
+}
+
+async function submitSelectedAdAccount() {
+  if (!selectedClient.value || !selectedOauthAdAccount.value) return
+  try {
+    await store.selectAdAccount(selectedClient.value, selectedOauthAdAccount.value)
+    showAccountSelectDialog.value = false
+    snackbar.value = { show: true, text: 'Successfully connected to Meta!', color: 'success' }
+    await store.fetchSyncJobs(selectedClient.value)
+  } catch {
+    snackbar.value = { show: true, text: store.error || 'Connection failed', color: 'error' }
+  }
+}
+
+function closeAccountSelection() {
+  showAccountSelectDialog.value = false
+  oauthAdAccounts.value = []
+  selectedOauthAdAccount.value = null
 }
 
 async function handleDisconnect() {
@@ -377,5 +507,30 @@ function closeManualDialog() {
   selectedPage.value = null
 }
 
-onMounted(() => clientStore.fetchClients())
+function routeClientId(): string | null {
+  return typeof route.query.clientId === 'string' ? route.query.clientId : null
+}
+
+onMounted(async () => {
+  await clientStore.fetchClients()
+  const initialClientId = routeClientId() && clientStore.clients.some((client) => client.id === routeClientId())
+    ? routeClientId()
+    : clientStore.clients[0]?.id || null
+  selectedClient.value = initialClientId
+  if (initialClientId) {
+    await onClientChange(initialClientId)
+  }
+})
+
+watch(() => route.query.clientId, async () => {
+  const nextClientId = routeClientId()
+  if (!nextClientId || selectedClient.value === nextClientId) {
+    return
+  }
+  if (!clientStore.clients.some((client) => client.id === nextClientId)) {
+    return
+  }
+  selectedClient.value = nextClientId
+  await onClientChange(nextClientId)
+})
 </script>

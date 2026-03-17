@@ -1,0 +1,4 @@
+ALTER TABLE meta_connection
+    ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS last_token_refresh_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS token_refresh_failed BOOLEAN NOT NULL DEFAULT FALSE;

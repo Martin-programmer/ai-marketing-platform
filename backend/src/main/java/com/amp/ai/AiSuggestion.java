@@ -72,7 +72,7 @@ public class AiSuggestion {
     @Column(name = "reviewed_at")
     private OffsetDateTime reviewedAt;
 
-    protected AiSuggestion() {}
+    public AiSuggestion() {}
 
     @PreUpdate
     private void onUpdate() {}

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -157,6 +158,44 @@ public class CreativeController {
         UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
         accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         return ResponseEntity.ok(creativeService.approvePackage(agencyId(), packageId));
+    }
+
+    @PostMapping("/creative-packages/{packageId}/reject")
+    public ResponseEntity<PackageResponse> rejectPackage(@PathVariable UUID packageId) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.AI_APPROVE);
+        return ResponseEntity.ok(creativeService.rejectPackage(agencyId(), packageId));
+    }
+
+    @PutMapping("/creative-packages/{packageId}")
+    public ResponseEntity<PackageResponse> updatePackage(@PathVariable UUID packageId,
+                                                         @Valid @RequestBody UpdatePackageRequest request) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        return ResponseEntity.ok(creativeService.updatePackage(agencyId(), packageId, request));
+    }
+
+    @GetMapping("/creative-packages/{packageId}/items")
+    public ResponseEntity<List<PackageItemResponse>> listPackageItems(@PathVariable UUID packageId) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
+        return ResponseEntity.ok(creativeService.listPackageItems(agencyId(), packageId));
+    }
+
+    @PostMapping("/creative-packages/{packageId}/items")
+    public ResponseEntity<PackageItemResponse> addPackageItem(@PathVariable UUID packageId,
+                                                              @Valid @RequestBody CreatePackageItemRequest request) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        return ResponseEntity.status(HttpStatus.CREATED).body(creativeService.addPackageItem(agencyId(), packageId, request));
+    }
+
+    @DeleteMapping("/creative-packages/{packageId}/items/{itemId}")
+    public ResponseEntity<Void> deletePackageItem(@PathVariable UUID packageId, @PathVariable UUID itemId) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
+        creativeService.deletePackageItem(agencyId(), packageId, itemId);
+        return ResponseEntity.noContent().build();
     }
 
     // ---- Copy Variants ----

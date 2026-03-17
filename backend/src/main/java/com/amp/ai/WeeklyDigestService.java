@@ -9,6 +9,8 @@ import com.amp.insights.InsightDailyRepository;
 import com.amp.insights.KpiSummary;
 import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
+import com.amp.tenancy.TenantContext;
+import com.amp.tenancy.TenantContextHolder;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 public class WeeklyDigestService {
 
     private static final Logger log = LoggerFactory.getLogger(WeeklyDigestService.class);
+    private static final UUID SYSTEM_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
@@ -85,6 +88,8 @@ public class WeeklyDigestService {
         for (MetaConnection conn : connections) {
             processed++;
             try {
+                TenantContextHolder.set(systemTenantContext(conn.getAgencyId(), conn.getClientId()));
+
                 // Only generate for clients that have at least one user account
                 if (!userAccountRepo.existsByClientId(conn.getClientId())) {
                     log.debug("Weekly Digest: skipping client {} — no users", conn.getClientId());
@@ -104,6 +109,8 @@ public class WeeklyDigestService {
                 failed++;
                 log.error("Weekly Digest: failed for client {}: {}",
                         conn.getClientId(), e.getMessage(), e);
+            } finally {
+                TenantContextHolder.clear();
             }
         }
 
@@ -116,6 +123,10 @@ public class WeeklyDigestService {
         log.info("Weekly Digest: completed — processed={}, generated={}, skipped={}, failed={}",
                 processed, generated, skipped, failed);
         return result;
+    }
+
+    private TenantContext systemTenantContext(UUID agencyId, UUID clientId) {
+        return new TenantContext(agencyId, SYSTEM_USER_ID, "system@scheduled-job.local", "SYSTEM", clientId);
     }
 
     /**

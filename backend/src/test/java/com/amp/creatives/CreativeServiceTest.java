@@ -133,7 +133,7 @@ class CreativeServiceTest {
     @Test
     @DisplayName("createPackage — success: status DRAFT, save called")
     void createPackage_success() {
-        CreatePackageRequest request = new CreatePackageRequest(CLIENT_ID, "Test Package", "SALES");
+        CreatePackageRequest request = new CreatePackageRequest(CLIENT_ID, "Test Package", "SALES", "Test notes");
 
         when(packageRepository.save(any(CreativePackage.class))).thenAnswer(inv -> {
             CreativePackage p = inv.getArgument(0);

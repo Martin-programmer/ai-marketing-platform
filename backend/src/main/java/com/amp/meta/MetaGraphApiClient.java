@@ -7,10 +7,12 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,11 @@ public class MetaGraphApiClient {
     public MetaGraphApiClient(MetaProperties metaProps) {
         this.metaProps = metaProps;
         this.restTemplate = new RestTemplate();
+        this.restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+        this.restTemplate.getInterceptors().add((request, body, execution) -> {
+            request.getHeaders().setAcceptCharset(List.of(StandardCharsets.UTF_8));
+            return execution.execute(request, body);
+        });
     }
 
     /**
@@ -234,6 +241,78 @@ public class MetaGraphApiClient {
         return pixels;
     }
 
+    // ── Search / Targeting methods ────────────────────────
+
+    /**
+     * Search ad interests via Meta's targeting search API.
+     * GET /search?type=adinterest&q={query}
+     */
+    public List<JsonNode> searchInterests(String accessToken, String query) {
+        String url = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getGraphUrl("search"))
+                .queryParam("access_token", accessToken)
+                .queryParam("type", "adinterest")
+                .queryParam("q", query)
+                .queryParam("limit", 25)
+                .build(false)
+                .toUriString();
+
+        ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+        JsonNode data = resp.getBody().get("data");
+        List<JsonNode> results = new ArrayList<>();
+        if (data != null && data.isArray()) {
+            for (JsonNode node : data) {
+                results.add(node);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Search geo locations for ad targeting.
+     * GET /search?type=adgeolocation&q={query}&location_types=["{locationType}"]
+     */
+    public List<JsonNode> searchGeoLocations(String accessToken, String query, String locationType) {
+        String locationTypes = locationType != null && !locationType.isBlank()
+                ? "[\"" + locationType + "\"]"
+                : "[\"country\",\"city\",\"region\"]";
+
+        String url = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getGraphUrl("search"))
+                .queryParam("access_token", accessToken)
+                .queryParam("type", "adgeolocation")
+                .queryParam("q", query)
+                .queryParam("location_types", locationTypes)
+                .queryParam("limit", 25)
+                .build(false)
+                .toUriString();
+
+        ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+        JsonNode data = resp.getBody().get("data");
+        List<JsonNode> results = new ArrayList<>();
+        if (data != null && data.isArray()) {
+            for (JsonNode node : data) {
+                results.add(node);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Get custom audiences for an ad account.
+     * GET /{ad_account_id}/customaudiences?fields=id,name,approximate_count
+     */
+    public List<JsonNode> getCustomAudiences(String accessToken, String adAccountId) {
+        String url = UriComponentsBuilder
+                .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/customaudiences"))
+                .queryParam("access_token", accessToken)
+                .queryParam("fields", "id,name,approximate_count")
+                .queryParam("limit", 200)
+                .toUriString();
+
+        return fetchPaginatedRaw(url);
+    }
+
     // ── Write methods ───────────────────────────────────────
 
     /**
@@ -402,6 +481,14 @@ public class MetaGraphApiClient {
 
     public record AdAccountInfo(String id, String name, String accountId,
                                 int status, String currency, String timezone) {}
+
+    public static boolean isSelectableAdAccount(AdAccountInfo account) {
+        return account != null && account.status() == 1;
+    }
+
+    public static String adAccountStatusLabel(int status) {
+        return status == 1 ? "ACTIVE" : "DISABLED";
+    }
 
     public record PixelInfo(String id, String name) {}
 
