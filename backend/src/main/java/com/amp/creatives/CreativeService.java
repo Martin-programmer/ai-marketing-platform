@@ -537,6 +537,111 @@ public class CreativeService {
         return packageItemRepository.findAllByPackageIdOrderByCreatedAtAsc(selectedPackage.getId());
     }
 
+    // ---- Package Detail ----
+
+    @Transactional(readOnly = true)
+    public PackageDetailResponse getPackageDetail(UUID agencyId, UUID packageId) {
+        CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));
+
+        List<CreativePackageItem> items = packageItemRepository.findAllByPackageIdOrderByCreatedAtAsc(packageId);
+
+        Map<UUID, CreativeAsset> assetsById = assetRepository
+                .findAllByAgencyIdAndClientId(pkg.getAgencyId(), pkg.getClientId())
+                .stream()
+                .collect(Collectors.toMap(CreativeAsset::getId, a -> a, (l, r) -> l));
+        Map<UUID, CopyVariant> copyById = copyVariantRepository
+                .findAllByAgencyIdAndClientId(pkg.getAgencyId(), pkg.getClientId())
+                .stream()
+                .collect(Collectors.toMap(CopyVariant::getId, v -> v, (l, r) -> l));
+        Map<UUID, CreativeAnalysis> analysisByAssetId = assetsById.keySet().stream()
+                .map(assetId -> analysisRepository.findByCreativeAssetId(assetId).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toMap(CreativeAnalysis::getCreativeAssetId, a -> a, (l, r) -> l));
+
+        List<PackageDetailResponse.PackageItemDetailResponse> itemDetails = items.stream()
+                .sorted(Comparator.comparing(CreativePackageItem::getCreatedAt))
+                .map(item -> {
+                    CreativeAsset asset = assetsById.get(item.getCreativeAssetId());
+                    CopyVariant cv = copyById.get(item.getCopyVariantId());
+                    CreativeAnalysis analysis = analysisByAssetId.get(item.getCreativeAssetId());
+
+                    String thumbnailUrl = null;
+                    if (asset != null && asset.getS3Key() != null && !asset.getS3Key().isBlank()) {
+                        try {
+                            thumbnailUrl = s3StorageService.generatePresignedGetUrl(asset.getS3Key());
+                        } catch (Exception e) {
+                            log.debug("Failed to generate presigned URL for asset {}: {}", asset.getId(), e.getMessage());
+                        }
+                    }
+
+                    return new PackageDetailResponse.PackageItemDetailResponse(
+                            item.getId(),
+                            item.getPackageId(),
+                            item.getCtaType(),
+                            item.getDestinationUrl(),
+                            item.getWeight(),
+                            item.getCreatedAt(),
+                            asset != null ? new PackageDetailResponse.CreativeAssetDetail(
+                                    asset.getId(), asset.getOriginalFilename(), asset.getAssetType(),
+                                    thumbnailUrl, asset.getStatus(), asset.getWidthPx(), asset.getHeightPx(),
+                                    asset.getSizeBytes()
+                            ) : null,
+                            cv != null ? new PackageDetailResponse.CopyVariantDetail(
+                                    cv.getId(), cv.getPrimaryText(), cv.getHeadline(),
+                                    cv.getDescription(), cv.getCta(), cv.getLanguage(), cv.getStatus()
+                            ) : null,
+                            analysis != null && analysis.getQualityScore() != null
+                                    ? analysis.getQualityScore().doubleValue() : null
+                    );
+                })
+                .toList();
+
+        return PackageDetailResponse.from(pkg, itemDetails);
+    }
+
+    // ---- Creatives with Variants (for package builder) ----
+
+    @Transactional(readOnly = true)
+    public List<CreativeWithVariantsResponse> listCreativesWithVariants(UUID agencyId, UUID clientId) {
+        List<CreativeAsset> assets = assetRepository.findAllByAgencyIdAndClientId(agencyId, clientId)
+                .stream()
+                .filter(a -> "READY".equals(a.getStatus()))
+                .toList();
+
+        Map<UUID, CreativeAnalysis> analysisByAssetId = assets.stream()
+                .map(a -> analysisRepository.findByCreativeAssetId(a.getId()).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toMap(CreativeAnalysis::getCreativeAssetId, a -> a, (l, r) -> l));
+
+        return assets.stream().map(asset -> {
+            String thumbnailUrl = null;
+            if (asset.getS3Key() != null && !asset.getS3Key().isBlank()) {
+                try {
+                    thumbnailUrl = s3StorageService.generatePresignedGetUrl(asset.getS3Key());
+                } catch (Exception e) {
+                    log.debug("Failed to generate presigned URL for asset {}: {}", asset.getId(), e.getMessage());
+                }
+            }
+            CreativeAnalysis analysis = analysisByAssetId.get(asset.getId());
+            Double score = analysis != null && analysis.getQualityScore() != null
+                    ? analysis.getQualityScore().doubleValue() : null;
+
+            List<CopyVariant> variants = copyVariantRepository.findByCreativeAssetId(asset.getId());
+            return CreativeWithVariantsResponse.from(asset, thumbnailUrl, score, variants);
+        }).toList();
+    }
+
+    // ---- Approved Packages List (for campaign wizard import) ----
+
+    @Transactional(readOnly = true)
+    public List<PackageDetailResponse> listApprovedPackagesWithItems(UUID agencyId, UUID clientId) {
+        List<CreativePackage> approved = packageRepository
+                .findAllByAgencyIdAndClientIdAndStatusOrderByApprovedAtDesc(agencyId, clientId, "APPROVED");
+
+        return approved.stream().map(pkg -> getPackageDetail(agencyId, pkg.getId())).toList();
+    }
+
     private CreativePackage requireEditablePackage(UUID agencyId, UUID packageId) {
         CreativePackage pkg = packageRepository.findByIdAndAgencyId(packageId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("CreativePackage", packageId));

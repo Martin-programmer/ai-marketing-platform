@@ -79,6 +79,81 @@ export interface PackageItem {
   qualityScore: number | null
 }
 
+// ── Package Detail (enriched response from GET /creative-packages/{id}) ──
+
+export interface PackageItemDetail {
+  id: string
+  packageId: string
+  ctaType: string | null
+  destinationUrl: string | null
+  weight: number
+  createdAt: string
+  creativeAsset: {
+    id: string
+    originalFilename: string
+    assetType: string
+    thumbnailUrl: string | null
+    status: string
+    widthPx: number | null
+    heightPx: number | null
+    sizeBytes: number
+  } | null
+  copyVariant: {
+    id: string
+    primaryText: string
+    headline: string
+    description: string | null
+    ctaType: string
+    language: string
+    status: string
+  } | null
+  qualityScore: number | null
+}
+
+export interface PackageDetail {
+  id: string
+  agencyId: string
+  clientId: string
+  name: string
+  objective: string | null
+  status: string
+  notes: string | null
+  createdBy: string
+  approvedBy: string | null
+  createdAt: string
+  approvedAt: string | null
+  itemCount: number
+  items: PackageItemDetail[]
+}
+
+// ── Creative with Variants (for package builder) ──
+
+export interface VariantSummary {
+  id: string
+  primaryText: string
+  headline: string
+  description: string | null
+  cta: string
+  language: string
+  status: string
+}
+
+export interface CreativeWithVariants {
+  id: string
+  agencyId: string
+  clientId: string
+  assetType: string
+  originalFilename: string
+  status: string
+  widthPx: number | null
+  heightPx: number | null
+  sizeBytes: number
+  mimeType: string
+  thumbnailUrl: string | null
+  qualityScore: number | null
+  copyVariants: VariantSummary[]
+}
+
 export const useCreativeStore = defineStore('creatives', () => {
   const assets = ref<CreativeAsset[]>([])
   const packages = ref<CreativePackage[]>([])
@@ -326,6 +401,27 @@ export const useCreativeStore = defineStore('creatives', () => {
     }
   }
 
+  // ── Package Detail ──
+
+  async function fetchPackageDetail(packageId: string): Promise<PackageDetail> {
+    const { data } = await api.get(`/creative-packages/${packageId}`)
+    return data
+  }
+
+  // ── Creatives with Variants (for package builder) ──
+
+  async function fetchCreativesWithVariants(clientId: string): Promise<CreativeWithVariants[]> {
+    const { data } = await api.get(`/clients/${clientId}/creatives/with-variants`)
+    return data
+  }
+
+  // ── Approved Packages (for campaign wizard import) ──
+
+  async function fetchApprovedPackages(clientId: string): Promise<PackageDetail[]> {
+    const { data } = await api.get(`/clients/${clientId}/creative-packages/approved`)
+    return data
+  }
+
   return {
     assets,
     packages,
@@ -359,5 +455,8 @@ export const useCreativeStore = defineStore('creatives', () => {
     generateCopy,
     createCopyVariant,
     updateCopyVariantStatus,
+    fetchPackageDetail,
+    fetchCreativesWithVariants,
+    fetchApprovedPackages,
   }
 })

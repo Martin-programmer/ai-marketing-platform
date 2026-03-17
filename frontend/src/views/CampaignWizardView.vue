@@ -342,15 +342,25 @@
               </v-card>
             </div>
 
-            <v-btn
-              variant="outlined"
-              color="primary"
-              size="small"
-              :disabled="adset.ads.length >= 10"
-              @click="addAd(ai)"
-            >
-              <v-icon start>mdi-plus</v-icon> Add Another Ad
-            </v-btn>
+            <div class="d-flex ga-2 flex-wrap">
+              <v-btn
+                variant="outlined"
+                color="primary"
+                size="small"
+                :disabled="adset.ads.length >= 10"
+                @click="addAd(ai)"
+              >
+                <v-icon start>mdi-plus</v-icon> Add Another Ad
+              </v-btn>
+              <v-btn
+                variant="tonal"
+                color="deep-purple"
+                size="small"
+                @click="openPackageImport(ai)"
+              >
+                <v-icon start>mdi-package-variant</v-icon> Import from Package
+              </v-btn>
+            </div>
 
             <v-divider v-if="ai < adsets.length - 1" class="mt-6" />
           </div>
@@ -459,6 +469,72 @@
       @selected="onCreativeSelected"
     />
 
+    <!-- Package Import Dialog -->
+    <v-dialog v-model="showPackageImport" max-width="900" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon>mdi-package-variant</v-icon>
+          <span>Import from Creative Package</span>
+          <v-spacer />
+          <v-btn icon size="small" @click="showPackageImport = false"><v-icon>mdi-close</v-icon></v-btn>
+        </v-card-title>
+        <v-divider />
+
+        <v-card-text style="min-height: 350px">
+          <v-progress-linear v-if="loadingPackages" indeterminate color="deep-purple" class="mb-4" />
+
+          <v-alert v-if="!loadingPackages && approvedPackages.length === 0" type="info" variant="tonal">
+            No approved creative packages found. Create and approve packages in the Creatives section first.
+          </v-alert>
+
+          <template v-else>
+            <div class="text-body-2 text-medium-emphasis mb-4">
+              Select a package to import all its creative + copy combinations as ads into
+              <strong>{{ adsets[packageImportAdsetIdx]?.name || `Ad Set ${packageImportAdsetIdx + 1}` }}</strong>.
+            </div>
+
+            <v-row>
+              <v-col v-for="pkg in approvedPackages" :key="pkg.id" cols="12" md="6">
+                <v-card variant="outlined" class="package-import-card" @click="importPackage(pkg)">
+                  <v-card-title class="text-body-1">
+                    <v-icon start size="18" color="deep-purple">mdi-package-variant</v-icon>
+                    {{ pkg.name }}
+                  </v-card-title>
+                  <v-card-text>
+                    <div class="d-flex ga-2 mb-2">
+                      <v-chip size="x-small" color="success" variant="tonal">{{ pkg.status }}</v-chip>
+                      <v-chip v-if="pkg.objective" size="x-small" variant="outlined">{{ pkg.objective }}</v-chip>
+                      <v-chip size="x-small" variant="outlined">{{ pkg.itemCount }} item{{ pkg.itemCount !== 1 ? 's' : '' }}</v-chip>
+                    </div>
+                    <div v-for="(item, idx) in pkg.items.slice(0, 4)" :key="item.id" class="d-flex align-center ga-2 mb-1">
+                      <v-icon size="14" :color="item.creativeAsset ? 'green' : 'grey'">
+                        {{ item.creativeAsset?.assetType === 'VIDEO' ? 'mdi-video' : 'mdi-image' }}
+                      </v-icon>
+                      <span class="text-caption text-truncate" style="max-width: 180px">
+                        {{ item.creativeAsset?.originalFilename || 'No creative' }}
+                      </span>
+                      <span v-if="item.copyVariant" class="text-caption text-medium-emphasis text-truncate" style="max-width: 140px">
+                        — {{ item.copyVariant.headline || 'No headline' }}
+                      </span>
+                    </div>
+                    <div v-if="pkg.items.length > 4" class="text-caption text-medium-emphasis mt-1">
+                      + {{ pkg.items.length - 4 }} more item{{ pkg.items.length - 4 !== 1 ? 's' : '' }}
+                    </div>
+                  </v-card-text>
+                </v-card>
+              </v-col>
+            </v-row>
+          </template>
+        </v-card-text>
+
+        <v-divider />
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="showPackageImport = false">Cancel</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="4000">
       {{ snackbar.text }}
     </v-snackbar>
@@ -472,7 +548,7 @@ import api from '@/api/client'
 import AdPreviewCard from '@/components/AdPreviewCard.vue'
 import CreativeSelectorDialog from '@/components/CreativeSelectorDialog.vue'
 import { useCreativeStore } from '@/stores/creatives'
-import type { CopyVariant } from '@/stores/creatives'
+import type { CopyVariant, PackageDetail, PackageItemDetail } from '@/stores/creatives'
 
 const route = useRoute()
 const router = useRouter()
@@ -499,6 +575,11 @@ const interestTimers: Record<number, ReturnType<typeof setTimeout>> = {}
 // Copy variants cache
 const copyVariantsCache = reactive<Record<string, CopyVariant[]>>({})
 
+// Package import state
+const showPackageImport = ref(false)
+const packageImportAdsetIdx = ref<number>(0)
+const approvedPackages = ref<PackageDetail[]>([])
+const loadingPackages = ref(false)
 const stepItems = [
   { title: 'Campaign Settings', value: 1 },
   { title: 'Ad Sets', value: 2 },
@@ -772,6 +853,71 @@ async function generateCopyForAd(adsetIdx: number, adIdx: number) {
   }
 }
 
+// ── Package import ──
+
+async function openPackageImport(adsetIdx: number) {
+  packageImportAdsetIdx.value = adsetIdx
+  showPackageImport.value = true
+  loadingPackages.value = true
+  try {
+    approvedPackages.value = await creativeStore.fetchApprovedPackages(clientId.value)
+  } catch {
+    approvedPackages.value = []
+    snackbar.value = { show: true, text: 'Failed to load packages', color: 'error' }
+  } finally {
+    loadingPackages.value = false
+  }
+}
+
+function importPackage(pkg: PackageDetail) {
+  const adset = adsets.value[packageImportAdsetIdx.value]
+  if (!adset) return
+
+  let imported = 0
+  for (const item of pkg.items) {
+    if (adset.ads.length >= 10) break
+
+    const ad = createDefaultAd()
+    ad.name = `${pkg.name} — ${item.copyVariant?.headline || item.creativeAsset?.originalFilename || `Item ${imported + 1}`}`
+
+    if (item.creativeAsset) {
+      ad.creativeAssetId = item.creativeAsset.id
+      ad.creativeFilename = item.creativeAsset.originalFilename
+      ad.creativeThumbnailUrl = item.creativeAsset.thumbnailUrl || null
+    }
+
+    if (item.copyVariant) {
+      ad.primaryText = item.copyVariant.primaryText || ''
+      ad.headline = item.copyVariant.headline || ''
+      ad.description = item.copyVariant.description || ''
+      ad.ctaType = item.copyVariant.ctaType || 'LEARN_MORE'
+      ad.copyVariantId = item.copyVariant.id
+      ad.copyMode = 'variant'
+      ad.selectedCopyVariantId = item.copyVariant.id
+    }
+
+    // Remove the placeholder empty ad if it's the only one and untouched
+    if (
+      adset.ads.length === 1 &&
+      imported === 0 &&
+      !adset.ads[0]!.creativeAssetId &&
+      !adset.ads[0]!.name.trim()
+    ) {
+      adset.ads.splice(0, 1)
+    }
+
+    adset.ads.push(ad)
+    imported++
+  }
+
+  showPackageImport.value = false
+  snackbar.value = {
+    show: true,
+    text: `Imported ${imported} ad${imported !== 1 ? 's' : ''} from "${pkg.name}"`,
+    color: 'success',
+  }
+}
+
 // ── Targeting search ──
 
 function debounceLocationSearch(adsetIdx: number, query: string) {
@@ -975,5 +1121,13 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.package-import-card {
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.package-import-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-color: #7C4DFF;
 }
 </style>

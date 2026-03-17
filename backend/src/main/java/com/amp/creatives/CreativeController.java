@@ -136,6 +136,13 @@ public class CreativeController {
         return ResponseEntity.ok(creativeService.listPackages(agencyId(), clientId));
     }
 
+    @GetMapping("/creative-packages/{packageId}")
+    public ResponseEntity<PackageDetailResponse> getPackage(@PathVariable UUID packageId) {
+        UUID clientId = creativeService.resolvePackageClientId(agencyId(), packageId);
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
+        return ResponseEntity.ok(creativeService.getPackageDetail(agencyId(), packageId));
+    }
+
     @PostMapping("/clients/{clientId}/creative-packages")
     public ResponseEntity<PackageResponse> createPackage(
             @PathVariable UUID clientId,
@@ -196,6 +203,22 @@ public class CreativeController {
         accessControl.requireClientPermission(clientId, Permission.CREATIVES_EDIT);
         creativeService.deletePackageItem(agencyId(), packageId, itemId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ---- Creatives with Variants (Package Builder) ----
+
+    @GetMapping("/clients/{clientId}/creatives/with-variants")
+    public ResponseEntity<List<CreativeWithVariantsResponse>> listCreativesWithVariants(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
+        return ResponseEntity.ok(creativeService.listCreativesWithVariants(agencyId(), clientId));
+    }
+
+    // ---- Approved Packages (Campaign Wizard Import) ----
+
+    @GetMapping("/clients/{clientId}/creative-packages/approved")
+    public ResponseEntity<List<PackageDetailResponse>> listApprovedPackages(@PathVariable UUID clientId) {
+        accessControl.requireClientPermission(clientId, Permission.CREATIVES_VIEW);
+        return ResponseEntity.ok(creativeService.listApprovedPackagesWithItems(agencyId(), clientId));
     }
 
     // ---- Copy Variants ----

@@ -11,8 +11,10 @@ import com.amp.creatives.CreativeAnalysis;
 import com.amp.creatives.CreativeAnalysisRepository;
 import com.amp.creatives.CreativeAsset;
 import com.amp.creatives.CreativeAssetRepository;
+import com.amp.creatives.CreativePackage;
 import com.amp.creatives.CreativePackageItem;
 import com.amp.creatives.CreativePackageItemRepository;
+import com.amp.creatives.CreativePackageRepository;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,6 +53,7 @@ public class AiCrossModuleSupportService {
     private final CreativeAssetRepository creativeAssetRepository;
     private final CopyVariantRepository copyVariantRepository;
     private final CreativePackageItemRepository creativePackageItemRepository;
+    private final CreativePackageRepository creativePackageRepository;
     private final AdRepository adRepository;
     private final AdsetRepository adsetRepository;
     private final CampaignRepository campaignRepository;
@@ -65,6 +68,7 @@ public class AiCrossModuleSupportService {
                                        CreativeAssetRepository creativeAssetRepository,
                                        CopyVariantRepository copyVariantRepository,
                                        CreativePackageItemRepository creativePackageItemRepository,
+                                       CreativePackageRepository creativePackageRepository,
                                        AdRepository adRepository,
                                        AdsetRepository adsetRepository,
                                        CampaignRepository campaignRepository,
@@ -78,6 +82,7 @@ public class AiCrossModuleSupportService {
         this.creativeAssetRepository = creativeAssetRepository;
         this.copyVariantRepository = copyVariantRepository;
         this.creativePackageItemRepository = creativePackageItemRepository;
+        this.creativePackageRepository = creativePackageRepository;
         this.adRepository = adRepository;
         this.adsetRepository = adsetRepository;
         this.campaignRepository = campaignRepository;
@@ -321,6 +326,42 @@ public class AiCrossModuleSupportService {
             diagnostics.forEach(s -> sb.append("- ")
                     .append(truncate(singleLine(s.getRationale()), 180))
                     .append("\n"));
+            sb.append("\n");
+        }
+
+        // Include approved creative packages with their items
+        List<CreativePackage> approvedPackages = creativePackageRepository
+                .findAllByAgencyIdAndClientIdAndStatusOrderByApprovedAtDesc(agencyId, clientId, "APPROVED");
+        if (!approvedPackages.isEmpty()) {
+            sb.append("Available approved creative packages:\n");
+            Map<UUID, CreativeAsset> assetLookup = creativeAssetRepository
+                    .findAllByAgencyIdAndClientId(agencyId, clientId).stream()
+                    .collect(Collectors.toMap(CreativeAsset::getId, a -> a, (l, r) -> l));
+            Map<UUID, CopyVariant> copyLookup = copyVariantRepository
+                    .findAllByAgencyIdAndClientId(agencyId, clientId).stream()
+                    .collect(Collectors.toMap(CopyVariant::getId, v -> v, (l, r) -> l));
+
+            for (CreativePackage pkg : approvedPackages.stream().limit(3).toList()) {
+                List<CreativePackageItem> items = creativePackageItemRepository
+                        .findAllByPackageIdOrderByCreatedAtAsc(pkg.getId());
+                sb.append("- Package: ").append(truncate(singleLine(pkg.getName()), 80))
+                        .append(" | Objective: ").append(pkg.getObjective() != null ? pkg.getObjective() : "N/A")
+                        .append(" | Items: ").append(items.size()).append("\n");
+                for (CreativePackageItem item : items.stream().limit(5).toList()) {
+                    CreativeAsset asset = assetLookup.get(item.getCreativeAssetId());
+                    CopyVariant cv = copyLookup.get(item.getCopyVariantId());
+                    sb.append("  - asset_id: ").append(item.getCreativeAssetId());
+                    if (asset != null) {
+                        sb.append(" (").append(asset.getOriginalFilename()).append(", ")
+                                .append(asset.getAssetType()).append(")");
+                    }
+                    if (cv != null) {
+                        sb.append(" | headline: ").append(truncate(singleLine(cv.getHeadline()), 60))
+                                .append(" | cta: ").append(cv.getCta());
+                    }
+                    sb.append("\n");
+                }
+            }
             sb.append("\n");
         }
 

@@ -210,75 +210,10 @@
 
         <!-- Packages Tab -->
         <v-window-item value="packages">
-          <div class="d-flex justify-end mb-3">
-            <v-btn color="primary" @click="showCreatePackage = true">
-              <v-icon start>mdi-plus</v-icon> New Package
-            </v-btn>
-          </div>
-          <v-card>
-            <v-data-table
-              :headers="packageHeaders"
-              :items="store.packages"
-              :loading="store.loading"
-              item-value="id"
-              hover
-              no-data-text="No packages yet"
-            >
-              <template #item.status="{ item }">
-                <v-chip :color="packageStatusColor(item.status)" size="small">
-                  {{ item.status }}
-                </v-chip>
-              </template>
-              <template #item.createdAt="{ item }">
-                {{ new Date(item.createdAt).toLocaleDateString() }}
-              </template>
-              <template #item.actions="{ item }">
-                <v-btn
-                  v-if="item.status === 'DRAFT'"
-                  size="small"
-                  variant="text"
-                  color="info"
-                  title="Submit for review"
-                  @click="store.submitPackage(item.id)"
-                >
-                  <v-icon>mdi-send</v-icon>
-                </v-btn>
-                <v-btn
-                  v-if="item.status === 'IN_REVIEW'"
-                  size="small"
-                  variant="text"
-                  color="success"
-                  title="Approve"
-                  @click="store.approvePackage(item.id)"
-                >
-                  <v-icon>mdi-check</v-icon>
-                </v-btn>
-              </template>
-            </v-data-table>
-          </v-card>
+          <PackageBuilder :client-id="selectedClient" />
         </v-window-item>
       </v-window>
     </template>
-
-    <!-- Create Package Dialog -->
-    <v-dialog v-model="showCreatePackage" max-width="500">
-      <v-card title="New Creative Package">
-        <v-card-text>
-          <v-text-field v-model="packageForm.name" label="Name" required />
-          <v-select
-            v-model="packageForm.objective"
-            :items="['SALES', 'LEADS', 'TRAFFIC', 'AWARENESS']"
-            label="Objective"
-            clearable
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="showCreatePackage = false">Cancel</v-btn>
-          <v-btn color="primary" @click="onCreatePackage">Create</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <v-dialog v-model="showCreativeDetail" max-width="1100">
       <v-card v-if="activeAsset">
@@ -512,15 +447,14 @@ import type { CreativeAnalysis, CreativeAsset } from '@/stores/creatives'
 import { useCreativeStore } from '@/stores/creatives'
 import { useClientStore } from '@/stores/clients'
 import api from '@/api/client'
+import PackageBuilder from '@/components/PackageBuilder.vue'
 
 const store = useCreativeStore()
 const clientStore = useClientStore()
 const selectedClient = ref<string | null>(null)
 const tab = ref('assets')
-const showCreatePackage = ref(false)
 const showCreativeDetail = ref(false)
 const activeAsset = ref<CreativeAsset | null>(null)
-const packageForm = ref({ name: '', objective: '' })
 const isDragging = ref(false)
 const snackbar = ref({ show: false, text: '', color: 'success' })
 const previewUrls = ref<Record<string, string>>({})
@@ -548,25 +482,8 @@ interface UploadItem {
 }
 const uploadQueue = ref<UploadItem[]>([])
 
-const packageHeaders = [
-  { title: 'Name', key: 'name' },
-  { title: 'Objective', key: 'objective' },
-  { title: 'Status', key: 'status' },
-  { title: 'Created By', key: 'createdBy' },
-  { title: 'Approved By', key: 'approvedBy' },
-  { title: 'Actions', key: 'actions', sortable: false },
-]
-
 function assetStatusColor(status: string) {
   const map: Record<string, string> = { UPLOADING: 'info', READY: 'success', ANALYZING: 'warning', FAILED: 'error' }
-  return map[status] || 'grey'
-}
-
-function packageStatusColor(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'grey', IN_REVIEW: 'info', APPROVED: 'success',
-    SCHEDULED: 'warning', USED: 'primary', ARCHIVED: 'error',
-  }
   return map[status] || 'grey'
 }
 
@@ -837,15 +754,6 @@ async function updateVariantStatus(variantId: string, status: 'APPROVED' | 'REJE
   } catch (e: any) {
     snackbar.value = { show: true, text: e.response?.data?.message || e.message || 'Status update failed', color: 'error' }
   }
-}
-
-async function onCreatePackage() {
-  if (!selectedClient.value) return
-  const payload: any = { name: packageForm.value.name }
-  if (packageForm.value.objective) payload.objective = packageForm.value.objective
-  await store.createPackage(selectedClient.value, payload)
-  showCreatePackage.value = false
-  packageForm.value = { name: '', objective: '' }
 }
 
 onMounted(() => clientStore.fetchClients())
