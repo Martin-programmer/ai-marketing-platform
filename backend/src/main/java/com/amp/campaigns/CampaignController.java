@@ -82,6 +82,16 @@ public class CampaignController {
         return CampaignResponse.from(campaign);
     }
 
+    @PatchMapping("/campaigns/{campaignId}")
+    public CampaignResponse updateCampaign(@PathVariable UUID campaignId,
+                                           @RequestBody UpdateCampaignRequest req) {
+        accessControl.requireAgencyRole();
+        UUID agencyId = agencyId();
+        Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
+        accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_EDIT);
+        return CampaignResponse.from(campaignService.updateCampaign(agencyId, campaignId, req));
+    }
+
     @PostMapping("/campaigns/{campaignId}/pause")
     public CampaignResponse pauseCampaign(@PathVariable UUID campaignId) {
         accessControl.requireAgencyRole();
@@ -130,11 +140,14 @@ public class CampaignController {
     @PostMapping("/clients/{clientId}/campaigns/ai-propose")
     public ResponseEntity<CampaignProposalResponse> aiPropose(
             @PathVariable UUID clientId,
-            @RequestBody(required = false) java.util.Map<String, String> body) {
+            @RequestBody(required = false) AiCampaignProposalRequest body) {
         accessControl.requireClientPermission(clientId, Permission.CAMPAIGNS_EDIT);
         UUID agencyId = agencyId();
-        String brief = (body != null) ? body.getOrDefault("brief", "") : "";
-        CampaignProposalResponse proposal = campaignCreatorService.generateProposal(agencyId, clientId, brief);
+        String brief = body != null ? body.brief() : "";
+        String budgetType = body != null ? body.budgetType() : null;
+        java.math.BigDecimal dailyBudget = body != null ? body.dailyBudget() : null;
+        CampaignProposalResponse proposal = campaignCreatorService.generateProposal(
+                agencyId, clientId, brief, budgetType, dailyBudget);
         return ResponseEntity.ok(proposal);
     }
 
@@ -177,6 +190,17 @@ public class CampaignController {
         return AdsetResponse.from(campaignService.createAdset(agencyId, campaignId, req));
     }
 
+    @PatchMapping("/campaigns/{campaignId}/adsets/{adsetId}")
+    public AdsetResponse updateAdset(@PathVariable UUID campaignId,
+                                     @PathVariable UUID adsetId,
+                                     @RequestBody UpdateAdsetRequest req) {
+        accessControl.requireAgencyRole();
+        UUID agencyId = agencyId();
+        Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
+        accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_EDIT);
+        return AdsetResponse.from(campaignService.updateAdset(agencyId, campaignId, adsetId, req));
+    }
+
     // ──────── Ad ────────
 
     @GetMapping("/adsets/{adsetId}/ads")
@@ -194,5 +218,17 @@ public class CampaignController {
         accessControl.requireAgencyRole();
         UUID agencyId = agencyId();
         return AdResponse.from(campaignService.createAd(agencyId, adsetId, req));
+    }
+
+    @PatchMapping("/campaigns/{campaignId}/adsets/{adsetId}/ads/{adId}")
+    public AdResponse updateAd(@PathVariable UUID campaignId,
+                               @PathVariable UUID adsetId,
+                               @PathVariable UUID adId,
+                               @RequestBody UpdateAdRequest req) {
+        accessControl.requireAgencyRole();
+        UUID agencyId = agencyId();
+        Campaign campaign = campaignService.getCampaign(agencyId, campaignId);
+        accessControl.requireClientPermission(campaign.getClientId(), Permission.CAMPAIGNS_EDIT);
+        return AdResponse.from(campaignService.updateAd(agencyId, campaignId, adsetId, adId, req));
     }
 }

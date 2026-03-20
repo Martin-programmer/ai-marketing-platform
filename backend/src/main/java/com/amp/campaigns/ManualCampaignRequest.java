@@ -3,7 +3,6 @@ package com.amp.campaigns;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -17,6 +16,8 @@ public record ManualCampaignRequest(
         String name,
         @NotBlank(message = "objective is required")
         String objective,
+        String budgetType,
+        BigDecimal dailyBudget,
         List<String> specialAdCategories,
         @NotEmpty(message = "at least one adset is required")
         @Valid
@@ -25,9 +26,9 @@ public record ManualCampaignRequest(
     public record AdsetPayload(
             @NotBlank(message = "adset name is required")
             String name,
-            @NotNull(message = "dailyBudget is required")
             BigDecimal dailyBudget,
             String optimizationGoal,
+            String conversionEvent,
             String billingEvent,
             String startDate,
             String endDate,

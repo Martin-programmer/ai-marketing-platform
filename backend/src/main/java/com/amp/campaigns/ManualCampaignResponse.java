@@ -1,6 +1,7 @@
 package com.amp.campaigns;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -11,6 +12,8 @@ public record ManualCampaignResponse(
         UUID campaignId,
         String name,
         String objective,
+        String budgetType,
+        BigDecimal dailyBudget,
         String platform,
         String status,
         List<AdsetResult> adsets
@@ -20,8 +23,11 @@ public record ManualCampaignResponse(
             String name,
             BigDecimal dailyBudget,
             String optimizationGoal,
+            String conversionEvent,
             String targetingJson,
             String status,
+            LocalDate startDate,
+            LocalDate endDate,
             List<AdResult> ads
     ) {}
 

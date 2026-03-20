@@ -45,6 +45,7 @@
           hover
           show-expand
           no-data-text="No campaigns yet"
+          @click:row="(_e: unknown, row: unknown) => openCampaignDetail(rowItem(row as { item: unknown }).item as Campaign)"
         >
           <template #item.status="{ item }">
             <v-chip :color="campaignStatusColor(item.status)" size="small">
@@ -428,6 +429,96 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="showCampaignDetail" max-width="1200" scrollable>
+      <v-card v-if="editCampaign">
+        <v-card-title class="d-flex align-center ga-2">
+          <span>Edit Campaign</span>
+          <v-chip size="small" :color="campaignStatusColor(editCampaign.status)">{{ editCampaign.status }}</v-chip>
+          <v-spacer />
+          <v-btn
+            size="small"
+            variant="outlined"
+            :color="editCampaign.status === 'PAUSED' ? 'success' : 'warning'"
+            @click="toggleCampaignStatus"
+          >
+            {{ editCampaign.status === 'PAUSED' ? 'Resume Campaign' : 'Pause Campaign' }}
+          </v-btn>
+          <v-btn icon size="small" @click="showCampaignDetail = false"><v-icon>mdi-close</v-icon></v-btn>
+        </v-card-title>
+        <v-divider />
+        <v-card-text>
+          <v-row>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="editCampaign.name" label="Campaign Name" variant="outlined" />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-text-field :model-value="editCampaign.objective" label="Objective" variant="outlined" readonly />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-select v-model="editCampaign.status" :items="['DRAFT','PUBLISHED','PAUSED','ACTIVE','FAILED']" label="Status" variant="outlined" />
+            </v-col>
+          </v-row>
+
+          <div class="text-subtitle-1 font-weight-medium mb-3">Adsets</div>
+          <v-expansion-panels multiple>
+            <v-expansion-panel v-for="adset in editAdsets" :key="adset.id">
+              <v-expansion-panel-title>
+                <div class="d-flex align-center ga-2 w-100">
+                  <span>{{ adset.name }}</span>
+                  <v-chip size="x-small" :color="campaignStatusColor(adset.status)">{{ adset.status }}</v-chip>
+                  <v-spacer />
+                  <v-btn
+                    size="x-small"
+                    variant="outlined"
+                    :color="adset.status === 'PAUSED' ? 'success' : 'warning'"
+                    @click.stop="toggleAdsetStatus(adset)"
+                  >
+                    {{ adset.status === 'PAUSED' ? 'Resume Adset' : 'Pause Adset' }}
+                  </v-btn>
+                </div>
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <v-row>
+                  <v-col cols="12" md="4"><v-text-field v-model="adset.name" label="Name" variant="outlined" /></v-col>
+                  <v-col cols="12" md="2"><v-text-field v-model.number="adset.dailyBudget" label="Daily Budget" type="number" variant="outlined" /></v-col>
+                  <v-col cols="12" md="3"><v-select v-model="adset.optimizationGoal" :items="['OFFSITE_CONVERSIONS','LANDING_PAGE_VIEWS','LINK_CLICKS','IMPRESSIONS','REACH']" label="Optimization Goal" variant="outlined" /></v-col>
+                  <v-col cols="12" md="3"><v-select v-model="adset.status" :items="['DRAFT','PUBLISHED','PAUSED','ACTIVE','FAILED']" label="Status" variant="outlined" /></v-col>
+                  <v-col v-if="adset.optimizationGoal === 'OFFSITE_CONVERSIONS'" cols="12" md="4"><v-select v-model="adset.conversionEvent" :items="['PURCHASE','ADD_TO_CART','INITIATE_CHECKOUT','LEAD','COMPLETE_REGISTRATION','CONTACT','SUBSCRIBE']" label="Conversion Event" variant="outlined" /></v-col>
+                  <v-col cols="12"><v-textarea v-model="adset.targetingJson" label="Targeting JSON" rows="3" auto-grow variant="outlined" /></v-col>
+                </v-row>
+
+                <div class="text-subtitle-2 mb-2">Ads</div>
+                <v-row v-for="ad in editAds[adset.id] || []" :key="ad.id" class="mb-2">
+                  <v-col cols="12">
+                    <v-card variant="outlined">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="4"><v-text-field v-model="ad.name" label="Ad Name" variant="outlined" density="compact" /></v-col>
+                          <v-col cols="12" md="4"><v-select v-model="ad.status" :items="['DRAFT','PUBLISHED','PAUSED','ACTIVE','FAILED']" label="Status" variant="outlined" density="compact" /></v-col>
+                          <v-col cols="12" md="4"><v-text-field :model-value="ad.creativeAssetId || 'No creative asset'" label="Creative Asset" variant="outlined" density="compact" readonly /></v-col>
+                          <v-col cols="12"><v-textarea v-model="ad.primaryText" label="Primary Text" variant="outlined" rows="2" auto-grow density="compact" /></v-col>
+                          <v-col cols="12" md="4"><v-text-field v-model="ad.headline" label="Headline" variant="outlined" density="compact" /></v-col>
+                          <v-col cols="12" md="4"><v-text-field v-model="ad.description" label="Description" variant="outlined" density="compact" /></v-col>
+                          <v-col cols="12" md="4"><v-select v-model="ad.cta" :items="ctaOptions" label="CTA" variant="outlined" density="compact" /></v-col>
+                          <v-col cols="12"><v-text-field v-model="ad.destinationUrl" label="Destination URL" variant="outlined" density="compact" /></v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-card>
+                  </v-col>
+                </v-row>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="showCampaignDetail = false">Close</v-btn>
+          <v-btn color="primary" :loading="detailSaving" @click="saveCampaignChanges">Save Changes</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-overlay
       :model-value="store.proposalLoading"
       class="align-center justify-center"
@@ -449,20 +540,40 @@
     <v-dialog v-model="showAiProposal" max-width="560">
       <v-card title="AI Campaign Proposal" prepend-icon="mdi-robot">
         <v-card-text>
-  import { useRouter } from 'vue-router'
           <p class="text-body-2 mb-3">
             Claude will analyze this client's profile, creatives, historical performance
             and active campaigns to generate a full campaign structure.
           </p>
-  import type { Campaign, CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
+          <v-textarea
             v-model="aiBrief"
-  const router = useRouter()
-            label="Опишете целта на кампанията (опционално)"
-            placeholder="Напр. 'Лятна промоция, жени 25-45, бюджет около $50 на ден'"
+            label="Campaign brief (optional)"
+            placeholder="Example: Summer promo, women 25-45, focus on purchases"
             rows="3"
             auto-grow
             variant="outlined"
+            class="mb-4"
           />
+
+          <div class="text-subtitle-2 mb-2">Budget Type</div>
+          <v-radio-group v-model="proposalSettings.budgetType" inline class="mb-2">
+            <v-radio label="Ad Set Budget (ABO)" value="ABO" />
+            <v-radio label="Campaign Budget (CBO)" value="CBO" />
+          </v-radio-group>
+
+          <v-text-field
+            v-if="proposalSettings.budgetType === 'CBO'"
+            v-model.number="proposalSettings.dailyBudget"
+            label="Campaign Daily Budget"
+            type="number"
+            prefix="$"
+            variant="outlined"
+            :rules="[(v) => (!!v && v > 0) || 'Required for CBO']"
+            class="mb-2"
+          />
+
+          <v-alert v-if="proposalSettings.budgetType === 'CBO'" type="info" variant="tonal" density="compact">
+            CBO works best with 2+ ad sets.
+          </v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -485,6 +596,7 @@
           <v-icon color="deep-purple">mdi-robot</v-icon>
           <span>Campaign Proposal Preview</span>
           <v-chip size="small" color="info">{{ draftProposal.objective }}</v-chip>
+          <v-chip size="small" color="deep-purple">{{ draftProposal.budgetType }}</v-chip>
           <v-chip size="small" color="grey">{{ draftProposal.status }}</v-chip>
           <v-spacer />
           <v-btn icon size="small" @click="showProposalResult = false">
@@ -517,6 +629,7 @@
                   />
                 </div>
                 <v-chip color="info" size="small">{{ draftProposal.objective }}</v-chip>
+                <v-chip color="deep-purple" size="small">{{ draftProposal.budgetType }}</v-chip>
                 <v-chip :color="proposalRiskColor" size="small">{{ proposalRiskLevel }}</v-chip>
               </div>
 
@@ -524,8 +637,19 @@
                 <v-col cols="12" md="3">
                   <v-card variant="tonal" color="success" class="h-100">
                     <v-card-text>
-                      <div class="text-caption">Total daily budget</div>
+                      <div class="text-caption">{{ draftProposal.budgetType === 'CBO' ? 'Campaign daily budget' : 'Suggested total daily budget' }}</div>
                       <v-text-field
+                        v-if="draftProposal.budgetType === 'CBO'"
+                        v-model.number="draftProposal.campaignDailyBudget"
+                        type="number"
+                        prefix="$"
+                        variant="outlined"
+                        density="compact"
+                        hide-details
+                        class="mt-2"
+                      />
+                      <v-text-field
+                        v-else
                         v-model.number="draftProposal.suggestedDailyBudget"
                         type="number"
                         prefix="$"
@@ -621,8 +745,16 @@
                     <v-text-field v-model="adset.name" variant="outlined" density="compact" hide-details />
                   </v-col>
                   <v-col cols="12" md="2">
-                    <div class="text-caption text-medium-emphasis mb-1">Daily budget</div>
-                    <v-text-field v-model.number="adset.dailyBudget" type="number" prefix="$" variant="outlined" density="compact" hide-details />
+                    <template v-if="draftProposal.budgetType === 'ABO'">
+                      <div class="text-caption text-medium-emphasis mb-1">Daily budget</div>
+                      <v-text-field v-model.number="adset.dailyBudget" type="number" prefix="$" variant="outlined" density="compact" hide-details />
+                    </template>
+                    <template v-else>
+                      <div class="text-caption text-medium-emphasis mb-1">Budget</div>
+                      <v-alert type="info" variant="tonal" density="compact">
+                        Campaign-managed
+                      </v-alert>
+                    </template>
                   </v-col>
                   <v-col cols="12" md="5">
                     <div class="text-caption text-medium-emphasis mb-1">Optimization goal</div>
@@ -745,7 +877,7 @@ import { useCampaignStore } from '@/stores/campaigns'
 import { useClientStore } from '@/stores/clients'
 import { useCreativeStore } from '@/stores/creatives'
 import { useDashboardStore } from '@/stores/dashboard'
-import type { Campaign, CampaignProposal, ProposedAd, ProposedAdset } from '@/stores/campaigns'
+import type { Campaign, CampaignProposal, ProposedAd, ProposedAdset, Adset, Ad } from '@/stores/campaigns'
 import AdPreviewCard from '@/components/AdPreviewCard.vue'
 
 const router = useRouter()
@@ -763,6 +895,11 @@ const showCreateAdset = ref(false)
 const showCreateAd = ref(false)
 const currentCampaignId = ref('')
 const currentAdsetId = ref('')
+const showCampaignDetail = ref(false)
+const detailSaving = ref(false)
+const editCampaign = ref<Campaign | null>(null)
+const editAdsets = ref<Adset[]>([])
+const editAds = reactive<Record<string, Ad[]>>({})
 
 const campaignForm = ref({ name: '', objective: 'SALES', platform: 'META' })
 const adsetForm = ref({ name: '', dailyBudget: 0, targetingJson: '' })
@@ -772,6 +909,10 @@ const adForm = ref({ name: '', creativePackageItemId: '' })
 const showAiProposal = ref(false)
 const showProposalResult = ref(false)
 const aiBrief = ref('')
+const proposalSettings = reactive<{ budgetType: 'ABO' | 'CBO'; dailyBudget: number | null }>({
+  budgetType: 'ABO',
+  dailyBudget: null,
+})
 const publishLoading = ref(false)
 const publishStep = ref('')
 const draftProposal = ref<CampaignProposal | null>(null)
@@ -869,6 +1010,10 @@ function cloneProposal(proposal: CampaignProposal): CampaignProposal {
   return JSON.parse(JSON.stringify(proposal))
 }
 
+function cloneValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 const proposalConfidence = computed(() => {
   if (!draftProposal.value) return 0
   const warningPenalty = Math.min((draftProposal.value.warnings?.length || 0) * 10, 40)
@@ -926,6 +1071,20 @@ async function onClientChange(clientId: string) {
       }
     }
   }
+}
+
+async function openCampaignDetail(campaign: Campaign) {
+  editCampaign.value = cloneValue(campaign)
+  const adsets = await store.fetchAdsets(campaign.id)
+  editAdsets.value = cloneValue(adsets).map((adset: Adset) => ({
+    ...adset,
+    targetingJson: typeof adset.targetingJson === 'string' ? adset.targetingJson : JSON.stringify(adset.targetingJson, null, 2),
+  }))
+  Object.keys(editAds).forEach((key) => delete editAds[key])
+  for (const adset of editAdsets.value) {
+    editAds[adset.id] = cloneValue(await store.fetchAds(adset.id))
+  }
+  showCampaignDetail.value = true
 }
 
 async function loadBudgetAnalysis() {
@@ -998,9 +1157,17 @@ async function onCreateAd() {
 // AI Proposal handlers
 async function onGenerateProposal() {
   if (!selectedClient.value) return
+  if (proposalSettings.budgetType === 'CBO' && (!proposalSettings.dailyBudget || proposalSettings.dailyBudget <= 0)) {
+    proposalBanner.value = { text: 'Campaign daily budget is required for CBO.', type: 'warning' }
+    return
+  }
   try {
     proposalBanner.value = { text: '', type: 'info' }
-    await store.generateProposal(selectedClient.value, aiBrief.value)
+    await store.generateProposal(selectedClient.value, {
+      brief: aiBrief.value,
+      budgetType: proposalSettings.budgetType,
+      dailyBudget: proposalSettings.budgetType === 'CBO' ? proposalSettings.dailyBudget : null,
+    })
     showAiProposal.value = false
     showProposalResult.value = true
   } catch (e: any) {
@@ -1122,9 +1289,74 @@ async function onPublishFromTable(campaignId: string) {
   }
 }
 
+async function toggleCampaignStatus() {
+  if (!editCampaign.value) return
+  const nextStatus = editCampaign.value.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED'
+  editCampaign.value = await store.patchCampaign(editCampaign.value.id, { status: nextStatus })
+  if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
+}
+
+async function toggleAdsetStatus(adset: Adset) {
+  if (!editCampaign.value) return
+  adset.status = adset.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED'
+  const updated = await store.patchAdset(editCampaign.value.id, adset.id, {
+    status: adset.status,
+    name: adset.name,
+    dailyBudget: adset.dailyBudget,
+    targetingJson: typeof adset.targetingJson === 'string' ? adset.targetingJson : JSON.stringify(adset.targetingJson),
+    optimizationGoal: adset.optimizationGoal,
+    conversionEvent: adset.conversionEvent,
+  })
+  const idx = editAdsets.value.findIndex(item => item.id === adset.id)
+  if (idx >= 0) editAdsets.value[idx] = cloneValue(updated)
+}
+
+async function saveCampaignChanges() {
+  if (!editCampaign.value) return
+  const campaignId = editCampaign.value.id
+  detailSaving.value = true
+  try {
+    editCampaign.value = await store.patchCampaign(campaignId, {
+      name: editCampaign.value.name,
+      status: editCampaign.value.status,
+    })
+    for (const adset of editAdsets.value) {
+      const updatedAdset = await store.patchAdset(campaignId, adset.id, {
+        name: adset.name,
+        dailyBudget: adset.dailyBudget,
+        targetingJson: typeof adset.targetingJson === 'string' ? adset.targetingJson : JSON.stringify(adset.targetingJson),
+        optimizationGoal: adset.optimizationGoal,
+        conversionEvent: adset.conversionEvent,
+        status: adset.status,
+      })
+      const adList = editAds[adset.id] || []
+      for (const ad of adList) {
+        await store.patchAd(campaignId, adset.id, ad.id, {
+          name: ad.name,
+          primaryText: ad.primaryText,
+          headline: ad.headline,
+          description: ad.description,
+          ctaType: ad.cta,
+          destinationUrl: ad.destinationUrl,
+          status: ad.status,
+        })
+      }
+      Object.assign(adset, updatedAdset)
+    }
+    if (selectedClient.value) await store.fetchCampaigns(selectedClient.value)
+    snackbar.value = { show: true, text: 'Campaign changes saved', color: 'success' }
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.response?.data?.message || e.message || 'Failed to save changes', color: 'error' }
+  } finally {
+    detailSaving.value = false
+  }
+}
+
 function openAiProposalDialog() {
   if (!selectedClient.value) return
   proposalBanner.value = { text: '', type: 'info' }
+  proposalSettings.budgetType = 'ABO'
+  proposalSettings.dailyBudget = null
   showAiProposal.value = true
 }
 

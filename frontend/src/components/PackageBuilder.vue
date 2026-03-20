@@ -505,8 +505,6 @@ async function addItem(asset: CreativeWithVariants, variant: VariantSummary) {
     await store.addPackageItem(editingPackage.value.id, {
       creativeAssetId: asset.id,
       copyVariantId: variant.id,
-      ctaType: variant.cta || 'LEARN_MORE',
-      destinationUrl: '',
       weight: 50,
     })
     // Reload items with enriched data

@@ -11,6 +11,8 @@ public record CampaignProposalResponse(
         UUID campaignId,
         String campaignName,
         String objective,
+        String budgetType,
+        BigDecimal campaignDailyBudget,
         String platform,
         String status,
         String rationale,

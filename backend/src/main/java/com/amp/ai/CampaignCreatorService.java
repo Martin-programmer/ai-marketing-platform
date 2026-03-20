@@ -33,7 +33,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * Generates full campaign proposals using Claude (Opus model).
+ * Generates full campaign proposals using Claude.
  * <p>
  * Gathers client context (profile, creatives, copy variants, historical insights,
  * active campaigns, Meta connection details), sends it to Claude with a structured
@@ -101,18 +101,20 @@ public class CampaignCreatorService {
      * Generate a full AI campaign proposal for a client.
      */
     @Transactional
-    public CampaignProposalResponse generateProposal(UUID agencyId, UUID clientId, String briefText) {
+    public CampaignProposalResponse generateProposal(UUID agencyId, UUID clientId, String briefText,
+                                                     String requestedBudgetType, BigDecimal requestedCampaignDailyBudget) {
         TenantContext ctx = TenantContextHolder.require();
 
         Client client = clientRepo.findByIdAndAgencyId(clientId, agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
 
         // ── 1. Gather context ──
-        String contextPayload = buildContextPayload(agencyId, clientId, briefText);
+        String contextPayload = buildContextPayload(agencyId, clientId, briefText,
+                requestedBudgetType, requestedCampaignDailyBudget);
 
-        // ── 2. Call Claude Opus ──
+        // ── 2. Call Claude Sonnet ──
         String systemPrompt = buildSystemPrompt();
-        String model = aiProps.getAnthropic().getComplexModel();
+        String model = aiProps.getAnthropic().getDefaultModel();
         int maxTokens = 8192;
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
@@ -142,12 +144,14 @@ public class CampaignCreatorService {
         }
 
         // ── 5. Persist DRAFT campaign structure ──
-        return persistProposal(agencyId, clientId, ctx.getUserId(), proposalJson, campaignName);
+        return persistProposal(agencyId, clientId, ctx.getUserId(), proposalJson, campaignName,
+                requestedBudgetType, requestedCampaignDailyBudget);
     }
 
     // ──────── Context builder ────────
 
-    private String buildContextPayload(UUID agencyId, UUID clientId, String briefText) {
+    private String buildContextPayload(UUID agencyId, UUID clientId, String briefText,
+                                       String requestedBudgetType, BigDecimal requestedCampaignDailyBudget) {
         CompletableFuture<String> sharedContextFuture = CompletableFuture.supplyAsync(
             () -> aiContextBuilder.buildContext(agencyId, clientId));
         CompletableFuture<String> crossModuleContextFuture =
@@ -165,6 +169,14 @@ public class CampaignCreatorService {
             sb.append("Agency Brief:\n").append(briefText).append("\n\n");
         }
 
+        String budgetType = normalizeBudgetType(requestedBudgetType);
+        sb.append("Budget Preferences:\n")
+                .append("- Budget type: ").append(budgetType).append("\n");
+        if ("CBO".equals(budgetType) && requestedCampaignDailyBudget != null) {
+            sb.append("- Campaign daily budget: ").append(requestedCampaignDailyBudget).append("\n");
+        }
+        sb.append("\n");
+
         return sb.toString();
     }
 
@@ -178,7 +190,9 @@ public class CampaignCreatorService {
             The JSON must have this exact structure:
             {
               "campaign_name": "string",
-              "objective": "SALES|LEADS|TRAFFIC|AWARENESS",
+                            "objective": "OUTCOME_SALES|OUTCOME_LEADS|OUTCOME_TRAFFIC|OUTCOME_AWARENESS|OUTCOME_ENGAGEMENT|OUTCOME_APP_PROMOTION",
+              "budget_type": "ABO|CBO",
+              "campaign_daily_budget": number or null,
               "rationale": "string explaining your strategic reasoning",
               "suggested_daily_budget": number,
               "estimated_results": "string with expected KPIs",
@@ -205,9 +219,18 @@ public class CampaignCreatorService {
             }
 
             Rules:
+            - Use ONLY these exact Meta objective values: OUTCOME_SALES, OUTCOME_LEADS, OUTCOME_TRAFFIC, OUTCOME_AWARENESS, OUTCOME_ENGAGEMENT, OUTCOME_APP_PROMOTION
+            - Use OUTCOME_SALES for purchase or conversion campaigns
+            - Use OUTCOME_LEADS for lead generation campaigns
+            - Use OUTCOME_TRAFFIC for website traffic campaigns
+            - Use OUTCOME_AWARENESS for brand awareness or reach campaigns
+            - Use OUTCOME_ENGAGEMENT for post engagement or video view campaigns
+            - Use OUTCOME_APP_PROMOTION for app install or app promotion campaigns
             - Reference existing creative_asset_id UUIDs from the provided list when available
             - Reuse approved copy variants from the provided context when possible instead of inventing new ad text
             - If no creatives are available, set creative_asset_id to null and add a warning
+            - Respect the requested budget type from the context
+            - If budget_type is CBO, use campaign_daily_budget for the main budget and still create multiple adsets
             - Create 2-4 adsets with different targeting segments
             - Each adset should have 2-3 ads (for A/B testing)
             - Budget allocation should be strategic across adsets
@@ -220,12 +243,23 @@ public class CampaignCreatorService {
     // ──────── Persist proposal ────────
 
     private CampaignProposalResponse persistProposal(UUID agencyId, UUID clientId, UUID userId,
-                                                      JsonNode json, String campaignName) {
-        String objective = json.has("objective") ? json.get("objective").asText() : "SALES";
+                                                     JsonNode json, String campaignName,
+                                                     String requestedBudgetType, BigDecimal requestedCampaignDailyBudget) {
+        String objective = validateObjective(json.has("objective") ? json.get("objective").asText() : "OUTCOME_SALES");
+        String budgetType = normalizeBudgetType(json.has("budget_type")
+                ? json.get("budget_type").asText()
+                : requestedBudgetType);
         String rationale = json.has("rationale") ? json.get("rationale").asText() : "";
         BigDecimal suggestedBudget = json.has("suggested_daily_budget")
                 ? BigDecimal.valueOf(json.get("suggested_daily_budget").asDouble())
                 : BigDecimal.ZERO;
+        BigDecimal campaignDailyBudget = "CBO".equals(budgetType)
+                ? firstPositive(
+                        json.has("campaign_daily_budget") && !json.get("campaign_daily_budget").isNull()
+                                ? BigDecimal.valueOf(json.get("campaign_daily_budget").asDouble()) : null,
+                        requestedCampaignDailyBudget,
+                        suggestedBudget)
+                : null;
         String estimatedResults = json.has("estimated_results")
                 ? json.get("estimated_results").asText() : "";
 
@@ -248,6 +282,8 @@ public class CampaignCreatorService {
         campaign.setPlatform("META");
         campaign.setName(campaignName);
         campaign.setObjective(objective);
+        campaign.setBudgetType(budgetType);
+        campaign.setDailyBudget(campaignDailyBudget);
         campaign.setStatus("DRAFT");
         campaign.setCreatedBy(userId);
         campaign.setCreatedAt(OffsetDateTime.now());
@@ -259,15 +295,20 @@ public class CampaignCreatorService {
 
         JsonNode adsetsJson = json.get("adsets");
         if (adsetsJson != null && adsetsJson.isArray()) {
+            if ("CBO".equals(budgetType) && adsetsJson.size() < 2) {
+                warnings.add("CBO works best with 2+ ad sets.");
+            }
             for (JsonNode adsetJson : adsetsJson) {
                 Adset adset = new Adset();
                 adset.setAgencyId(agencyId);
                 adset.setClientId(clientId);
                 adset.setCampaignId(campaign.getId());
                 adset.setName(adsetJson.has("name") ? adsetJson.get("name").asText() : "Adset");
-                adset.setDailyBudget(adsetJson.has("daily_budget")
-                        ? BigDecimal.valueOf(adsetJson.get("daily_budget").asDouble())
-                        : BigDecimal.TEN);
+                adset.setDailyBudget("CBO".equals(budgetType)
+                        ? BigDecimal.ZERO
+                        : adsetJson.has("daily_budget")
+                            ? BigDecimal.valueOf(adsetJson.get("daily_budget").asDouble())
+                            : BigDecimal.TEN);
                 adset.setTargetingJson(adsetJson.has("targeting")
                         ? adsetJson.get("targeting").toString() : "{}");
                 adset.setOptimizationGoal(adsetJson.has("optimization_goal")
@@ -386,8 +427,43 @@ public class CampaignCreatorService {
                 campaignName, proposedAdsets.size(), clientId);
 
         return new CampaignProposalResponse(
-                campaign.getId(), campaignName, objective, "META", "DRAFT",
+                campaign.getId(), campaignName, objective, budgetType, campaignDailyBudget, "META", "DRAFT",
                 rationale, suggestedBudget, estimatedResults, warnings, proposedAdsets);
+    }
+
+    private String normalizeBudgetType(String budgetType) {
+        return "CBO".equalsIgnoreCase(budgetType) ? "CBO" : "ABO";
+    }
+
+    private String validateObjective(String objective) {
+        String normalized = objective == null ? "" : objective.trim().toUpperCase(Locale.ROOT);
+        Set<String> valid = Set.of(
+                "OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC",
+                "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"
+        );
+
+        if (valid.contains(normalized)) {
+            return normalized;
+        }
+
+        return switch (normalized) {
+            case "SALES", "CONVERSIONS", "PURCHASE" -> "OUTCOME_SALES";
+            case "LEADS", "LEAD_GENERATION" -> "OUTCOME_LEADS";
+            case "TRAFFIC", "LINK_CLICKS" -> "OUTCOME_TRAFFIC";
+            case "AWARENESS", "BRAND_AWARENESS", "REACH" -> "OUTCOME_AWARENESS";
+            case "ENGAGEMENT", "POST_ENGAGEMENT", "VIDEO_VIEWS" -> "OUTCOME_ENGAGEMENT";
+            case "APP_INSTALLS", "APP_PROMOTION" -> "OUTCOME_APP_PROMOTION";
+            default -> "OUTCOME_SALES";
+        };
+    }
+
+    private BigDecimal firstPositive(BigDecimal... values) {
+        for (BigDecimal value : values) {
+            if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private UUID findMatchingCopyVariantId(UUID agencyId, UUID clientId, UUID creativeAssetId,

@@ -12,6 +12,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -51,8 +52,17 @@ public class Adset {
     @Column(name = "optimization_goal", nullable = false)
     private String optimizationGoal;
 
+    @Column(name = "conversion_event")
+    private String conversionEvent;
+
     @Column(name = "status", nullable = false)
     private String status;
+
+    @Column(name = "start_date")
+    private LocalDate startDate;
+
+    @Column(name = "end_date")
+    private LocalDate endDate;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -94,8 +104,17 @@ public class Adset {
     public String getOptimizationGoal() { return optimizationGoal; }
     public void setOptimizationGoal(String optimizationGoal) { this.optimizationGoal = optimizationGoal; }
 
+    public String getConversionEvent() { return conversionEvent; }
+    public void setConversionEvent(String conversionEvent) { this.conversionEvent = conversionEvent; }
+
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public LocalDate getStartDate() { return startDate; }
+    public void setStartDate(LocalDate startDate) { this.startDate = startDate; }
+
+    public LocalDate getEndDate() { return endDate; }
+    public void setEndDate(LocalDate endDate) { this.endDate = endDate; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

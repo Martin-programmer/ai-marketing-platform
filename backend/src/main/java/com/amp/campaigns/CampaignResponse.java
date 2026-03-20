@@ -1,5 +1,6 @@
 package com.amp.campaigns;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -14,6 +15,8 @@ public record CampaignResponse(
         String metaCampaignId,
         String name,
         String objective,
+        String budgetType,
+        BigDecimal dailyBudget,
         String status,
         UUID createdBy,
         OffsetDateTime createdAt,
@@ -23,7 +26,7 @@ public record CampaignResponse(
         return new CampaignResponse(
                 e.getId(), e.getAgencyId(), e.getClientId(),
                 e.getPlatform(), e.getMetaCampaignId(),
-                e.getName(), e.getObjective(), e.getStatus(),
+            e.getName(), e.getObjective(), e.getBudgetType(), e.getDailyBudget(), e.getStatus(),
                 e.getCreatedBy(), e.getCreatedAt(), e.getUpdatedAt()
         );
     }

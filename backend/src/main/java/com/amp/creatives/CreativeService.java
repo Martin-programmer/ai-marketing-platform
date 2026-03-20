@@ -16,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -395,8 +397,8 @@ public class CreativeService {
         item.setPackageId(pkg.getId());
         item.setCreativeAssetId(asset.getId());
         item.setCopyVariantId(copyVariant.getId());
-        item.setCtaType(firstNonBlank(request.ctaType(), copyVariant.getCta(), "LEARN_MORE"));
-        item.setDestinationUrl(request.destinationUrl());
+        item.setCtaType(firstNonBlank(request.ctaType()));
+        item.setDestinationUrl(firstNonBlank(request.destinationUrl()));
         item.setWeight(normalizeWeight(request.weight()));
         item.setCreatedAt(OffsetDateTime.now());
 
@@ -530,11 +532,31 @@ public class CreativeService {
         }
 
         CreativePackage selectedPackage = approved.stream()
-                .filter(pkg -> objective != null && objective.equalsIgnoreCase(pkg.getObjective()))
+            .filter(pkg -> normalizeObjective(objective).equals(normalizeObjective(pkg.getObjective())))
                 .findFirst()
                 .orElse(approved.get(0));
 
         return packageItemRepository.findAllByPackageIdOrderByCreatedAtAsc(selectedPackage.getId());
+    }
+
+    private String normalizeObjective(String objective) {
+        String normalized = objective == null ? "" : objective.trim().toUpperCase(Locale.ROOT);
+        Set<String> valid = Set.of(
+                "OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC",
+                "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"
+        );
+        if (valid.contains(normalized)) {
+            return normalized;
+        }
+        return switch (normalized) {
+            case "SALES", "CONVERSIONS", "PURCHASE" -> "OUTCOME_SALES";
+            case "LEADS", "LEAD_GENERATION" -> "OUTCOME_LEADS";
+            case "TRAFFIC", "LINK_CLICKS" -> "OUTCOME_TRAFFIC";
+            case "AWARENESS", "BRAND_AWARENESS", "REACH" -> "OUTCOME_AWARENESS";
+            case "ENGAGEMENT", "POST_ENGAGEMENT", "VIDEO_VIEWS" -> "OUTCOME_ENGAGEMENT";
+            case "APP_INSTALLS", "APP_PROMOTION" -> "OUTCOME_APP_PROMOTION";
+            default -> "";
+        };
     }
 
     // ---- Package Detail ----

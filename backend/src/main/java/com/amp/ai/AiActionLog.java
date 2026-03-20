@@ -30,7 +30,7 @@ public class AiActionLog {
     @Column(name = "client_id", nullable = false)
     private UUID clientId;
 
-    @Column(name = "suggestion_id", nullable = false)
+    @Column(name = "suggestion_id")
     private UUID suggestionId;
 
     @Column(name = "executed_by", nullable = false)

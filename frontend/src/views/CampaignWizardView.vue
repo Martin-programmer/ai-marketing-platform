@@ -7,7 +7,7 @@
 
     <v-stepper v-model="step" :items="stepItems" alt-labels>
       <!-- Step 1: Campaign Settings -->
-      <template #item.1>
+      <template v-slot:[`item.1`]>
         <v-card flat class="pa-4">
           <v-row>
             <v-col cols="12" md="6">
@@ -29,6 +29,27 @@
                 variant="outlined"
               />
             </v-col>
+            <v-col cols="12">
+              <div class="text-subtitle-2 mb-2">Budget Type</div>
+              <v-radio-group v-model="campaign.budgetType" inline>
+                <v-radio
+                  v-for="option in budgetTypeOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </v-radio-group>
+            </v-col>
+            <v-col v-if="campaign.budgetType === 'CBO'" cols="12" md="6">
+              <v-text-field
+                v-model.number="campaign.dailyBudget"
+                label="Campaign Daily Budget"
+                type="number"
+                prefix="$"
+                variant="outlined"
+                :rules="[rules.required, rules.positive]"
+              />
+            </v-col>
             <v-col cols="12" md="6">
               <v-select
                 v-model="campaign.specialAdCategories"
@@ -41,12 +62,17 @@
                 clearable
               />
             </v-col>
+            <v-col v-if="campaign.budgetType === 'CBO' && adsets.length < 2" cols="12">
+              <v-alert type="warning" variant="tonal" density="compact">
+                CBO works best with 2+ ad sets.
+              </v-alert>
+            </v-col>
           </v-row>
         </v-card>
       </template>
 
       <!-- Step 2: Ad Sets -->
-      <template #item.2>
+      <template v-slot:[`item.2`]>
         <v-card flat class="pa-4">
           <div class="d-flex justify-space-between align-center mb-4">
             <div class="text-body-1 font-weight-medium">Ad Sets ({{ adsets.length }})</div>
@@ -60,6 +86,10 @@
             </v-btn>
           </div>
 
+          <v-alert v-if="campaign.budgetType === 'CBO'" type="info" variant="tonal" class="mb-4">
+            Budget is managed at campaign level (${{ Number(campaign.dailyBudget || 0).toFixed(2) }}/day).
+          </v-alert>
+
           <v-expansion-panels v-model="expandedAdset" variant="accordion">
             <v-expansion-panel v-for="(adset, ai) in adsets" :key="ai">
               <v-expansion-panel-title>
@@ -67,7 +97,7 @@
                   <v-icon size="18" color="blue">mdi-folder-outline</v-icon>
                   <span class="font-weight-medium">{{ adset.name || `Ad Set ${ai + 1}` }}</span>
                   <v-chip size="x-small" color="success" variant="tonal">
-                    ${{ adset.dailyBudget || 0 }}/day
+                    {{ campaign.budgetType === 'ABO' ? `$${adset.dailyBudget || 0}/day` : 'Campaign-managed budget' }}
                   </v-chip>
                   <v-chip size="x-small" variant="outlined">
                     {{ adset.ads.length }} ad{{ adset.ads.length !== 1 ? 's' : '' }}
@@ -90,16 +120,27 @@
                   <v-col cols="12" md="4">
                     <v-text-field v-model="adset.name" label="Ad Set Name" variant="outlined" :rules="[rules.required]" />
                   </v-col>
-                  <v-col cols="12" md="2">
+                  <v-col v-if="campaign.budgetType === 'ABO'" cols="12" md="2">
                     <v-text-field v-model.number="adset.dailyBudget" label="Daily Budget" type="number" prefix="$" variant="outlined" :rules="[rules.required, rules.positive]" />
                   </v-col>
-                  <v-col cols="12" md="3">
+                  <v-col :cols="12" :md="campaign.budgetType === 'ABO' ? 3 : 4">
                     <v-select v-model="adset.optimizationGoal" :items="optimizationGoalOptions" item-title="label" item-value="value" label="Optimization Goal" variant="outlined" />
                   </v-col>
-                  <v-col cols="12" md="3">
+                  <v-col :cols="12" :md="campaign.budgetType === 'ABO' ? 3 : 4">
                     <v-select v-model="adset.billingEvent" :items="billingEventOptions" label="Billing Event" variant="outlined" />
                   </v-col>
+                  <v-col v-if="adset.optimizationGoal === 'OFFSITE_CONVERSIONS'" cols="12" md="4">
+                    <v-select
+                      v-model="adset.conversionEvent"
+                      :items="conversionEventOptions"
+                      label="Conversion Event"
+                      variant="outlined"
+                    />
+                  </v-col>
                 </v-row>
+                <v-alert v-if="campaign.budgetType === 'CBO'" type="info" variant="tonal" density="compact" class="mb-4">
+                  Budget is managed at campaign level (${{ Number(campaign.dailyBudget || 0).toFixed(2) }}/day).
+                </v-alert>
                 <v-row>
                   <v-col cols="12" md="4">
                     <v-text-field v-model="adset.startDate" label="Start Date" type="date" variant="outlined" :rules="[rules.required]" />
@@ -113,102 +154,63 @@
                 <v-card variant="tonal" color="blue-grey-lighten-5" class="mt-4">
                   <v-card-title class="text-subtitle-2">Targeting</v-card-title>
                   <v-card-text>
-                    <!-- Location search -->
-                    <div class="text-caption font-weight-medium mb-2">Locations</div>
-                    <v-autocomplete
-                      v-model="adset.targeting.selectedLocations"
-                      v-model:search="adset.targeting.locationSearch"
-                      :items="locationResults[ai] || []"
-                      :loading="locationLoading[ai]"
-                      item-title="display"
-                      item-value="key"
-                      label="Search locations..."
-                      variant="outlined"
-                      density="compact"
-                      multiple
-                      chips
-                      closable-chips
-                      return-object
-                      hide-no-data
-                      no-filter
-                      class="mb-3"
-                      @update:search="(val: string) => debounceLocationSearch(ai, val)"
+                    <v-alert v-if="metaConnected === false" type="info" variant="tonal" density="compact" class="mb-4">
+                      Meta is not connected for this client. You can still type targeting values manually — connect Meta in Client Settings to enable live search.
+                    </v-alert>
+
+                    <LocationSearchField
+                      v-model="adset.targeting.locations"
+                      :client-id="clientId"
+                      label="Target Locations"
+                      hint="Search for countries, cities, or regions"
+                      required
                     />
 
-                    <v-row>
-                      <v-col cols="12" md="6">
-                        <div class="text-caption font-weight-medium mb-2">Age Range</div>
-                        <div class="d-flex align-center ga-3">
-                          <v-text-field v-model.number="adset.targeting.ageMin" label="Min" type="number" :min="18" :max="65" variant="outlined" density="compact" style="max-width: 100px" />
-                          <span>—</span>
-                          <v-text-field v-model.number="adset.targeting.ageMax" label="Max" type="number" :min="18" :max="65" variant="outlined" density="compact" style="max-width: 100px" />
-                        </div>
-                      </v-col>
-                      <v-col cols="12" md="6">
-                        <div class="text-caption font-weight-medium mb-2">Gender</div>
-                        <v-chip-group v-model="adset.targeting.genderSelection" mandatory>
-                          <v-chip value="all" filter>All</v-chip>
-                          <v-chip value="male" filter>Male</v-chip>
-                          <v-chip value="female" filter>Female</v-chip>
-                        </v-chip-group>
-                      </v-col>
-                    </v-row>
+                    <div class="mt-4">
+                      <div class="text-caption font-weight-medium mb-2">Age Range</div>
+                      <v-range-slider
+                        v-model="adset.targeting.ageRange"
+                        :min="18"
+                        :max="65"
+                        :step="1"
+                        thumb-label="always"
+                        strict
+                        color="primary"
+                      />
+                    </div>
 
-                    <!-- Interest search -->
-                    <div class="text-caption font-weight-medium mb-2 mt-3">Interests</div>
-                    <v-autocomplete
-                      v-model="adset.targeting.selectedInterests"
-                      v-model:search="adset.targeting.interestSearch"
-                      :items="interestResults[ai] || []"
-                      :loading="interestLoading[ai]"
-                      item-title="display"
-                      item-value="id"
-                      label="Search interests..."
-                      variant="outlined"
-                      density="compact"
-                      multiple
-                      chips
-                      closable-chips
-                      return-object
-                      hide-no-data
-                      no-filter
-                      class="mb-3"
-                      @update:search="(val: string) => debounceInterestSearch(ai, val)"
+                    <div class="mt-2">
+                      <div class="text-caption font-weight-medium mb-2">Gender</div>
+                      <v-btn-toggle v-model="adset.targeting.gender" mandatory color="primary">
+                        <v-btn value="all">All</v-btn>
+                        <v-btn value="male">Male</v-btn>
+                        <v-btn value="female">Female</v-btn>
+                      </v-btn-toggle>
+                    </div>
+
+                    <InterestSearchField
+                      v-model="adset.targeting.interests"
+                      :client-id="clientId"
+                      label="Interests"
+                      hint="Search for interests, behaviors, demographics"
+                      class="mt-4"
                     />
 
-                    <!-- Custom audiences -->
-                    <v-row>
-                      <v-col cols="12" md="6">
-                        <v-select
-                          v-model="adset.targeting.customAudiences"
-                          :items="customAudiences"
-                          item-title="display"
-                          item-value="id"
-                          label="Custom Audiences"
-                          variant="outlined"
-                          density="compact"
-                          multiple
-                          chips
-                          closable-chips
-                          return-object
-                        />
-                      </v-col>
-                      <v-col cols="12" md="6">
-                        <v-select
-                          v-model="adset.targeting.excludedAudiences"
-                          :items="customAudiences"
-                          item-title="display"
-                          item-value="id"
-                          label="Excluded Audiences"
-                          variant="outlined"
-                          density="compact"
-                          multiple
-                          chips
-                          closable-chips
-                          return-object
-                        />
-                      </v-col>
-                    </v-row>
+                    <AudienceSelector
+                      v-model="adset.targeting.customAudiences"
+                      :client-id="clientId"
+                      label="Custom Audiences (Include)"
+                      hint="Select audiences to include"
+                      class="mt-4"
+                    />
+
+                    <AudienceSelector
+                      v-model="adset.targeting.excludedAudiences"
+                      :client-id="clientId"
+                      label="Excluded Audiences"
+                      hint="Select audiences to exclude"
+                      class="mt-4"
+                    />
 
                     <!-- Placements -->
                     <div class="text-caption font-weight-medium mb-2 mt-3">Placements</div>
@@ -236,7 +238,7 @@
       </template>
 
       <!-- Step 3: Ads -->
-      <template #item.3>
+      <template v-slot:[`item.3`]>
         <v-card flat class="pa-4">
           <div v-for="(adset, ai) in adsets" :key="ai" class="mb-6">
             <div class="text-subtitle-1 font-weight-medium d-flex align-center ga-2 mb-3">
@@ -368,7 +370,7 @@
       </template>
 
       <!-- Step 4: Review & Publish -->
-      <template #item.4>
+      <template v-slot:[`item.4`]>
         <v-card flat class="pa-4">
           <v-alert v-if="validationErrors.length" type="error" variant="tonal" class="mb-4">
             <div class="font-weight-medium mb-2">Please fix the following issues:</div>
@@ -397,7 +399,7 @@
             <v-col cols="12" md="3">
               <v-card variant="tonal" color="success">
                 <v-card-text>
-                  <div class="text-caption">Total Daily Budget</div>
+                  <div class="text-caption">{{ campaign.budgetType === 'CBO' ? 'Campaign Daily Budget' : 'Total Daily Budget' }}</div>
                   <div class="text-h6">${{ totalDailyBudget.toFixed(2) }}</div>
                 </v-card-text>
               </v-card>
@@ -417,7 +419,9 @@
               <v-card-title class="d-flex align-center flex-wrap ga-2">
                 <v-icon size="18" color="blue">mdi-folder-outline</v-icon>
                 <span>{{ adset.name || `Ad Set ${ai + 1}` }}</span>
-                <v-chip size="x-small" color="success" variant="tonal">${{ adset.dailyBudget || 0 }}/day</v-chip>
+                <v-chip size="x-small" color="success" variant="tonal">
+                  {{ campaign.budgetType === 'ABO' ? `$${adset.dailyBudget || 0}/day` : 'Campaign-managed budget' }}
+                </v-chip>
                 <v-chip size="x-small" variant="outlined">{{ adset.optimizationGoal }}</v-chip>
               </v-card-title>
               <v-card-text>
@@ -506,7 +510,7 @@
                       <v-chip v-if="pkg.objective" size="x-small" variant="outlined">{{ pkg.objective }}</v-chip>
                       <v-chip size="x-small" variant="outlined">{{ pkg.itemCount }} item{{ pkg.itemCount !== 1 ? 's' : '' }}</v-chip>
                     </div>
-                    <div v-for="(item, idx) in pkg.items.slice(0, 4)" :key="item.id" class="d-flex align-center ga-2 mb-1">
+                    <div v-for="item in pkg.items.slice(0, 4)" :key="item.id" class="d-flex align-center ga-2 mb-1">
                       <v-icon size="14" :color="item.creativeAsset ? 'green' : 'grey'">
                         {{ item.creativeAsset?.assetType === 'VIDEO' ? 'mdi-video' : 'mdi-image' }}
                       </v-icon>
@@ -580,9 +584,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
 import AdPreviewCard from '@/components/AdPreviewCard.vue'
+import AudienceSelector from '@/components/AudienceSelector.vue'
 import CreativeSelectorDialog from '@/components/CreativeSelectorDialog.vue'
+import InterestSearchField from '@/components/InterestSearchField.vue'
+import LocationSearchField from '@/components/LocationSearchField.vue'
 import { useCreativeStore } from '@/stores/creatives'
-import type { CopyVariant, PackageDetail, PackageItemDetail } from '@/stores/creatives'
+import type { CopyVariant, PackageDetail } from '@/stores/creatives'
+import type { MetaAudienceOption, MetaInterestOption, MetaLocationOption } from '@/types/metaTargeting'
 
 const route = useRoute()
 const router = useRouter()
@@ -596,6 +604,8 @@ const showCreativeSelector = ref(false)
 const pendingCreativeSlot = ref<{ adsetIdx: number; adIdx: number } | null>(null)
 const generatingCopy = reactive<Record<string, boolean>>({})
 const snackbar = ref({ show: false, text: '', color: 'success' as string })
+const metaConnected = ref<boolean | null>(null)
+const metaConnectionMessage = ref('')
 
 // Publish progress dialog
 const publishDialog = reactive({
@@ -604,15 +614,6 @@ const publishDialog = reactive({
   error: '' as string,
   steps: [] as { step: string; status: string; message: string }[],
 })
-
-// Search state
-const locationResults = reactive<Record<number, { key: string; display: string; name: string; type: string; country_name: string; country_code: string }[]>>({})
-const locationLoading = reactive<Record<number, boolean>>({})
-const interestResults = reactive<Record<number, { id: string; display: string; name: string; audience_size: number }[]>>({})
-const interestLoading = reactive<Record<number, boolean>>({})
-const customAudiences = ref<{ id: string; display: string; name: string; approximate_count: number }[]>([])
-const locationTimers: Record<number, ReturnType<typeof setTimeout>> = {}
-const interestTimers: Record<number, ReturnType<typeof setTimeout>> = {}
 
 // Copy variants cache
 const copyVariantsCache = reactive<Record<string, CopyVariant[]>>({})
@@ -635,6 +636,12 @@ const objectiveOptions = [
   { value: 'OUTCOME_TRAFFIC', label: 'Website Traffic' },
   { value: 'OUTCOME_AWARENESS', label: 'Brand Awareness' },
   { value: 'OUTCOME_ENGAGEMENT', label: 'Engagement' },
+  { value: 'OUTCOME_APP_PROMOTION', label: 'App Promotion' },
+]
+
+const budgetTypeOptions = [
+  { value: 'ABO', label: 'Ad Set Budget (ABO) — each ad set has its own budget' },
+  { value: 'CBO', label: 'Campaign Budget (CBO) — one budget, Meta optimizes distribution' },
 ]
 
 const specialAdCategoryOptions = ['CREDIT', 'EMPLOYMENT', 'HOUSING', 'SOCIAL_ISSUES']
@@ -649,6 +656,8 @@ const optimizationGoalOptions = [
 
 const billingEventOptions = ['IMPRESSIONS', 'LINK_CLICKS']
 
+const conversionEventOptions = ['PURCHASE', 'ADD_TO_CART', 'INITIATE_CHECKOUT', 'LEAD', 'COMPLETE_REGISTRATION', 'CONTACT', 'SUBSCRIBE']
+
 const ctaOptions = ['SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BOOK_NOW', 'CONTACT_US', 'GET_OFFER', 'SUBSCRIBE', 'DOWNLOAD']
 
 const placementOptions = [
@@ -661,8 +670,24 @@ const placementOptions = [
 ]
 
 const rules = {
-  required: (v: any) => !!v || 'Required',
-  positive: (v: any) => (v != null && v > 0) || 'Must be positive',
+  required: (v: unknown) => !!v || 'Required',
+  positive: (v: number | null | undefined) => (v != null && v > 0) || 'Must be positive',
+}
+
+interface ApiErrorShape {
+  response?: {
+    data?: {
+      message?: string
+      error?: string
+      steps?: { step: string; status: string; message: string }[]
+    }
+  }
+  message?: string
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  const apiError = error as ApiErrorShape
+  return apiError.response?.data?.message || apiError.response?.data?.error || apiError.message || fallback
 }
 
 interface WizardAd {
@@ -681,21 +706,19 @@ interface WizardAd {
 }
 
 interface WizardTargeting {
-  ageMin: number
-  ageMax: number
-  genderSelection: 'all' | 'male' | 'female'
-  selectedLocations: { key: string; display: string; name: string; type: string; country_name: string; country_code: string }[]
-  selectedInterests: { id: string; display: string; name: string; audience_size: number }[]
-  customAudiences: { id: string; display: string; name: string; approximate_count: number }[]
-  excludedAudiences: { id: string; display: string; name: string; approximate_count: number }[]
-  locationSearch: string
-  interestSearch: string
+  ageRange: [number, number]
+  gender: 'all' | 'male' | 'female'
+  locations: MetaLocationOption[]
+  interests: MetaInterestOption[]
+  customAudiences: MetaAudienceOption[]
+  excludedAudiences: MetaAudienceOption[]
 }
 
 interface WizardAdset {
   name: string
   dailyBudget: number
   optimizationGoal: string
+  conversionEvent: string
   billingEvent: string
   startDate: string
   endDate: string
@@ -708,6 +731,8 @@ interface WizardAdset {
 const campaign = reactive({
   name: '',
   objective: 'OUTCOME_SALES',
+  budgetType: 'ABO',
+  dailyBudget: null as number | null,
   specialAdCategories: [] as string[],
 })
 
@@ -735,19 +760,17 @@ function createDefaultAdset(): WizardAdset {
     name: '',
     dailyBudget: 50,
     optimizationGoal: 'OFFSITE_CONVERSIONS',
+    conversionEvent: 'PURCHASE',
     billingEvent: 'IMPRESSIONS',
     startDate: '',
     endDate: '',
     targeting: {
-      ageMin: 18,
-      ageMax: 65,
-      genderSelection: 'all',
-      selectedLocations: [],
-      selectedInterests: [],
+      ageRange: [18, 65],
+      gender: 'all',
+      locations: [],
+      interests: [],
       customAudiences: [],
       excludedAudiences: [],
-      locationSearch: '',
-      interestSearch: '',
     },
     placements: 'automatic',
     manualPlacements: [],
@@ -757,12 +780,20 @@ function createDefaultAdset(): WizardAdset {
 
 const adsets = ref<WizardAdset[]>([createDefaultAdset()])
 
-const totalDailyBudget = computed(() => adsets.value.reduce((sum, a) => sum + (a.dailyBudget || 0), 0))
+const totalDailyBudget = computed(() => campaign.budgetType === 'CBO'
+  ? Number(campaign.dailyBudget || 0)
+  : adsets.value.reduce((sum, a) => sum + (a.dailyBudget || 0), 0))
 const totalAds = computed(() => adsets.value.reduce((sum, a) => sum + a.ads.length, 0))
 
 const canAdvance = computed(() => {
-  if (step.value === 1) return !!campaign.name.trim() && !!campaign.objective
-  if (step.value === 2) return adsets.value.every((a) => !!a.name.trim() && a.dailyBudget > 0)
+  if (step.value === 1) {
+    return !!campaign.name.trim()
+      && !!campaign.objective
+      && (campaign.budgetType !== 'CBO' || (!!campaign.dailyBudget && campaign.dailyBudget > 0))
+  }
+  if (step.value === 2) {
+    return adsets.value.every((a) => !!a.name.trim() && (campaign.budgetType === 'CBO' || a.dailyBudget > 0))
+  }
   if (step.value === 3) return adsets.value.every((a) => a.ads.every((ad) => !!ad.name.trim() && !!ad.destinationUrl.trim()))
   return true
 })
@@ -771,11 +802,15 @@ const validationErrors = computed(() => {
   const errs: string[] = []
   if (!campaign.name.trim()) errs.push('Campaign name is required')
   if (!campaign.objective) errs.push('Objective is required')
+  if (campaign.budgetType === 'CBO' && (!campaign.dailyBudget || campaign.dailyBudget <= 0)) {
+    errs.push('Campaign daily budget is required for CBO')
+  }
   for (let i = 0; i < adsets.value.length; i++) {
     const a = adsets.value[i]!
     if (!a.name.trim()) errs.push(`Ad Set ${i + 1}: name is required`)
-    if (!a.dailyBudget || a.dailyBudget <= 0) errs.push(`Ad Set ${i + 1}: daily budget must be positive`)
+    if (campaign.budgetType === 'ABO' && (!a.dailyBudget || a.dailyBudget <= 0)) errs.push(`Ad Set ${i + 1}: daily budget must be positive`)
     if (!a.startDate) errs.push(`Ad Set ${i + 1}: start date is required`)
+    if (!a.targeting.locations.length) errs.push(`Ad Set ${i + 1}: at least one target location is required`)
     for (let j = 0; j < a.ads.length; j++) {
       const ad = a.ads[j]!
       if (!ad.name.trim()) errs.push(`Ad ${i + 1}.${j + 1}: name is required`)
@@ -888,8 +923,8 @@ async function generateCopyForAd(adsetIdx: number, adIdx: number) {
       ad.selectedCopyVariantId = first.id
       snackbar.value = { show: true, text: `Generated ${variants.length} copy variants`, color: 'success' }
     }
-  } catch (e: any) {
-    snackbar.value = { show: true, text: e.response?.data?.message || e.message || 'Copy generation failed', color: 'error' }
+  } catch (error: unknown) {
+    snackbar.value = { show: true, text: getApiErrorMessage(error, 'Copy generation failed'), color: 'error' }
   } finally {
     generatingCopy[key] = false
   }
@@ -960,65 +995,15 @@ function importPackage(pkg: PackageDetail) {
   }
 }
 
-// ── Targeting search ──
-
-function debounceLocationSearch(adsetIdx: number, query: string) {
-  if (locationTimers[adsetIdx]) clearTimeout(locationTimers[adsetIdx])
-  if (!query || query.length < 2) return
-  locationTimers[adsetIdx] = setTimeout(() => searchLocations(adsetIdx, query), 300)
-}
-
-function debounceInterestSearch(adsetIdx: number, query: string) {
-  if (interestTimers[adsetIdx]) clearTimeout(interestTimers[adsetIdx])
-  if (!query || query.length < 2) return
-  interestTimers[adsetIdx] = setTimeout(() => searchInterests(adsetIdx, query), 300)
-}
-
-async function searchLocations(adsetIdx: number, query: string) {
-  locationLoading[adsetIdx] = true
-  try {
-    const { data } = await api.get('/meta/locations/search', { params: { q: query, clientId: clientId.value } })
-    locationResults[adsetIdx] = data.map((item: any) => ({
-      ...item,
-      display: `${item.name}${item.country_name ? ', ' + item.country_name : ''} (${item.type})`,
-    }))
-  } catch {
-    locationResults[adsetIdx] = []
-  } finally {
-    locationLoading[adsetIdx] = false
-  }
-}
-
-async function searchInterests(adsetIdx: number, query: string) {
-  interestLoading[adsetIdx] = true
-  try {
-    const { data } = await api.get('/meta/interests/search', { params: { q: query, clientId: clientId.value } })
-    interestResults[adsetIdx] = data.map((item: any) => ({
-      ...item,
-      display: `${item.name} (${formatAudienceSize(item.audience_size)})`,
-    }))
-  } catch {
-    interestResults[adsetIdx] = []
-  } finally {
-    interestLoading[adsetIdx] = false
-  }
-}
-
-function formatAudienceSize(size: number) {
-  if (size >= 1_000_000) return `${(size / 1_000_000).toFixed(1)}M`
-  if (size >= 1_000) return `${(size / 1_000).toFixed(0)}K`
-  return String(size)
-}
-
 // ── Targeting summary for review ──
 
 function targetingSummary(adset: WizardAdset): string {
   const parts: string[] = []
   const t = adset.targeting
-  if (t.selectedLocations.length) parts.push(`Locations: ${t.selectedLocations.map((l) => l.name).join(', ')}`)
-  parts.push(`Age: ${t.ageMin}–${t.ageMax}`)
-  if (t.genderSelection !== 'all') parts.push(`Gender: ${t.genderSelection}`)
-  if (t.selectedInterests.length) parts.push(`Interests: ${t.selectedInterests.map((i) => i.name).join(', ')}`)
+  if (t.locations.length) parts.push(`Locations: ${t.locations.map((l) => l.name).join(', ')}`)
+  parts.push(`Age: ${t.ageRange[0]}–${t.ageRange[1]}`)
+  if (t.gender !== 'all') parts.push(`Gender: ${t.gender}`)
+  if (t.interests.length) parts.push(`Interests: ${t.interests.map((i) => i.name).join(', ')}`)
   if (t.customAudiences.length) parts.push(`Custom audiences: ${t.customAudiences.length}`)
   parts.push(`Placements: ${adset.placements}`)
   if (adset.startDate) parts.push(`Start: ${adset.startDate}`)
@@ -1027,41 +1012,21 @@ function targetingSummary(adset: WizardAdset): string {
 
 // ── Build targeting JSON for API ──
 
-function buildTargetingJson(adset: WizardAdset): Record<string, any> {
+function buildTargetingJson(adset: WizardAdset): Record<string, unknown> {
   const t = adset.targeting
-  const targeting: Record<string, any> = {}
-
-  targeting.age_min = t.ageMin
-  targeting.age_max = t.ageMax
-
-  if (t.genderSelection === 'male') targeting.genders = [1]
-  else if (t.genderSelection === 'female') targeting.genders = [2]
-
-  if (t.selectedLocations.length) {
-    const geoLocations: Record<string, any[]> = {}
-    for (const loc of t.selectedLocations) {
-      const type = loc.type || 'country'
-      const bucketKey = type === 'country' ? 'countries' : type === 'city' ? 'cities' : 'regions'
-      if (!geoLocations[bucketKey]) geoLocations[bucketKey] = []
-      if (type === 'country') {
-        geoLocations[bucketKey].push(loc.country_code || loc.key)
-      } else {
-        geoLocations[bucketKey].push({ key: loc.key })
-      }
-    }
-    targeting.geo_locations = geoLocations
-  }
-
-  if (t.selectedInterests.length) {
-    targeting.interests = t.selectedInterests.map((i) => ({ id: i.id, name: i.name }))
-  }
-
-  if (t.customAudiences.length) {
-    targeting.custom_audiences = t.customAudiences.map((a) => ({ id: a.id }))
-  }
-
-  if (t.excludedAudiences.length) {
-    targeting.excluded_custom_audiences = t.excludedAudiences.map((a) => ({ id: a.id }))
+  const targeting: Record<string, unknown> = {
+    locations: t.locations.map((location) => ({
+      key: location.key,
+      name: location.name,
+      type: location.type,
+      country_name: location.country_name,
+      country_code: location.country_code,
+    })),
+    ageRange: t.ageRange,
+    gender: t.gender,
+    interests: t.interests.map((interest) => ({ id: interest.id, name: interest.name })),
+    customAudiences: t.customAudiences.map((audience) => ({ id: audience.id, name: audience.name })),
+    excludedAudiences: t.excludedAudiences.map((audience) => ({ id: audience.id, name: audience.name })),
   }
 
   return targeting
@@ -1077,8 +1042,8 @@ async function saveDraft() {
     snackbar.value = { show: true, text: 'Campaign saved as draft!', color: 'success' }
     router.push({ name: 'campaigns', query: { clientId: clientId.value } })
     return data
-  } catch (e: any) {
-    snackbar.value = { show: true, text: e.response?.data?.message || e.message || 'Failed to save', color: 'error' }
+  } catch (error: unknown) {
+    snackbar.value = { show: true, text: getApiErrorMessage(error, 'Failed to save'), color: 'error' }
   } finally {
     saving.value = false
   }
@@ -1120,8 +1085,8 @@ async function saveAndPublish() {
     } else {
       publishDialog.error = result.error || 'Unknown error during publish'
     }
-  } catch (e: any) {
-    const errorData = e.response?.data
+  } catch (error: unknown) {
+    const errorData = (error as ApiErrorShape).response?.data
     // If the backend returned steps, show them
     if (errorData?.steps && Array.isArray(errorData.steps)) {
       publishDialog.steps = [
@@ -1129,7 +1094,7 @@ async function saveAndPublish() {
         ...errorData.steps,
       ]
     }
-    publishDialog.error = errorData?.error || e.response?.data?.message || e.message || 'Failed to publish'
+    publishDialog.error = getApiErrorMessage(error, 'Failed to publish')
   } finally {
     publishing.value = false
   }
@@ -1139,14 +1104,17 @@ function buildPayload() {
   return {
     name: campaign.name,
     objective: campaign.objective,
+    budgetType: campaign.budgetType,
+    dailyBudget: campaign.budgetType === 'CBO' ? campaign.dailyBudget : null,
     specialAdCategories: campaign.specialAdCategories,
     adsets: adsets.value.map((adset) => ({
       name: adset.name,
-      dailyBudget: adset.dailyBudget,
+      dailyBudget: campaign.budgetType === 'ABO' ? adset.dailyBudget : null,
       optimizationGoal: adset.optimizationGoal,
+      conversionEvent: adset.optimizationGoal === 'OFFSITE_CONVERSIONS' ? adset.conversionEvent : null,
       billingEvent: adset.billingEvent,
-      startDate: adset.startDate || null,
-      endDate: adset.endDate || null,
+      startDate: toApiDate(adset.startDate),
+      endDate: toApiDate(adset.endDate),
       targeting: buildTargetingJson(adset),
       placements: adset.placements,
       ads: adset.ads.map((ad) => ({
@@ -1163,22 +1131,27 @@ function buildPayload() {
   }
 }
 
-// ── Load custom audiences on mount ──
+function toApiDate(value: string | null | undefined) {
+  if (!value) return null
+  const trimmed = value.trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+}
 
-async function loadCustomAudiences() {
+async function loadMetaConnectionStatus() {
   try {
-    const { data } = await api.get(`/clients/${clientId.value}/meta/audiences`)
-    customAudiences.value = data.map((item: any) => ({
-      ...item,
-      display: `${item.name} (~${formatAudienceSize(item.approximate_count)})`,
-    }))
+    const { data } = await api.get(`/clients/${clientId.value}/meta/connection`)
+    metaConnected.value = data?.status === 'CONNECTED'
+    if (!metaConnected.value) {
+      metaConnectionMessage.value = 'Meta is not connected for this client. Connect Meta to search targeting options.'
+    }
   } catch {
-    customAudiences.value = []
+    metaConnected.value = false
+    metaConnectionMessage.value = 'Search unavailable. Meta is not connected for this client.'
   }
 }
 
 onMounted(() => {
-  loadCustomAudiences()
+  loadMetaConnectionStatus()
 })
 </script>
 

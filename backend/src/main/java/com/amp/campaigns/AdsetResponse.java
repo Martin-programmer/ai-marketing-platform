@@ -1,6 +1,7 @@
 package com.amp.campaigns;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -17,7 +18,10 @@ public record AdsetResponse(
         BigDecimal dailyBudget,
         String targetingJson,
         String optimizationGoal,
+        String conversionEvent,
         String status,
+        LocalDate startDate,
+        LocalDate endDate,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
@@ -25,8 +29,8 @@ public record AdsetResponse(
         return new AdsetResponse(
                 e.getId(), e.getAgencyId(), e.getClientId(),
                 e.getCampaignId(), e.getMetaAdsetId(),
-                e.getName(), e.getDailyBudget(), e.getTargetingJson(), e.getOptimizationGoal(),
-                e.getStatus(), e.getCreatedAt(), e.getUpdatedAt()
+                e.getName(), e.getDailyBudget(), e.getTargetingJson(), e.getOptimizationGoal(), e.getConversionEvent(),
+                e.getStatus(), e.getStartDate(), e.getEndDate(), e.getCreatedAt(), e.getUpdatedAt()
         );
     }
 }

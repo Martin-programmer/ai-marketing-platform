@@ -67,7 +67,7 @@ ai:
   anthropic:
     api-key: ${ANTHROPIC_API_KEY:placeholder}
     default-model: claude-sonnet-4-20250514
-    complex-model: claude-opus-4-20250115
+    complex-model: claude-sonnet-4-20250514
     max-tokens: 4096
     timeout-seconds: 60
   analyzer:

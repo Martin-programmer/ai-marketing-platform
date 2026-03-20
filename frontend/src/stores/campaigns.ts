@@ -10,6 +10,8 @@ export interface Campaign {
   metaCampaignId: string | null
   name: string
   objective: string
+  budgetType: string
+  dailyBudget: number | null
   status: string
   createdBy: string
   createdAt: string
@@ -19,13 +21,17 @@ export interface Campaign {
 export interface Adset {
   id: string
   agencyId: string
+  clientId: string
   campaignId: string
   metaAdsetId: string | null
   name: string
   targetingJson: any
   dailyBudget: number
-  bidAmount: number | null
+  optimizationGoal: string
+  conversionEvent: string | null
   status: string
+  startDate: string | null
+  endDate: string | null
   createdAt: string
   updatedAt: string
 }
@@ -33,10 +39,18 @@ export interface Adset {
 export interface Ad {
   id: string
   agencyId: string
+  clientId: string
   adsetId: string
   metaAdId: string | null
   name: string
-  creativePackageId: string | null
+  creativePackageItemId: string | null
+  creativeAssetId: string | null
+  copyVariantId: string | null
+  primaryText: string
+  headline: string
+  description: string
+  cta: string
+  destinationUrl: string
   status: string
   createdAt: string
   updatedAt: string
@@ -68,6 +82,8 @@ export interface CampaignProposal {
   campaignId: string
   campaignName: string
   objective: string
+  budgetType: string
+  campaignDailyBudget: number | null
   platform: string
   status: string
   rationale: string
@@ -115,7 +131,13 @@ export const useCampaignStore = defineStore('campaigns', () => {
     }
   }
 
-  async function createCampaign(clientId: string, payload: { name: string; objective: string; platform?: string }) {
+  async function createCampaign(clientId: string, payload: {
+    name: string
+    objective: string
+    platform?: string
+    budgetType?: string
+    dailyBudget?: number | null
+  }) {
     const { data } = await api.post(`/clients/${clientId}/campaigns`, payload)
     campaigns.value.push(data)
     return data
@@ -168,12 +190,52 @@ export const useCampaignStore = defineStore('campaigns', () => {
     return data
   }
 
-  async function generateProposal(clientId: string, brief: string) {
+  async function patchCampaign(campaignId: string, payload: { name?: string; status?: string }) {
+    const { data } = await api.patch(`/campaigns/${campaignId}`, payload)
+    const idx = campaigns.value.findIndex(c => c.id === campaignId)
+    if (idx >= 0) campaigns.value[idx] = data
+    return data
+  }
+
+  async function patchAdset(campaignId: string, adsetId: string, payload: {
+    name?: string
+    dailyBudget?: number | null
+    targetingJson?: string
+    optimizationGoal?: string
+    conversionEvent?: string | null
+    status?: string
+  }) {
+    const { data } = await api.patch(`/campaigns/${campaignId}/adsets/${adsetId}`, payload)
+    const idx = adsets.value.findIndex(a => a.id === adsetId)
+    if (idx >= 0) adsets.value[idx] = data
+    return data
+  }
+
+  async function patchAd(campaignId: string, adsetId: string, adId: string, payload: {
+    name?: string
+    primaryText?: string
+    headline?: string
+    description?: string
+    ctaType?: string
+    destinationUrl?: string
+    status?: string
+  }) {
+    const { data } = await api.patch(`/campaigns/${campaignId}/adsets/${adsetId}/ads/${adId}`, payload)
+    const idx = ads.value.findIndex(a => a.id === adId)
+    if (idx >= 0) ads.value[idx] = data
+    return data
+  }
+
+  async function generateProposal(clientId: string, payload: {
+    brief: string
+    budgetType?: string
+    dailyBudget?: number | null
+  }) {
     proposalLoading.value = true
     error.value = null
     proposal.value = null
     try {
-      const { data } = await api.post(`/clients/${clientId}/campaigns/ai-propose`, { brief })
+      const { data } = await api.post(`/clients/${clientId}/campaigns/ai-propose`, payload)
       proposal.value = data
       return data
     } catch (e: any) {
@@ -205,6 +267,7 @@ export const useCampaignStore = defineStore('campaigns', () => {
     proposal, proposalLoading,
     fetchCampaigns, createCampaign, publishCampaign, pauseCampaign, resumeCampaign,
     fetchAdsets, createAdset, fetchAds, createAd,
+    patchCampaign, patchAdset, patchAd,
     generateProposal, metaPublish, aiAnalyzeCampaign,
   }
 })

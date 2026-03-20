@@ -22,6 +22,7 @@ import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,11 +36,17 @@ import com.amp.campaigns.AdsetRepository;
 import com.amp.campaigns.Campaign;
 import com.amp.campaigns.CampaignRepository;
 
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -302,6 +309,7 @@ public class ExecutorService {
 
         String accessToken = metaService.getAccessToken(conn);
         String adAccountId = conn.getAdAccountId();
+        ZoneId clientZone = resolveClientZoneId(agencyId, campaign.getClientId());
 
         List<Adset> adsets = adsetRepo.findAllByCampaignId(campaignId);
         List<Map<String, String>> steps = new ArrayList<>();
@@ -311,17 +319,31 @@ public class ExecutorService {
         try {
             // ── Step 1: Create campaign in Meta as PAUSED ──
             log.info("Publishing campaign '{}' to Meta account {}", campaign.getName(), adAccountId);
+            String budgetType = "CBO".equalsIgnoreCase(campaign.getBudgetType()) ? "CBO" : "ABO";
+                String validatedObjective = validateObjective(campaign.getObjective());
+                if (!Objects.equals(validatedObjective, campaign.getObjective())) {
+                log.warn("Normalized campaign objective '{}' to '{}' before Meta publish for campaign {}",
+                    campaign.getObjective(), validatedObjective, campaignId);
+                campaign.setObjective(validatedObjective);
+                campaignRepo.save(campaign);
+                }
             JsonNode metaCampaign = metaClient.createCampaign(
                     accessToken, adAccountId,
-                    campaign.getName(), campaign.getObjective(), "PAUSED");
+                    campaign.getName(), validatedObjective, "PAUSED",
+                    budgetType, campaign.getDailyBudget());
             metaCampaignId = metaCampaign.get("id").asText();
             campaign.setMetaCampaignId(metaCampaignId);
             campaignRepo.save(campaign);
+            com.fasterxml.jackson.databind.node.ObjectNode campaignRequest = objectMapper.createObjectNode()
+                    .put("name", campaign.getName())
+                    .put("objective", validatedObjective)
+                    .put("budget_type", budgetType);
+            if (campaign.getDailyBudget() != null) {
+                campaignRequest.put("daily_budget", campaign.getDailyBudget());
+            }
             saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
                     "CAMPAIGN_CREATE",
-                    objectMapper.createObjectNode()
-                            .put("name", campaign.getName())
-                            .put("objective", campaign.getObjective()),
+                    campaignRequest,
                     metaCampaign, true,
                     objectMapper.createObjectNode().put("meta_campaign_id", metaCampaignId));
             steps.add(Map.of("step", "campaign", "status", "done",
@@ -333,22 +355,62 @@ public class ExecutorService {
             int totalAdsCreated = 0;
             for (Adset adset : adsets) {
                 adsetIdx++;
-                long budgetCents = adset.getDailyBudget()
-                        .multiply(java.math.BigDecimal.valueOf(100)).longValue();
+                boolean isCBO = "CBO".equals(budgetType);
+                Long budgetCents = !isCBO && adset.getDailyBudget() != null
+                        ? adset.getDailyBudget().multiply(java.math.BigDecimal.valueOf(100)).longValue()
+                        : null;
+
+                // Transform targeting JSON to Meta-compatible format
+                String metaTargetingJson;
+                try {
+                    metaTargetingJson = buildMetaTargeting(adset.getTargetingJson());
+                } catch (Exception tgtEx) {
+                    log.error("Failed to build Meta targeting for adset '{}': {}", adset.getName(), tgtEx.getMessage());
+                    markCampaignFailed(agencyId, campaign, campaignId,
+                            "Invalid targeting for adset '" + adset.getName() + "': " + tgtEx.getMessage());
+                    return Map.of(
+                            "status", "FAILED",
+                            "campaignId", campaignId,
+                            "error", "Invalid targeting: " + tgtEx.getMessage(),
+                            "failedStep", "adset_targeting_" + adsetIdx,
+                            "steps", steps);
+                }
+
+                log.info("Creating adset {}/{} '{}' — isCBO={}, budgetCents={}", adsetIdx, adsets.size(),
+                        adset.getName(), isCBO, budgetCents);
+
+                String promotedObjectJson;
+                try {
+                    promotedObjectJson = buildPromotedObject(conn, adset);
+                } catch (Exception promotedObjectEx) {
+                    log.error("Failed to build promoted_object for adset '{}': {}", adset.getName(), promotedObjectEx.getMessage());
+                    markCampaignFailed(agencyId, campaign, campaignId,
+                        "Failed to create adset '" + adset.getName() + "': " + promotedObjectEx.getMessage());
+                    return Map.of(
+                        "status", "FAILED",
+                        "campaignId", campaignId,
+                        "error", promotedObjectEx.getMessage(),
+                        "failedStep", "adset_promoted_object_" + adsetIdx,
+                        "steps", steps);
+                }
+
+                String startTimeUnix = resolveAdsetStartTime(adset, clientZone);
+                String endTimeUnix = resolveAdsetEndTime(adset, clientZone);
 
                 JsonNode metaAdset;
                 try {
                     metaAdset = metaClient.createAdset(
-                            accessToken, metaCampaignId,
+                        accessToken, adAccountId, metaCampaignId,
                             adset.getName(), budgetCents,
-                            adset.getTargetingJson(),
+                            metaTargetingJson,
                             adset.getOptimizationGoal() != null
-                                    ? adset.getOptimizationGoal() : "OFFSITE_CONVERSIONS",
-                            "IMPRESSIONS", "PAUSED", null);
+                                    ? adset.getOptimizationGoal() : "LINK_CLICKS",
+                                promotedObjectJson,
+                        startTimeUnix,
+                        endTimeUnix,
+                            "PAUSED", isCBO);
                 } catch (Exception adsetEx) {
                     log.error("Failed to create adset '{}' in Meta: {}", adset.getName(), adsetEx.getMessage());
-                    // Cleanup: delete the Meta campaign we already created
-                    tryDeleteMetaCampaign(accessToken, metaCampaignId);
                     markCampaignFailed(agencyId, campaign, campaignId,
                             "Failed to create adset '" + adset.getName() + "': " + adsetEx.getMessage());
                     return Map.of(
@@ -364,9 +426,7 @@ public class ExecutorService {
                 adsetRepo.save(adset);
                 saveCampaignActionLog(agencyId, campaign.getClientId(), campaignId,
                         "ADSET_CREATE",
-                        objectMapper.createObjectNode()
-                                .put("name", adset.getName())
-                                .put("daily_budget", budgetCents),
+                    buildAdsetRequestLog(adset, budgetCents, budgetType, promotedObjectJson, startTimeUnix, endTimeUnix, clientZone),
                         metaAdset, true,
                         objectMapper.createObjectNode()
                                 .put("adset_id", adset.getId().toString())
@@ -427,10 +487,9 @@ public class ExecutorService {
                                 try {
                                     byte[] imageBytes = s3StorageService.downloadFile(asset.getS3Key());
                                     if (imageBytes != null && imageBytes.length > 0) {
-                                        JsonNode uploadResult = metaClient.uploadImage(
+                                        imageHash = metaClient.uploadImage(
                                                 accessToken, adAccountId,
                                                 imageBytes, asset.getOriginalFilename());
-                                        imageHash = parseImageHash(uploadResult);
                                         steps.add(Map.of("step", "upload", "status", "done",
                                                 "message", "Uploaded image for ad " + ad.getName()));
                                         log.info("Uploaded image for ad '{}', hash: {}", ad.getName(), imageHash);
@@ -459,7 +518,7 @@ public class ExecutorService {
 
                         // 3d. Create the ad in Meta referencing the creative
                         JsonNode metaAd = metaClient.createAd(
-                                accessToken, metaAdsetId,
+                            accessToken, adAccountId, metaAdsetId,
                                 ad.getName(), creativeId, "PAUSED");
                         String metaAdId = metaAd.get("id").asText();
                         ad.setMetaAdId(metaAdId);
@@ -571,10 +630,8 @@ public class ExecutorService {
         } catch (Exception e) {
             log.error("Failed to publish campaign {}: {}", campaignId, e.getMessage(), e);
 
-            // If we created a campaign in Meta, try to delete/pause it
-            if (metaCampaignId != null) {
-                tryDeleteMetaCampaign(accessToken, metaCampaignId);
-            }
+            // Don't try to rollback Meta objects — let them stay PAUSED.
+            // User can delete them manually from Meta Ads Manager.
 
             markCampaignFailed(agencyId, campaign, campaignId, e.getMessage());
             steps.add(Map.of("step", "error", "status", "error",
@@ -591,36 +648,162 @@ public class ExecutorService {
     // ──────── Publish helpers ────────
 
     /**
-     * Parse the image hash from Meta's adimages upload response.
-     * Response format: {"images":{"filename":{"hash":"abc123",...}}}
+     * Transform our internal targeting JSON to Meta's expected format.
+     * Meta REQUIRES at minimum: {"geo_locations":{"countries":["XX"]}}
      */
-    private String parseImageHash(JsonNode uploadResult) {
-        if (uploadResult == null) return null;
-        JsonNode images = uploadResult.get("images");
-        if (images != null && images.isObject()) {
-            // The key under "images" is the filename — just get the first entry
-            var fields = images.fields();
-            if (fields.hasNext()) {
-                JsonNode imageInfo = fields.next().getValue();
-                if (imageInfo.has("hash")) {
-                    return imageInfo.get("hash").asText();
+    private String buildMetaTargeting(String ourTargetingJson) {
+        try {
+            ObjectNode metaTargeting = objectMapper.createObjectNode();
+            JsonNode our = objectMapper.readTree(ourTargetingJson);
+
+            // Geo locations (REQUIRED)
+            ObjectNode geoLocations = metaTargeting.putObject("geo_locations");
+            if (our.has("locations") && our.get("locations").isArray() && our.get("locations").size() > 0) {
+                ArrayNode countries = null;
+                ArrayNode cities = null;
+                ArrayNode regions = null;
+
+                for (JsonNode location : our.get("locations")) {
+                    String type = location.path("type").asText("country").toLowerCase();
+                    String key = location.path("key").asText();
+                    String countryCode = location.path("country_code").asText();
+
+                    switch (type) {
+                        case "country" -> {
+                            if (countries == null) {
+                                countries = geoLocations.putArray("countries");
+                            }
+                            String countryValue = !countryCode.isBlank() ? countryCode : key;
+                            if (!countryValue.isBlank()) {
+                                countries.add(countryValue);
+                            }
+                        }
+                        case "city" -> {
+                            if (cities == null) {
+                                cities = geoLocations.putArray("cities");
+                            }
+                            if (!key.isBlank()) {
+                                cities.addObject().put("key", key);
+                            }
+                        }
+                        case "region" -> {
+                            if (regions == null) {
+                                regions = geoLocations.putArray("regions");
+                            }
+                            if (!key.isBlank()) {
+                                regions.addObject().put("key", key);
+                            }
+                        }
+                        default -> log.warn("Unsupported location type '{}' in targeting payload", type);
+                    }
+                }
+            } else if (our.has("geoLocations") && our.get("geoLocations").has("countries")) {
+                ArrayNode countries = geoLocations.putArray("countries");
+                for (JsonNode c : our.get("geoLocations").get("countries")) {
+                    countries.add(c.asText());
+                }
+            } else if (our.has("geo_locations")) {
+                // Already in Meta format
+                metaTargeting.set("geo_locations", our.get("geo_locations"));
+            } else {
+                // Fallback — MUST have at least one country
+                ArrayNode countries = geoLocations.putArray("countries");
+                countries.add("BG"); // default
+                log.warn("No geo_locations found in targeting, defaulting to BG");
+            }
+
+            // Age
+            if (our.has("ageRange") && our.get("ageRange").isArray() && our.get("ageRange").size() >= 2) {
+                metaTargeting.put("age_min", our.get("ageRange").get(0).asInt(18));
+                metaTargeting.put("age_max", our.get("ageRange").get(1).asInt(65));
+            } else {
+                if (our.has("age_min") || our.has("ageMin")) {
+                metaTargeting.put("age_min", our.has("age_min") ? our.get("age_min").asInt() : our.get("ageMin").asInt(18));
+                }
+                if (our.has("age_max") || our.has("ageMax")) {
+                metaTargeting.put("age_max", our.has("age_max") ? our.get("age_max").asInt() : our.get("ageMax").asInt(65));
                 }
             }
+
+            // Genders (1=male, 2=female, empty=all)
+            if (our.has("genders") && our.get("genders").isArray() && our.get("genders").size() > 0) {
+                metaTargeting.set("genders", our.get("genders"));
+            } else if (our.has("gender")) {
+                String gender = our.get("gender").asText("all");
+                if ("male".equalsIgnoreCase(gender)) {
+                    ArrayNode genders = metaTargeting.putArray("genders");
+                    genders.add(1);
+                } else if ("female".equalsIgnoreCase(gender)) {
+                    ArrayNode genders = metaTargeting.putArray("genders");
+                    genders.add(2);
+                }
+            }
+
+            // Interests → flexible_spec
+            if (our.has("interests") && our.get("interests").isArray() && our.get("interests").size() > 0) {
+                ArrayNode flexSpec = metaTargeting.putArray("flexible_spec");
+                ObjectNode spec = flexSpec.addObject();
+                ArrayNode interests = spec.putArray("interests");
+                for (JsonNode interest : our.get("interests")) {
+                    ObjectNode i = interests.addObject();
+                    i.put("id", interest.has("id") ? interest.get("id").asText() : interest.asText());
+                    if (interest.has("name")) i.put("name", interest.get("name").asText());
+                }
+            }
+
+            // Custom audiences
+            if (our.has("customAudiences") && our.get("customAudiences").isArray() && our.get("customAudiences").size() > 0) {
+                ArrayNode customAudiences = metaTargeting.putArray("custom_audiences");
+                for (JsonNode ca : our.get("customAudiences")) {
+                    ObjectNode aud = customAudiences.addObject();
+                    aud.put("id", ca.has("id") ? ca.get("id").asText() : ca.asText());
+                }
+            } else if (our.has("custom_audiences") && our.get("custom_audiences").isArray() && our.get("custom_audiences").size() > 0) {
+                metaTargeting.set("custom_audiences", our.get("custom_audiences"));
+            }
+
+            // Excluded audiences
+            if (our.has("excludedAudiences") && our.get("excludedAudiences").isArray() && our.get("excludedAudiences").size() > 0) {
+                ObjectNode exclusions = metaTargeting.putObject("exclusions");
+                ArrayNode excCustom = exclusions.putArray("custom_audiences");
+                for (JsonNode ea : our.get("excludedAudiences")) {
+                    ObjectNode aud = excCustom.addObject();
+                    aud.put("id", ea.has("id") ? ea.get("id").asText() : ea.asText());
+                }
+            } else if (our.has("excluded_custom_audiences") && our.get("excluded_custom_audiences").isArray() && our.get("excluded_custom_audiences").size() > 0) {
+                ObjectNode exclusions = metaTargeting.putObject("exclusions");
+                exclusions.set("custom_audiences", our.get("excluded_custom_audiences"));
+            }
+
+            String result = metaTargeting.toString();
+            log.debug("Targeting transformed: {} → {}", ourTargetingJson, result);
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to transform targeting JSON: {}", e.getMessage());
+            throw new IllegalStateException("Failed to build Meta targeting: " + e.getMessage(), e);
         }
-        log.warn("Could not parse image hash from response: {}", uploadResult);
-        return null;
     }
 
-    /**
-     * Best-effort deletion of a Meta campaign (cleanup on failure).
-     */
-    private void tryDeleteMetaCampaign(String accessToken, String metaCampaignId) {
-        try {
-            metaClient.updateCampaignStatus(accessToken, metaCampaignId, "PAUSED");
-            log.info("Paused orphaned Meta campaign {} after publish failure", metaCampaignId);
-        } catch (Exception cleanupEx) {
-            log.warn("Failed to pause orphaned Meta campaign {}: {}", metaCampaignId, cleanupEx.getMessage());
+    private String validateObjective(String objective) {
+        String normalized = objective == null ? "" : objective.trim().toUpperCase(Locale.ROOT);
+        Set<String> valid = Set.of(
+                "OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC",
+                "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"
+        );
+
+        if (valid.contains(normalized)) {
+            return normalized;
         }
+
+        return switch (normalized) {
+            case "SALES", "CONVERSIONS", "PURCHASE" -> "OUTCOME_SALES";
+            case "LEADS", "LEAD_GENERATION" -> "OUTCOME_LEADS";
+            case "TRAFFIC", "LINK_CLICKS" -> "OUTCOME_TRAFFIC";
+            case "AWARENESS", "BRAND_AWARENESS", "REACH" -> "OUTCOME_AWARENESS";
+            case "ENGAGEMENT", "POST_ENGAGEMENT", "VIDEO_VIEWS" -> "OUTCOME_ENGAGEMENT";
+            case "APP_INSTALLS", "APP_PROMOTION" -> "OUTCOME_APP_PROMOTION";
+            default -> "OUTCOME_SALES";
+        };
     }
 
     /**
@@ -705,7 +888,7 @@ public class ExecutorService {
         AiActionLog actionLog = new AiActionLog();
         actionLog.setAgencyId(agencyId);
         actionLog.setClientId(clientId);
-        actionLog.setSuggestionId(campaignId);
+        actionLog.setSuggestionId(null);
         actionLog.setExecutedBy("SYSTEM");
         actionLog.setCreatedAt(OffsetDateTime.now());
 
@@ -727,6 +910,84 @@ public class ExecutorService {
         actionLog.setSuccess(success);
         actionLog.setResultSnapshotJson(snapshotNode.toString());
         actionLogRepo.save(actionLog);
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode buildAdsetRequestLog(Adset adset, Long budgetCents, String budgetType,
+                                                                                String promotedObjectJson,
+                                                                                String startTimeUnix, String endTimeUnix,
+                                                                                ZoneId clientZone) {
+        com.fasterxml.jackson.databind.node.ObjectNode requestNode = objectMapper.createObjectNode()
+                .put("name", adset.getName())
+                .put("budget_type", budgetType)
+                .put("timezone", clientZone.getId())
+                .put("start_time", startTimeUnix)
+                .put("optimization_goal", adset.getOptimizationGoal())
+                .put("conversion_event", firstNonBlank(adset.getConversionEvent(), ""));
+        if (budgetCents != null) {
+            requestNode.put("daily_budget", budgetCents);
+        }
+        if (endTimeUnix != null) {
+            requestNode.put("end_time", endTimeUnix);
+        }
+        if (promotedObjectJson != null) {
+            requestNode.put("promoted_object", promotedObjectJson);
+        }
+        return requestNode;
+    }
+
+    private String buildPromotedObject(MetaConnection conn, Adset adset) {
+        if (!"OFFSITE_CONVERSIONS".equalsIgnoreCase(adset.getOptimizationGoal())) {
+            return null;
+        }
+
+        String pixelId = conn.getPixelId();
+        if (pixelId == null || pixelId.isBlank()) {
+            throw new IllegalStateException("Pixel ID is required for conversion campaigns. Please reconnect Meta with Pixel access.");
+        }
+
+        ObjectNode promotedObject = objectMapper.createObjectNode();
+        promotedObject.put("pixel_id", pixelId);
+        promotedObject.put("custom_event_type", firstNonBlank(adset.getConversionEvent(), "PURCHASE"));
+        return promotedObject.toString();
+    }
+
+    public String buildMetaTargetingForUpdate(String targetingJson) {
+        return buildMetaTargeting(targetingJson);
+    }
+
+    public String buildPromotedObjectForUpdate(MetaConnection conn, Adset adset) {
+        return buildPromotedObject(conn, adset);
+    }
+
+    private ZoneId resolveClientZoneId(UUID agencyId, UUID clientId) {
+        String timezone = clientRepo.findByIdAndAgencyId(clientId, agencyId)
+                .map(Client::getTimezone)
+                .filter(value -> value != null && !value.isBlank())
+                .orElse("Europe/Sofia");
+        try {
+            return ZoneId.of(timezone);
+        } catch (DateTimeException e) {
+            log.warn("Invalid client timezone '{}' for client {}, falling back to Europe/Sofia", timezone, clientId);
+            return ZoneId.of("Europe/Sofia");
+        }
+    }
+
+    private String resolveAdsetStartTime(Adset adset, ZoneId zoneId) {
+        LocalDate startDate = adset.getStartDate() != null
+                ? adset.getStartDate()
+                : LocalDate.now(zoneId).plusDays(1);
+        return String.valueOf(startDate.atStartOfDay(zoneId).toInstant().getEpochSecond());
+    }
+
+    private String resolveAdsetEndTime(Adset adset, ZoneId zoneId) {
+        if (adset.getEndDate() == null) {
+            return null;
+        }
+        return String.valueOf(adset.getEndDate()
+                .atTime(23, 59, 59)
+                .atZone(zoneId)
+                .toInstant()
+                .getEpochSecond());
     }
 
     private String firstNonBlank(String... values) {

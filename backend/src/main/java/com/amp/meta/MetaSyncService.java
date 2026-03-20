@@ -313,6 +313,7 @@ public class MetaSyncService {
                 campaign = existing.get();
                 campaign.setName(name);
                 campaign.setObjective(objective);
+                campaign.setBudgetType(campaign.getBudgetType() != null ? campaign.getBudgetType() : "ABO");
                 campaign.setStatus(mappedStatus);
             } else {
                 campaign = new Campaign();
@@ -322,6 +323,7 @@ public class MetaSyncService {
                 campaign.setMetaCampaignId(metaCampaignId);
                 campaign.setName(name);
                 campaign.setObjective(objective);
+                campaign.setBudgetType("ABO");
                 campaign.setStatus(mappedStatus);
                 campaign.setCreatedBy(currentUserId);
                 campaign.setCreatedAt(OffsetDateTime.now());

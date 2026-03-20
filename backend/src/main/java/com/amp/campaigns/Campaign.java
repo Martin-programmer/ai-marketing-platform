@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -39,6 +40,12 @@ public class Campaign {
 
     @Column(name = "objective", nullable = false)
     private String objective;
+
+    @Column(name = "budget_type", nullable = false)
+    private String budgetType;
+
+    @Column(name = "daily_budget", precision = 18, scale = 6)
+    private BigDecimal dailyBudget;
 
     @Column(name = "status", nullable = false)
     private String status;
@@ -79,6 +86,12 @@ public class Campaign {
 
     public String getObjective() { return objective; }
     public void setObjective(String objective) { this.objective = objective; }
+
+    public String getBudgetType() { return budgetType; }
+    public void setBudgetType(String budgetType) { this.budgetType = budgetType; }
+
+    public BigDecimal getDailyBudget() { return dailyBudget; }
+    public void setDailyBudget(BigDecimal dailyBudget) { this.dailyBudget = dailyBudget; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

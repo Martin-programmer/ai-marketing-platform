@@ -16,6 +16,26 @@ public record CreateAdsetRequest(
         String targetingJson,
         @NotNull(message = "dailyBudget is required")
         BigDecimal dailyBudget,
-        String optimizationGoal
+        String optimizationGoal,
+                String conversionEvent,
+        String startDate,
+        String endDate
 ) {
+        public CreateAdsetRequest(UUID campaignId,
+                                                          String name,
+                                                          String targetingJson,
+                                                          BigDecimal dailyBudget,
+                                                          String optimizationGoal) {
+                this(campaignId, name, targetingJson, dailyBudget, optimizationGoal, null, null, null);
+        }
+
+        public CreateAdsetRequest(UUID campaignId,
+                                                          String name,
+                                                          String targetingJson,
+                                                          BigDecimal dailyBudget,
+                                                          String optimizationGoal,
+                                                          String startDate,
+                                                          String endDate) {
+                this(campaignId, name, targetingJson, dailyBudget, optimizationGoal, null, startDate, endDate);
+        }
 }

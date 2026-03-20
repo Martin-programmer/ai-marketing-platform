@@ -23,7 +23,7 @@ public class AiProperties {
     public static class Anthropic {
         private String apiKey;
         private String defaultModel = "claude-sonnet-4-20250514";
-        private String complexModel = "claude-opus-4-20250115";
+        private String complexModel = "claude-sonnet-4-20250514";
         private String apiBaseUrl = "https://api.anthropic.com";
         private String apiVersion = "2023-06-01";
         private int maxTokens = 4096;

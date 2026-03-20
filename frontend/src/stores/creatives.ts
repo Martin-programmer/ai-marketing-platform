@@ -278,8 +278,8 @@ export const useCreativeStore = defineStore('creatives', () => {
   async function addPackageItem(packageId: string, payload: {
     creativeAssetId: string
     copyVariantId: string
-    ctaType: string
-    destinationUrl: string
+    ctaType?: string | null
+    destinationUrl?: string | null
     weight: number
   }) {
     const { data } = await api.post(`/creative-packages/${packageId}/items`, payload)
