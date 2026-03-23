@@ -1,5 +1,6 @@
 package com.amp.ai;
 
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -20,11 +21,14 @@ public class GuardrailsEngine {
 
     private final AiProperties aiProps;
     private final AiSuggestionRepository suggestionRepo;
+    private final SystemSettingService systemSettingService;
     private final ObjectMapper objectMapper;
 
-    public GuardrailsEngine(AiProperties aiProps, AiSuggestionRepository suggestionRepo) {
+    public GuardrailsEngine(AiProperties aiProps, AiSuggestionRepository suggestionRepo,
+                            SystemSettingService systemSettingService) {
         this.aiProps = aiProps;
         this.suggestionRepo = suggestionRepo;
+        this.systemSettingService = systemSettingService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -33,15 +37,23 @@ public class GuardrailsEngine {
      * Returns null if passes, or a rejection reason string if blocked.
      */
     public String checkGuardrails(RuleFinding finding, UUID agencyId, UUID clientId) {
+        // Read thresholds from DB with AiProperties fallback
+        int minDataDays = systemSettingService.getInt("optimizer.min.data.days",
+                aiProps.getOptimizer().getMinDataDays());
+        int minConversions = systemSettingService.getInt("optimizer.min.conversions",
+                aiProps.getOptimizer().getMinConversions());
+        int budgetCumulativeMaxPercent = systemSettingService.getInt("optimizer.budget.cumulative.max.percent",
+                aiProps.getOptimizer().getBudgetCumulativeMaxPercent());
+
         // 1. Minimum data window check
         if (finding.requiresMinData()) {
-            if (finding.dataDays() < aiProps.getOptimizer().getMinDataDays()) {
+            if (finding.dataDays() < minDataDays) {
                 return "Insufficient data: " + finding.dataDays() + " days (min: "
-                       + aiProps.getOptimizer().getMinDataDays() + ")";
+                       + minDataDays + ")";
             }
-            if (finding.totalConversions() < aiProps.getOptimizer().getMinConversions()) {
+            if (finding.totalConversions() < minConversions) {
                 return "Insufficient conversions: " + finding.totalConversions() + " (min: "
-                       + aiProps.getOptimizer().getMinConversions() + ")";
+                       + minConversions + ")";
             }
         }
 
@@ -83,9 +95,9 @@ public class GuardrailsEngine {
                     .sum();
 
             if (Math.abs(cumulativeChange + finding.changePercent())
-                    > aiProps.getOptimizer().getBudgetCumulativeMaxPercent()) {
+                    > budgetCumulativeMaxPercent) {
                 return "Cumulative budget change would exceed "
-                       + aiProps.getOptimizer().getBudgetCumulativeMaxPercent()
+                       + budgetCumulativeMaxPercent
                        + "% (current: " + cumulativeChange + "%, proposed: " + finding.changePercent() + "%)";
             }
         }
@@ -95,8 +107,10 @@ public class GuardrailsEngine {
 
     private int getCooldownHours(String suggestionType) {
         return switch (suggestionType) {
-            case "BUDGET_ADJUST" -> aiProps.getOptimizer().getCooldownBudgetHours();
-            case "PAUSE" -> aiProps.getOptimizer().getCooldownPauseHours();
+            case "BUDGET_ADJUST" -> systemSettingService.getInt("optimizer.cooldown.budget.hours",
+                    aiProps.getOptimizer().getCooldownBudgetHours());
+            case "PAUSE" -> systemSettingService.getInt("optimizer.cooldown.pause.hours",
+                    aiProps.getOptimizer().getCooldownPauseHours());
             default -> 0;
         };
     }

@@ -171,4 +171,32 @@ public class UserController {
         UserResponse enabled = userService.enableUser(userId, agency);
         return ResponseEntity.ok(enabled);
     }
+
+    // ── Personal 2FA toggle ─────────────────────────────────────
+
+    public record Update2faRequest(boolean twoFactorEnabled) {}
+
+    /**
+     * PATCH /api/v1/users/me/two-factor — toggle per-user 2FA.
+     * Any authenticated user can enable/disable 2FA for themselves.
+     */
+    @PatchMapping("/me/two-factor")
+    public ResponseEntity<?> updatePersonalTwoFactor(@RequestBody Update2faRequest req) {
+        UUID userId = currentUserId();
+        userService.updateTwoFactorEnabled(userId, req.twoFactorEnabled());
+        return ResponseEntity.ok(Map.of(
+                "twoFactorEnabled", req.twoFactorEnabled(),
+                "message", "Two-factor authentication " + (req.twoFactorEnabled() ? "enabled" : "disabled")
+        ));
+    }
+
+    /**
+     * GET /api/v1/users/me/two-factor — get current per-user 2FA status.
+     */
+    @GetMapping("/me/two-factor")
+    public ResponseEntity<?> getPersonalTwoFactor() {
+        UUID userId = currentUserId();
+        boolean enabled = userService.isTwoFactorEnabled(userId);
+        return ResponseEntity.ok(Map.of("twoFactorEnabled", enabled));
+    }
 }

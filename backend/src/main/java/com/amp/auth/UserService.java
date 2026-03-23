@@ -231,6 +231,24 @@ public class UserService {
         return UserResponse.from(user);
     }
 
+    /**
+     * Toggle per-user two-factor authentication.
+     */
+    public void updateTwoFactorEnabled(UUID userId, boolean enabled) {
+        UserAccount user = findOrThrow(userId);
+        user.setTwoFactorEnabled(enabled);
+        userAccountRepository.save(user);
+        log.info("User {} 2FA toggled to {}", user.getEmail(), enabled);
+    }
+
+    /**
+     * Check if a user has personal 2FA enabled.
+     */
+    public boolean isTwoFactorEnabled(UUID userId) {
+        UserAccount user = findOrThrow(userId);
+        return user.isTwoFactorEnabled();
+    }
+
     // ── Private Helpers ────────────────────────────────────────
 
     private void sendInvitationEmail(UserAccount user, UUID agencyId) {

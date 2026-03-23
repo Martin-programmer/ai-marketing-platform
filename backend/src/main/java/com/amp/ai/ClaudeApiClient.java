@@ -1,5 +1,6 @@
 package com.amp.ai;
 
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -23,14 +24,29 @@ public class ClaudeApiClient {
 
     private final AiProperties aiProps;
     private final AiPromptLogRepository promptLogRepo;
+    private final SystemSettingService systemSettingService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public ClaudeApiClient(AiProperties aiProps, AiPromptLogRepository promptLogRepo) {
+    public ClaudeApiClient(AiProperties aiProps, AiPromptLogRepository promptLogRepo,
+                           SystemSettingService systemSettingService) {
         this.aiProps = aiProps;
         this.promptLogRepo = promptLogRepo;
+        this.systemSettingService = systemSettingService;
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
+    }
+
+    // ── DB-backed getters with AiProperties fallback ─────────
+
+    private String getDefaultModel() {
+        return systemSettingService.getString("ai.anthropic.default.model",
+                aiProps.getAnthropic().getDefaultModel());
+    }
+
+    private int getMaxTokens() {
+        return systemSettingService.getInt("ai.anthropic.max.tokens",
+                aiProps.getAnthropic().getMaxTokens());
     }
 
     /**
@@ -39,7 +55,7 @@ public class ClaudeApiClient {
     public ClaudeResponse sendMessage(String systemPrompt, String userMessage,
                                        String module, UUID agencyId, UUID clientId) {
         return sendMessage(systemPrompt, userMessage, module, agencyId, clientId,
-                          aiProps.getAnthropic().getDefaultModel(), aiProps.getAnthropic().getMaxTokens());
+                          getDefaultModel(), getMaxTokens());
     }
 
     /**
@@ -150,8 +166,11 @@ public class ClaudeApiClient {
                                              String module, UUID agencyId, UUID clientId) {
         long start = System.currentTimeMillis();
         AiPromptLog promptLog = new AiPromptLog();
+        String effectiveModel = getDefaultModel();
+        int effectiveMaxTokens = getMaxTokens();
+
         promptLog.setModule(module);
-        promptLog.setModel(aiProps.getAnthropic().getDefaultModel());
+        promptLog.setModel(effectiveModel);
         promptLog.setAgencyId(agencyId);
         promptLog.setClientId(clientId);
         promptLog.setCreatedAt(OffsetDateTime.now());
@@ -163,8 +182,8 @@ public class ClaudeApiClient {
             }
 
             ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", aiProps.getAnthropic().getDefaultModel());
-            body.put("max_tokens", aiProps.getAnthropic().getMaxTokens());
+            body.put("model", effectiveModel);
+            body.put("max_tokens", effectiveMaxTokens);
 
             if (systemPrompt != null && !systemPrompt.isBlank()) {
                 body.put("system", systemPrompt);
@@ -216,7 +235,7 @@ public class ClaudeApiClient {
                 outputTokens = usage.has("output_tokens") ? usage.get("output_tokens").asInt() : 0;
             }
 
-            BigDecimal cost = calculateCost(aiProps.getAnthropic().getDefaultModel(), inputTokens, outputTokens);
+            BigDecimal cost = calculateCost(effectiveModel, inputTokens, outputTokens);
             long durationMs = System.currentTimeMillis() - start;
 
             promptLog.setPromptTokens(inputTokens);
@@ -255,9 +274,12 @@ public class ClaudeApiClient {
                                             byte[] videoBytes, String mediaType,
                                             String module, UUID agencyId, UUID clientId) {
         long start = System.currentTimeMillis();
+        String effectiveModel = getDefaultModel();
+        int effectiveMaxTokens = getMaxTokens();
+
         AiPromptLog promptLog = new AiPromptLog();
         promptLog.setModule(module);
-        promptLog.setModel(aiProps.getAnthropic().getDefaultModel());
+        promptLog.setModel(effectiveModel);
         promptLog.setAgencyId(agencyId);
         promptLog.setClientId(clientId);
         promptLog.setCreatedAt(OffsetDateTime.now());
@@ -271,8 +293,8 @@ public class ClaudeApiClient {
             String base64Video = Base64.getEncoder().encodeToString(videoBytes);
 
             ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", aiProps.getAnthropic().getDefaultModel());
-            body.put("max_tokens", aiProps.getAnthropic().getMaxTokens());
+            body.put("model", effectiveModel);
+            body.put("max_tokens", effectiveMaxTokens);
 
             if (systemPrompt != null && !systemPrompt.isBlank()) {
                 body.put("system", systemPrompt);
@@ -328,7 +350,7 @@ public class ClaudeApiClient {
                 outputTokens = usage.has("output_tokens") ? usage.get("output_tokens").asInt() : 0;
             }
 
-            BigDecimal cost = calculateCost(aiProps.getAnthropic().getDefaultModel(), inputTokens, outputTokens);
+            BigDecimal cost = calculateCost(effectiveModel, inputTokens, outputTokens);
             long durationMs = System.currentTimeMillis() - start;
 
             promptLog.setPromptTokens(inputTokens);

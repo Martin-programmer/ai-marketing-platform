@@ -22,6 +22,9 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.amp.config.AiPromptTemplateService;
+import com.amp.config.SystemSettingService;
+
 /**
  * Advanced budget analysis: pacing, day-of-week optimization, cross-campaign
  * rebalancing, and diminishing-returns detection.
@@ -34,6 +37,7 @@ public class BudgetStrategistService {
     private static final Logger log = LoggerFactory.getLogger(BudgetStrategistService.class);
     private static final String MODULE = "BUDGET_STRATEGIST";
 
+    private final SystemSettingService systemSettingService;
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
     private final ClientRepository clientRepo;
@@ -43,8 +47,10 @@ public class BudgetStrategistService {
     private final AiContextBuilder aiContextBuilder;
     private final AiBudgetAnalysisRepository aiBudgetAnalysisRepository;
     private final ObjectMapper objectMapper;
+    private final AiPromptTemplateService promptTemplateService;
 
-    public BudgetStrategistService(ClaudeApiClient claudeClient,
+    public BudgetStrategistService(SystemSettingService systemSettingService,
+                                    ClaudeApiClient claudeClient,
                                     AiProperties aiProps,
                                     ClientRepository clientRepo,
                                     CampaignRepository campaignRepo,
@@ -52,7 +58,9 @@ public class BudgetStrategistService {
                                     InsightDailyRepository insightRepo,
                                     AiContextBuilder aiContextBuilder,
                                     AiBudgetAnalysisRepository aiBudgetAnalysisRepository,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    AiPromptTemplateService promptTemplateService) {
+        this.systemSettingService = systemSettingService;
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.clientRepo = clientRepo;
@@ -62,6 +70,7 @@ public class BudgetStrategistService {
         this.aiContextBuilder = aiContextBuilder;
         this.aiBudgetAnalysisRepository = aiBudgetAnalysisRepository;
         this.objectMapper = objectMapper;
+        this.promptTemplateService = promptTemplateService;
     }
 
     // ══════════════════════════════════════════
@@ -267,13 +276,22 @@ public class BudgetStrategistService {
             item.put("dailyBudget", dailyBudget);
 
             // Suggest budget action
-            if (roas > 3.0) {
+            double increaseRoasThreshold = systemSettingService.getDecimal(
+                    "budget.strategist.increase.roas.threshold", 3.0);
+            double decreaseRoasThreshold = systemSettingService.getDecimal(
+                    "budget.strategist.decrease.roas.threshold", 1.0);
+            double decreaseMinSpend = systemSettingService.getDecimal(
+                    "budget.strategist.decrease.min.spend", 50.0);
+            double pauseMinSpend = systemSettingService.getDecimal(
+                    "budget.strategist.pause.min.spend", 100.0);
+
+            if (roas > increaseRoasThreshold) {
                 item.put("suggestion", "INCREASE_BUDGET");
                 item.put("reason", "High ROAS — scaling opportunity");
-            } else if (roas > 0 && roas < 1.0 && spend > 50) {
+            } else if (roas > 0 && roas < decreaseRoasThreshold && spend > decreaseMinSpend) {
                 item.put("suggestion", "DECREASE_BUDGET");
                 item.put("reason", "Low ROAS — reduce waste");
-            } else if (conversions == 0 && spend > 100) {
+            } else if (conversions == 0 && spend > pauseMinSpend) {
                 item.put("suggestion", "PAUSE_OR_RESTRUCTURE");
                 item.put("reason", "Zero conversions with significant spend");
             } else {
@@ -308,7 +326,8 @@ public class BudgetStrategistService {
                     .sorted(Comparator.comparing(InsightDaily::getDate))
                     .toList();
 
-            if (sorted.size() < 14) continue;
+            if (sorted.size() < systemSettingService.getInt(
+                    "budget.strategist.diminishing.min.days", 14)) continue;
 
             // Split into first half and second half
             int mid = sorted.size() / 2;
@@ -328,7 +347,11 @@ public class BudgetStrategistService {
             double spendDelta = (spendSecond - spendFirst) / spendFirst;
 
             // Diminishing returns: spend increased but CPA also increased
-            if (spendDelta > 0.10 && cpaDelta > 0.20) {
+            double spendIncreasePct = systemSettingService.getDecimal(
+                    "budget.strategist.diminishing.spend.increase.pct", 0.10);
+            double cpaIncreasePct = systemSettingService.getDecimal(
+                    "budget.strategist.diminishing.cpa.increase.pct", 0.20);
+            if (spendDelta > spendIncreasePct && cpaDelta > cpaIncreasePct) {
                 String[] parts = entry.getKey().split(":");
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("entityType", parts[0]);
@@ -362,13 +385,14 @@ public class BudgetStrategistService {
                 dataSummary = dataSummary.substring(0, 6000) + "... (truncated)";
             }
 
-            String systemPrompt = """
+            String systemPrompt = promptTemplateService.getActivePromptText(
+                    "BUDGET_STRATEGIST", "system_prompt", """
                     You are a senior media buyer reviewing a client's budget performance data.
                     Based on the analysis provided, write a concise 3-5 paragraph strategic recommendation.
                     Cover: pacing, day-of-week optimization, campaign rebalancing, and diminishing returns.
                     Be specific with numbers. Use a professional but actionable tone.
                     Do NOT use markdown. Plain text only.
-                    """;
+                    """);
 
             ClaudeResponse response = claudeClient.sendMessage(
                     systemPrompt,

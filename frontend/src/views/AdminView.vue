@@ -67,7 +67,7 @@
           <v-text-field
             v-model="form.name"
             label="Agency Name"
-            :rules="[v => !!v || 'Required']"
+            :rules="[(v: string) => !!v || 'Required']"
             class="mb-2"
           />
           <v-select
@@ -82,7 +82,7 @@
             v-model="form.adminEmail"
             label="Admin Email"
             type="email"
-            :rules="[v => !!v || 'Required']"
+            :rules="[(v: string) => !!v || 'Required']"
             class="mb-2"
           />
           <v-text-field

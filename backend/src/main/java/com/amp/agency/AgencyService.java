@@ -118,6 +118,16 @@ public class AgencyService {
         return AgencyResponse.from(saved);
     }
 
+    /**
+     * Enable or disable two-factor authentication for an agency.
+     */
+    public void updateTwoFactorEnabled(UUID agencyId, boolean enabled) {
+        Agency a = findOrThrow(agencyId);
+        a.setTwoFactorEnabled(enabled);
+        agencyRepository.save(a);
+        log.info("Agency '{}' 2FA toggled to {}", a.getName(), enabled);
+    }
+
     private Agency findOrThrow(UUID agencyId) {
         return agencyRepository.findById(agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Agency", agencyId));

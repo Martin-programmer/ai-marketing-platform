@@ -20,6 +20,8 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Suggests Meta Ads audience targeting strategies based on client profile
  * and historical performance data.
@@ -37,6 +39,7 @@ public class AudienceArchitectService {
     private final InsightDailyRepository insightRepo;
     private final AiContextBuilder aiContextBuilder;
     private final AiAudienceSuggestionRepository aiAudienceSuggestionRepository;
+    private final AiPromptTemplateService promptTemplateService;
 
     public AudienceArchitectService(ClaudeApiClient claudeClient,
                                      AiProperties aiProps,
@@ -44,7 +47,8 @@ public class AudienceArchitectService {
                                      AdsetRepository adsetRepo,
                                      InsightDailyRepository insightRepo,
                                      AiContextBuilder aiContextBuilder,
-                                     AiAudienceSuggestionRepository aiAudienceSuggestionRepository) {
+                                     AiAudienceSuggestionRepository aiAudienceSuggestionRepository,
+                                     AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.campaignRepo = campaignRepo;
@@ -52,6 +56,7 @@ public class AudienceArchitectService {
         this.insightRepo = insightRepo;
         this.aiContextBuilder = aiContextBuilder;
         this.aiAudienceSuggestionRepository = aiAudienceSuggestionRepository;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -132,7 +137,7 @@ public class AudienceArchitectService {
                .append("\n");
         }
 
-        String systemPrompt = """
+        String defaultPrompt = """
                 You are a Meta Ads targeting expert and audience strategist.
             Based on the shared client context and targeting data, suggest 3-5 audience segments.
                 For each audience, provide detailed Meta Ads targeting specifications.
@@ -171,6 +176,8 @@ public class AudienceArchitectService {
                   "strategy_notes": "string — overall targeting strategy advice"
                 }
                 """;
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "AUDIENCE_ARCHITECT", "system_prompt", defaultPrompt);
 
         ClaudeResponse response = claudeClient.sendMessage(
                 systemPrompt, ctx.toString(),

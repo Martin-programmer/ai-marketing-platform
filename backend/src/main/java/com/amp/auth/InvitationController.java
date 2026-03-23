@@ -2,6 +2,7 @@ package com.amp.auth;
 
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
+import com.amp.config.SystemSettingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -34,18 +35,21 @@ public class InvitationController {
     private final UserService userService;
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
+        private final SystemSettingService systemSettingService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public InvitationController(UserAccountRepository userAccountRepository,
                                 JwtService jwtService,
                                 UserService userService,
                                 NotificationHelper notificationHelper,
-                                EmailProperties emailProperties) {
+                                                                EmailProperties emailProperties,
+                                                                SystemSettingService systemSettingService) {
         this.userAccountRepository = userAccountRepository;
         this.jwtService = jwtService;
         this.userService = userService;
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
+                this.systemSettingService = systemSettingService;
     }
 
     // ── DTOs ────────────────────────────────────────────────────
@@ -158,18 +162,50 @@ public class InvitationController {
     public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
         log.info("Forgot password requested for email: {}", req.email());
 
+                int cooldownSeconds = systemSettingService.getInt("security.password.reset.cooldown.seconds", 60);
+                int maxPerHour = systemSettingService.getInt("security.password.reset.max.per.hour", 3);
+                OffsetDateTime now = OffsetDateTime.now();
+
         Optional<UserAccount> opt = userAccountRepository.findByEmail(req.email());
         if (opt.isPresent()) {
             UserAccount user = opt.get();
             if ("ACTIVE".equals(user.getStatus())) {
-                userService.generateAndSendPasswordReset(user);
+                                boolean hourlyWindowReset = normalizePasswordResetWindow(user, now);
+
+                                if (user.getLastPasswordResetRequestAt() != null) {
+                                        OffsetDateTime nextAllowedAt = user.getLastPasswordResetRequestAt().plusSeconds(cooldownSeconds);
+                                        if (nextAllowedAt.isAfter(now)) {
+                                                long remainingSeconds = Math.max(1L, java.time.temporal.ChronoUnit.SECONDS.between(now, nextAllowedAt));
+                                                log.info("Password reset suppressed by cooldown for {} ({}s remaining)", user.getEmail(), remainingSeconds);
+                                                if (hourlyWindowReset) {
+                                                        userAccountRepository.save(user);
+                                                }
+                                                return genericForgotPasswordResponse(cooldownSeconds);
+                                        }
+                                }
+
+                                if (user.getPasswordResetCountHourly() >= maxPerHour
+                                                && user.getPasswordResetCountResetAt() != null
+                                                && user.getPasswordResetCountResetAt().plusHours(1).isAfter(now)) {
+                                        log.info("Password reset suppressed by hourly limit for {}", user.getEmail());
+                                        if (hourlyWindowReset) {
+                                                userAccountRepository.save(user);
+                                        }
+                                        return genericForgotPasswordResponse(cooldownSeconds);
+                                }
+
+                                userService.generateAndSendPasswordReset(user);
+                                user.setLastPasswordResetRequestAt(now);
+                                user.setPasswordResetCountHourly(user.getPasswordResetCountHourly() + 1);
+                                if (user.getPasswordResetCountResetAt() == null || hourlyWindowReset) {
+                                        user.setPasswordResetCountResetAt(now);
+                                }
+                                userAccountRepository.save(user);
             }
         }
 
         // Always return 200 — don't reveal if email exists
-        return ResponseEntity.ok(Map.of(
-                "message", "If this email is registered, you will receive a password reset link."
-        ));
+                return genericForgotPasswordResponse(cooldownSeconds);
     }
 
     // ── Reset Password ──────────────────────────────────────────
@@ -235,4 +271,21 @@ public class InvitationController {
 
         log.info("Queued welcome email to {} (role: {})", user.getEmail(), user.getRole());
     }
+
+        private boolean normalizePasswordResetWindow(UserAccount user, OffsetDateTime now) {
+                if (user.getPasswordResetCountResetAt() == null
+                                || !user.getPasswordResetCountResetAt().plusHours(1).isAfter(now)) {
+                        user.setPasswordResetCountHourly(0);
+                        user.setPasswordResetCountResetAt(now);
+                        return true;
+                }
+                return false;
+        }
+
+        private ResponseEntity<Map<String, Object>> genericForgotPasswordResponse(int cooldownSeconds) {
+                return ResponseEntity.ok(Map.of(
+                                "message", "If this email is registered, you'll receive a reset link.",
+                                "cooldownSeconds", cooldownSeconds
+                ));
+        }
 }

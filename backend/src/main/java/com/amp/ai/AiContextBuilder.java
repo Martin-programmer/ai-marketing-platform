@@ -17,6 +17,7 @@ import com.amp.creatives.CreativeAsset;
 import com.amp.creatives.CreativeAssetRepository;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -42,8 +43,9 @@ import java.util.stream.Collectors;
 public class AiContextBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(AiContextBuilder.class);
-    private static final int MAX_CONTEXT_CHARS = 12000;
+    private static final int DEFAULT_MAX_CONTEXT_CHARS = 12000;
 
+    private final SystemSettingService systemSettingService;
     private final ClientRepository clientRepository;
     private final ClientProfileRepository clientProfileRepository;
     private final CreativeAssetRepository creativeAssetRepository;
@@ -58,7 +60,8 @@ public class AiContextBuilder {
     private final AiBudgetAnalysisRepository aiBudgetAnalysisRepository;
     private final ObjectMapper objectMapper;
 
-    public AiContextBuilder(ClientRepository clientRepository,
+    public AiContextBuilder(SystemSettingService systemSettingService,
+                            ClientRepository clientRepository,
                             ClientProfileRepository clientProfileRepository,
                             CreativeAssetRepository creativeAssetRepository,
                             CreativeAnalysisRepository creativeAnalysisRepository,
@@ -71,6 +74,7 @@ public class AiContextBuilder {
                             AiAudienceSuggestionRepository aiAudienceSuggestionRepository,
                             AiBudgetAnalysisRepository aiBudgetAnalysisRepository,
                             ObjectMapper objectMapper) {
+        this.systemSettingService = systemSettingService;
         this.clientRepository = clientRepository;
         this.clientProfileRepository = clientProfileRepository;
         this.creativeAssetRepository = creativeAssetRepository;
@@ -538,12 +542,13 @@ public class AiContextBuilder {
     }
 
     private String trimToLimit(String raw) {
-        if (raw.length() <= MAX_CONTEXT_CHARS) {
+        int maxChars = systemSettingService.getInt("ai.context.max.chars", DEFAULT_MAX_CONTEXT_CHARS);
+        if (raw.length() <= maxChars) {
             return raw;
         }
         StringBuilder trimmed = new StringBuilder();
         for (String line : raw.split("\\n")) {
-            if (trimmed.length() + line.length() + 1 > MAX_CONTEXT_CHARS - 32) {
+            if (trimmed.length() + line.length() + 1 > maxChars - 32) {
                 break;
             }
             trimmed.append(line).append('\n');

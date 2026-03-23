@@ -2,6 +2,8 @@ package com.amp.ai;
 
 import com.amp.agency.Agency;
 import com.amp.agency.AgencyRepository;
+import com.amp.config.AiPromptTemplateService;
+import com.amp.config.SystemSettingService;
 import com.amp.campaigns.Campaign;
 import com.amp.campaigns.CampaignRepository;
 import com.amp.clients.Client;
@@ -33,6 +35,7 @@ public class AgencyIntelligenceService {
     private static final Logger log = LoggerFactory.getLogger(AgencyIntelligenceService.class);
     private static final String MODULE = "AGENCY_INTELLIGENCE";
 
+    private final SystemSettingService systemSettingService;
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
     private final AgencyRepository agencyRepo;
@@ -41,15 +44,19 @@ public class AgencyIntelligenceService {
     private final InsightDailyRepository insightDailyRepo;
     private final AiSuggestionRepository suggestionRepo;
     private final MetaConnectionRepository metaConnectionRepo;
+    private final AiPromptTemplateService promptTemplateService;
 
-    public AgencyIntelligenceService(ClaudeApiClient claudeClient,
+    public AgencyIntelligenceService(SystemSettingService systemSettingService,
+                                     ClaudeApiClient claudeClient,
                                      AiProperties aiProps,
                                      AgencyRepository agencyRepo,
                                      ClientRepository clientRepo,
                                      CampaignRepository campaignRepo,
                                      InsightDailyRepository insightDailyRepo,
                                      AiSuggestionRepository suggestionRepo,
-                                     MetaConnectionRepository metaConnectionRepo) {
+                                     MetaConnectionRepository metaConnectionRepo,
+                                     AiPromptTemplateService promptTemplateService) {
+        this.systemSettingService = systemSettingService;
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.agencyRepo = agencyRepo;
@@ -58,6 +65,7 @@ public class AgencyIntelligenceService {
         this.insightDailyRepo = insightDailyRepo;
         this.suggestionRepo = suggestionRepo;
         this.metaConnectionRepo = metaConnectionRepo;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -177,11 +185,13 @@ public class AgencyIntelligenceService {
                     ? sumRoas.divide(BigDecimal.valueOf(roasCount), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
 
-            // Sync freshness: % of connections synced in last 48h
+            // Sync freshness: % of connections synced within configured window
+            int syncFreshnessHours = systemSettingService.getInt(
+                    "agency.intelligence.sync.freshness.hours", 48);
             long freshSyncs = agConns.stream()
                     .filter(c -> "CONNECTED".equals(c.getStatus())
                             && c.getLastSyncAt() != null
-                            && c.getLastSyncAt().isAfter(OffsetDateTime.now().minusHours(48)))
+                            && c.getLastSyncAt().isAfter(OffsetDateTime.now().minusHours(syncFreshnessHours)))
                     .count();
             long totalConns = agConns.stream().filter(c -> "CONNECTED".equals(c.getStatus())).count();
             double syncFreshnessPct = totalConns > 0 ? round(100.0 * freshSyncs / totalConns, 1) : 0;
@@ -215,9 +225,14 @@ public class AgencyIntelligenceService {
 
     double computeHealthScore(double activeClientPct, double avgRoas,
                                       double syncFreshnessPct, double adoptionPct) {
-        // Weighted: 25% active clients, 25% ROAS (capped 5x = 100%), 25% sync freshness, 25% adoption
-        double roasScore = Math.min(avgRoas / 5.0 * 100.0, 100.0);
-        return 0.25 * activeClientPct + 0.25 * roasScore + 0.25 * syncFreshnessPct + 0.25 * adoptionPct;
+        // Weighted health score — weights and ROAS cap are DB-configurable
+        double roasCap = systemSettingService.getDecimal("agency.intelligence.roas.cap", 5.0);
+        double wActive = systemSettingService.getDecimal("agency.intelligence.health.weight.active", 0.25);
+        double wRoas = systemSettingService.getDecimal("agency.intelligence.health.weight.roas", 0.25);
+        double wSync = systemSettingService.getDecimal("agency.intelligence.health.weight.sync", 0.25);
+        double wAdoption = systemSettingService.getDecimal("agency.intelligence.health.weight.adoption", 0.25);
+        double roasScore = Math.min(avgRoas / roasCap * 100.0, 100.0);
+        return wActive * activeClientPct + wRoas * roasScore + wSync * syncFreshnessPct + wAdoption * adoptionPct;
     }
 
     // ── Churn risk ──
@@ -333,7 +348,7 @@ public class AgencyIntelligenceService {
                     .append(String.join("; ", r.signals())).append("\n");
         }
 
-        String systemPrompt = """
+        String defaultPrompt = """
                 You are a strategic advisor to a platform owner who manages multiple advertising agencies.
                 Analyze the intelligence data below and provide a concise executive briefing (4-8 sentences).
                 Highlight: top-performing industries, agencies needing attention, urgent churn risks.
@@ -341,10 +356,16 @@ public class AgencyIntelligenceService {
 
                 === INTELLIGENCE DATA ===
                 %s
-                """.formatted(context.toString());
+                """;
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                MODULE, "system_prompt", defaultPrompt).formatted(context.toString());
+
+        String defaultUserPrompt = "Provide an executive intelligence briefing.";
+        String userPrompt = promptTemplateService.getActivePromptText(
+                MODULE, "user_prompt", defaultUserPrompt);
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
-                systemPrompt, "Provide an executive intelligence briefing.",
+                systemPrompt, userPrompt,
                 MODULE, null, null);
 
         if (response.isSuccess()) {

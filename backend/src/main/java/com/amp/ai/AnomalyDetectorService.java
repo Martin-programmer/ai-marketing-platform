@@ -4,6 +4,7 @@ import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
+import com.amp.config.SystemSettingService;
 import com.amp.creatives.CreativeAnalysis;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
@@ -51,6 +52,7 @@ public class AnomalyDetectorService {
     private final ClientRepository clientRepo;
     private final AiCrossModuleSupportService aiCrossModuleSupportService;
     private final CopyFactoryService copyFactoryService;
+    private final SystemSettingService systemSettingService;
 
     public AnomalyDetectorService(AiSuggestionRepository suggestionRepo,
                                    InsightDailyRepository insightRepo,
@@ -59,7 +61,8 @@ public class AnomalyDetectorService {
                                    EmailProperties emailProperties,
                                    ClientRepository clientRepo,
                                    AiCrossModuleSupportService aiCrossModuleSupportService,
-                                   CopyFactoryService copyFactoryService) {
+                                   CopyFactoryService copyFactoryService,
+                                   SystemSettingService systemSettingService) {
         this.suggestionRepo = suggestionRepo;
         this.insightRepo = insightRepo;
         this.objectMapper = objectMapper;
@@ -68,6 +71,7 @@ public class AnomalyDetectorService {
         this.clientRepo = clientRepo;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
         this.copyFactoryService = copyFactoryService;
+        this.systemSettingService = systemSettingService;
     }
 
     // ══════════════════════════════════════════
@@ -82,9 +86,17 @@ public class AnomalyDetectorService {
      */
     @Transactional
     public Map<String, Object> detectAnomalies(UUID agencyId, UUID clientId) {
+        // Read thresholds from DB with compile-time defaults as fallback
+        double spendSpikeFactor = systemSettingService.getDecimal("anomaly.spend.spike.factor", SPEND_SPIKE_FACTOR);
+        double conversionDropMinAvg = systemSettingService.getDecimal("anomaly.conversion.drop.min.avg", CONVERSION_DROP_MIN_AVG);
+        double cpmSurgeFactor = systemSettingService.getDecimal("anomaly.cpm.surge.factor", CPM_SURGE_FACTOR);
+        double ctrCollapseFactor = systemSettingService.getDecimal("anomaly.ctr.collapse.factor", CTR_COLLAPSE_FACTOR);
+        int baselineDays = systemSettingService.getInt("anomaly.baseline.days", BASELINE_DAYS);
+        int cpmSurgeLookbackDays = systemSettingService.getInt("anomaly.cpm.surge.lookback.days", CPM_SURGE_LOOKBACK_DAYS);
+
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
-        LocalDate baselineStart = today.minusDays(BASELINE_DAYS + 1); // 15 days back to get full 14-day window
+        LocalDate baselineStart = today.minusDays(baselineDays + 1); // 15 days back to get full 14-day window
 
         List<InsightDaily> allInsights = insightRepo.findAllByAgencyIdAndClientIdAndDateBetween(
                 agencyId, clientId, baselineStart, today);
@@ -114,8 +126,8 @@ public class AnomalyDetectorService {
         Map<String, List<InsightDaily>> recentByEntity = recent.stream()
                 .collect(Collectors.groupingBy(i -> i.getEntityType() + ":" + i.getEntityId()));
 
-        // Also need last 3 days for CPM surge check
-        LocalDate threeDaysAgo = today.minusDays(CPM_SURGE_LOOKBACK_DAYS);
+        // Also need last N days for CPM surge check
+        LocalDate threeDaysAgo = today.minusDays(cpmSurgeLookbackDays);
         Map<String, List<InsightDaily>> last3ByEntity = allInsights.stream()
                 .filter(i -> !i.getDate().isBefore(threeDaysAgo))
                 .collect(Collectors.groupingBy(i -> i.getEntityType() + ":" + i.getEntityId()));
@@ -135,12 +147,12 @@ public class AnomalyDetectorService {
             String[] parts = entityKey.split(":");
             String entityType = parts[0];
             UUID entityId = UUID.fromString(parts[1]);
-            int baselineDays = (int) bData.stream().map(InsightDaily::getDate).distinct().count();
-            if (baselineDays < 3) continue; // need at least 3 days of baseline
+            int entityBaselineDays = (int) bData.stream().map(InsightDaily::getDate).distinct().count();
+            if (entityBaselineDays < 3) continue; // need at least 3 days of baseline
 
             // Compute baseline averages
-            double avgDailySpend = bData.stream().mapToDouble(i -> dbl(i.getSpend())).sum() / baselineDays;
-            double avgDailyConversions = bData.stream().mapToDouble(i -> dbl(i.getConversions())).sum() / baselineDays;
+            double avgDailySpend = bData.stream().mapToDouble(i -> dbl(i.getSpend())).sum() / entityBaselineDays;
+            double avgDailyConversions = bData.stream().mapToDouble(i -> dbl(i.getConversions())).sum() / entityBaselineDays;
             double avgCpm = bData.stream().mapToDouble(i -> dbl(i.getCpm())).average().orElse(0);
             double avgCtr = bData.stream().mapToDouble(i -> dbl(i.getCtr())).average().orElse(0);
 
@@ -154,7 +166,7 @@ public class AnomalyDetectorService {
             double recentCtr = dbl(latestRecent.getCtr());
 
             // ── Check 1: Spend Spike ──
-            if (avgDailySpend > 0 && recentSpend > avgDailySpend * SPEND_SPIKE_FACTOR) {
+            if (avgDailySpend > 0 && recentSpend > avgDailySpend * spendSpikeFactor) {
                 double factor = recentSpend / avgDailySpend;
                 anomalies.add(createAnomaly(
                         agencyId, clientId, entityType, entityId,
@@ -167,7 +179,7 @@ public class AnomalyDetectorService {
             }
 
             // ── Check 2: Conversion Drop ──
-            if (avgDailyConversions >= CONVERSION_DROP_MIN_AVG && recentConversions == 0) {
+            if (avgDailyConversions >= conversionDropMinAvg && recentConversions == 0) {
                 anomalies.add(createAnomaly(
                         agencyId, clientId, entityType, entityId,
                         "CONVERSION_DROP", "HIGH",
@@ -181,7 +193,7 @@ public class AnomalyDetectorService {
             // ── Check 3: CPM Surge (sustained over last 3 days) ──
             if (avgCpm > 0 && last3.size() >= 2) {
                 double avgCpmLast3 = last3.stream().mapToDouble(i -> dbl(i.getCpm())).average().orElse(0);
-                if (avgCpmLast3 > avgCpm * CPM_SURGE_FACTOR) {
+                if (avgCpmLast3 > avgCpm * cpmSurgeFactor) {
                     double factor = avgCpmLast3 / avgCpm;
                     anomalies.add(createAnomaly(
                             agencyId, clientId, entityType, entityId,
@@ -197,7 +209,7 @@ public class AnomalyDetectorService {
             // ── Check 4: CTR Collapse ──
             if (avgCtr > 0 && recentCtr > 0) {
                 double ctrDropPct = (avgCtr - recentCtr) / avgCtr;
-                if (ctrDropPct > CTR_COLLAPSE_FACTOR) {
+                if (ctrDropPct > ctrCollapseFactor) {
                     anomalies.add(createAnomaly(
                             agencyId, clientId, entityType, entityId,
                             "CTR_COLLAPSE", "MEDIUM",

@@ -45,7 +45,7 @@
               variant="outlined"
               density="comfortable"
               class="mb-2"
-              :rules="[v => !!v || 'Required', v => (v && v.length >= 6) || 'Min 6 characters']"
+              :rules="[(v: string) => !!v || 'Required', (v: string) => (v && v.length >= 6) || 'Min 6 characters']"
               :disabled="loading"
             />
 
@@ -57,7 +57,7 @@
               variant="outlined"
               density="comfortable"
               class="mb-4"
-              :rules="[v => !!v || 'Required', v => v === newPassword || 'Passwords do not match']"
+              :rules="[(v: string) => !!v || 'Required', (v: string) => v === newPassword || 'Passwords do not match']"
               :disabled="loading"
             />
 

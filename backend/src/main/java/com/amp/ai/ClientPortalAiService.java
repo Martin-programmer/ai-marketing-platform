@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * AI-powered Q&amp;A for CLIENT_USER portal.
  * The client types a question ("How are my campaigns doing?") and gets
@@ -34,6 +36,7 @@ public class ClientPortalAiService {
     private final AiSuggestionRepository suggestionRepo;
     private final ReportRepository reportRepo;
     private final AiContextBuilder aiContextBuilder;
+    private final AiPromptTemplateService promptTemplateService;
 
     public ClientPortalAiService(ClaudeApiClient claudeClient,
                                  AiProperties aiProps,
@@ -41,7 +44,8 @@ public class ClientPortalAiService {
                                  CampaignRepository campaignRepo,
                                  AiSuggestionRepository suggestionRepo,
                                  ReportRepository reportRepo,
-                                 AiContextBuilder aiContextBuilder) {
+                                 AiContextBuilder aiContextBuilder,
+                                 AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.insightDailyRepo = insightDailyRepo;
@@ -49,6 +53,7 @@ public class ClientPortalAiService {
         this.suggestionRepo = suggestionRepo;
         this.reportRepo = reportRepo;
         this.aiContextBuilder = aiContextBuilder;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -66,7 +71,7 @@ public class ClientPortalAiService {
         String context = buildClientContext(agencyId, clientId);
 
         // ── 2. Build system prompt ──
-        String systemPrompt = """
+        String defaultPrompt = """
                 You are a friendly marketing analytics assistant for a digital advertising client.
                 You ONLY answer using the data provided below — never fabricate numbers.
                 If the data does not contain enough information to answer, say so honestly.
@@ -77,6 +82,8 @@ public class ClientPortalAiService {
                 === CLIENT DATA ===
                 %s
                 """.formatted(context);
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "CLIENT_PORTAL_AI", "system_prompt", defaultPrompt);
 
         // ── 3. Call Claude Sonnet ──
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(

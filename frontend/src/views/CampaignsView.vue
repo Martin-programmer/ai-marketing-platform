@@ -567,7 +567,7 @@
             type="number"
             prefix="$"
             variant="outlined"
-            :rules="[(v) => (!!v && v > 0) || 'Required for CBO']"
+            :rules="[(v: number | null) => (!!v && v > 0) || 'Required for CBO']"
             class="mb-2"
           />
 

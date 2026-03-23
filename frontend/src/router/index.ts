@@ -58,6 +58,11 @@ const router = createRouter({
       meta: { requiredRole: ['AGENCY_ADMIN', 'OWNER_ADMIN'] }
     },
     {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/views/SettingsView.vue'),
+    },
+    {
       path: '/admin',
       name: 'admin',
       component: () => import('@/views/AdminView.vue'),
@@ -86,6 +91,24 @@ const router = createRouter({
       path: '/owner/ai-audit',
       name: 'owner-ai-audit',
       component: () => import('@/views/owner/OwnerAiAuditView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    {
+      path: '/owner/settings',
+      name: 'owner-settings',
+      component: () => import('@/views/owner/OwnerPlatformSettingsView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    {
+      path: '/owner/prompts',
+      name: 'owner-prompts',
+      component: () => import('@/views/owner/OwnerAiPromptsView.vue'),
+      meta: { requiredRole: ['OWNER_ADMIN'] }
+    },
+    {
+      path: '/owner/email-templates',
+      name: 'owner-email-templates',
+      component: () => import('@/views/owner/OwnerEmailTemplatesView.vue'),
       meta: { requiredRole: ['OWNER_ADMIN'] }
     },
     // Client Portal routes (CLIENT_USER only)
@@ -130,7 +153,7 @@ const router = createRouter({
 
 // Navigation guard
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('accessToken')
+  const token = localStorage.getItem('accessToken') ?? sessionStorage.getItem('accessToken')
   const isPublic = to.meta.public === true
 
   if (!isPublic && !token) {
@@ -139,7 +162,7 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.path === '/login' && token) {
-    const userStr = localStorage.getItem('user')
+    const userStr = localStorage.getItem('user') ?? sessionStorage.getItem('user')
     const u = userStr ? JSON.parse(userStr) : null
     if (u?.role === 'CLIENT_USER') {
       next('/portal')
@@ -152,7 +175,7 @@ router.beforeEach((to, _from, next) => {
   }
 
   // CLIENT_USER can only access /portal/* and /login
-  const userStr = localStorage.getItem('user')
+  const userStr = localStorage.getItem('user') ?? sessionStorage.getItem('user')
   const user = userStr ? JSON.parse(userStr) : null
   if (token && user?.role === 'CLIENT_USER' && !to.path.startsWith('/portal') && to.path !== '/login') {
     next('/portal')

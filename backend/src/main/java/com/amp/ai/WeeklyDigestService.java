@@ -24,6 +24,8 @@ import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Generates weekly performance digest emails for clients.
  * Scheduled every Monday at 09:00. For now saves digest to DB — actual email sending is V2.
@@ -44,6 +46,7 @@ public class WeeklyDigestService {
     private final NotificationHelper notificationHelper;
     private final AiContextBuilder aiContextBuilder;
     private final AiCrossModuleSupportService aiCrossModuleSupportService;
+    private final AiPromptTemplateService promptTemplateService;
 
     public WeeklyDigestService(ClaudeApiClient claudeClient,
                                 AiProperties aiProps,
@@ -54,7 +57,8 @@ public class WeeklyDigestService {
                                 AiWeeklyDigestRepository digestRepo,
                                 NotificationHelper notificationHelper,
                                 AiContextBuilder aiContextBuilder,
-                                AiCrossModuleSupportService aiCrossModuleSupportService) {
+                                AiCrossModuleSupportService aiCrossModuleSupportService,
+                                AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.metaConnectionRepo = metaConnectionRepo;
@@ -65,6 +69,7 @@ public class WeeklyDigestService {
         this.notificationHelper = notificationHelper;
         this.aiContextBuilder = aiContextBuilder;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
+        this.promptTemplateService = promptTemplateService;
     }
 
     // ──────── Scheduled trigger ────────
@@ -194,7 +199,7 @@ public class WeeklyDigestService {
             .append("\n");
 
         // Call Claude (Sonnet — fast and cheap)
-        String systemPrompt = """
+        String defaultPrompt = """
                 You are a friendly marketing performance assistant writing a weekly summary email.
                 Write a brief weekly performance summary (5-8 sentences).
                 Include: key metrics with actual numbers, highlight of the week, what was optimized.
@@ -208,6 +213,8 @@ public class WeeklyDigestService {
                   "signoff": "Best regards,\\nYour AI Marketing Platform"
                 }
                 """;
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "WEEKLY_DIGEST", "system_prompt", defaultPrompt);
 
         ClaudeResponse response = claudeClient.sendMessage(
                 systemPrompt, ctx.toString(),

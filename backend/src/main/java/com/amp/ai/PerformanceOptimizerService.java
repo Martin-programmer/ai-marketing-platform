@@ -2,6 +2,8 @@ package com.amp.ai;
 
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
+import com.amp.config.AiPromptTemplateService;
+import com.amp.config.SystemSettingService;
 import com.amp.campaigns.AdRepository;
 import com.amp.campaigns.AdsetRepository;
 import com.amp.tenancy.TenantContext;
@@ -50,6 +52,8 @@ public class PerformanceOptimizerService {
     private final AiContextBuilder aiContextBuilder;
     private final AiCrossModuleSupportService aiCrossModuleSupportService;
     private final ObjectMapper objectMapper;
+    private final AiPromptTemplateService promptTemplateService;
+    private final SystemSettingService systemSettingService;
 
     public PerformanceOptimizerService(AiProperties aiProps,
                                        ClaudeApiClient claudeClient,
@@ -62,7 +66,9 @@ public class PerformanceOptimizerService {
                                        ClientRepository clientRepo,
                                        AiContextBuilder aiContextBuilder,
                                        AiCrossModuleSupportService aiCrossModuleSupportService,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       AiPromptTemplateService promptTemplateService,
+                                       SystemSettingService systemSettingService) {
         this.aiProps = aiProps;
         this.claudeClient = claudeClient;
         this.guardrails = guardrails;
@@ -75,6 +81,8 @@ public class PerformanceOptimizerService {
         this.aiContextBuilder = aiContextBuilder;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
         this.objectMapper = objectMapper;
+        this.promptTemplateService = promptTemplateService;
+        this.systemSettingService = systemSettingService;
     }
 
     // ══════════════════════════════════════════
@@ -307,24 +315,29 @@ public class PerformanceOptimizerService {
                                         List<InsightDaily> data7, List<InsightDaily> data14) {
         if (data7.size() < 5) return;
 
+        double frequencyThreshold = systemSettingService.getDecimal("optimizer.frequency.threshold",
+                aiProps.getOptimizer().getFrequencyThreshold());
+        double ctrDropThreshold = systemSettingService.getDecimal("optimizer.ctr.drop.threshold",
+                aiProps.getOptimizer().getCtrDropThreshold());
+
         double avgFreq7 = data7.stream()
                 .mapToDouble(i -> i.getFrequency() != null ? i.getFrequency().doubleValue() : 0)
                 .average().orElse(0);
-        if (avgFreq7 < aiProps.getOptimizer().getFrequencyThreshold()) return;
+        if (avgFreq7 < frequencyThreshold) return;
 
         double avgCtr7 = avgCtr(data7);
         double avgCtr14 = avgCtr(data14);
         if (avgCtr14 <= 0) return;
 
         double ctrDropPct = (avgCtr14 - avgCtr7) / avgCtr14;
-        if (ctrDropPct > aiProps.getOptimizer().getCtrDropThreshold()) {
+        if (ctrDropPct > ctrDropThreshold) {
             String payload = String.format(
                     "{\"alert\":\"frequency_fatigue\",\"frequency\":%.2f,\"ctr_drop_pct\":%.1f,\"threshold\":%.1f}",
-                    avgFreq7, ctrDropPct * 100, aiProps.getOptimizer().getFrequencyThreshold());
+                    avgFreq7, ctrDropPct * 100, frequencyThreshold);
 
             findings.add(new RuleFinding("DIAGNOSTIC", "LOW", entityType, entityId,
                     String.format("Frequency %.1f (>%.1f) with CTR drop %.1f%%",
-                            avgFreq7, aiProps.getOptimizer().getFrequencyThreshold(), ctrDropPct * 100),
+                            avgFreq7, frequencyThreshold, ctrDropPct * 100),
                     payload, 0.85, 0, data7.size(), 0, false));
         }
     }
@@ -363,8 +376,11 @@ public class PerformanceOptimizerService {
         double cpa14 = spend14 / conv14;
         if (cpa14 <= 0) return;
 
+        double cpaSpikeThreshold = systemSettingService.getDecimal("optimizer.cpa.spike.threshold",
+                aiProps.getOptimizer().getCpaSpikeThreshold());
+
         double increasePct = (cpa7 - cpa14) / cpa14;
-        if (increasePct > aiProps.getOptimizer().getCpaSpikeThreshold()) {
+        if (increasePct > cpaSpikeThreshold) {
             String payload = String.format(
                     "{\"alert\":\"cpa_spike\",\"cpa_7d\":%.2f,\"cpa_14d\":%.2f,\"increase_pct\":%.1f}",
                     cpa7, cpa14, increasePct * 100);
@@ -375,20 +391,24 @@ public class PerformanceOptimizerService {
         }
     }
 
-    /** Rule 4: Strong Performer — ROAS &gt; 3.0, recommend budget scale-up. */
+    /** Rule 4: Strong Performer — ROAS above threshold, recommend budget scale-up. */
     private void checkStrongPerformer(List<RuleFinding> findings, String entityType, UUID entityId,
                                        List<InsightDaily> data7) {
         double spend = sumSpend(data7);
         long conv = sumConversions(data7);
         double convValue = sumConversionValue(data7);
 
-        if (conv < aiProps.getOptimizer().getMinConversions() || spend == 0) return;
+        int minConversions = systemSettingService.getInt("optimizer.min.conversions",
+                aiProps.getOptimizer().getMinConversions());
+        if (conv < minConversions || spend == 0) return;
 
         double roas = convValue / spend;
-        if (roas > 3.0) {
+        double strongRoasThreshold = systemSettingService.getDecimal("optimizer.strong.roas.threshold", 3.0);
+        if (roas > strongRoasThreshold) {
             double cpa = spend / conv;
             double avgDailySpend = spend / data7.size();
-            int changePercent = aiProps.getOptimizer().getBudgetChangeMaxPercent();
+            int changePercent = systemSettingService.getInt("optimizer.budget.change.max.percent",
+                    aiProps.getOptimizer().getBudgetChangeMaxPercent());
             double proposedBudget = avgDailySpend * (1 + changePercent / 100.0);
 
             String payload = String.format(
@@ -401,7 +421,7 @@ public class PerformanceOptimizerService {
         }
     }
 
-    /** Rule 5: Weak Performer — ROAS &lt; 1.5, recommend budget scale-down. */
+    /** Rule 5: Weak Performer — ROAS below threshold, recommend budget scale-down. */
     private void checkWeakPerformer(List<RuleFinding> findings, String entityType, UUID entityId,
                                      List<InsightDaily> data7) {
         double spend = sumSpend(data7);
@@ -411,9 +431,11 @@ public class PerformanceOptimizerService {
         if (spend == 0 || conv == 0) return;
 
         double roas = convValue / spend;
-        if (roas < 1.5) {
+        double weakRoasThreshold = systemSettingService.getDecimal("optimizer.weak.roas.threshold", 1.5);
+        if (roas < weakRoasThreshold) {
             double avgDailySpend = spend / data7.size();
-            int changePercent = -aiProps.getOptimizer().getBudgetChangeMaxPercent();
+            int changePercent = -systemSettingService.getInt("optimizer.budget.change.max.percent",
+                    aiProps.getOptimizer().getBudgetChangeMaxPercent());
             double proposedBudget = avgDailySpend * (1 + changePercent / 100.0);
 
             String payload = String.format(
@@ -537,7 +559,7 @@ public class PerformanceOptimizerService {
         try {
             String sharedContext = aiContextBuilder.buildContext(agencyId, clientId);
 
-            String systemPrompt = """
+            String defaultPrompt = """
                     You are a performance marketing expert. Explain this optimization finding \
                     to an agency account manager in a clear, actionable way. \
                     Be specific about what they should do and why. \
@@ -545,6 +567,8 @@ public class PerformanceOptimizerService {
                     Language: Use the same language as the client name suggests \
                     (Bulgarian if Cyrillic, English otherwise).\
                     """;
+            String systemPrompt = promptTemplateService.getActivePromptText(
+                    "OPTIMIZER_ENRICHMENT", "system_prompt", defaultPrompt);
 
             String userMessage = String.format(
             "Shared context:\n%s\n\nFinding type: %s\nRisk: %s\nScope: %s\nDetails: %s\nData: %s",

@@ -17,6 +17,7 @@ import com.amp.creatives.CreativePackageItemRepository;
 import com.amp.creatives.CreativePackageRepository;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -47,8 +48,11 @@ import java.util.stream.Collectors;
 public class AiCrossModuleSupportService {
 
     private static final Logger log = LoggerFactory.getLogger(AiCrossModuleSupportService.class);
-    private static final BigDecimal HIGH_QUALITY_THRESHOLD = BigDecimal.valueOf(75);
+    private static final int DEFAULT_QUALITY_THRESHOLD = 75;
+    private static final int DEFAULT_MAX_CREATIVES = 3;
+    private static final int DEFAULT_TOP_ADS = 3;
 
+    private final SystemSettingService systemSettingService;
     private final CreativeAnalysisRepository creativeAnalysisRepository;
     private final CreativeAssetRepository creativeAssetRepository;
     private final CopyVariantRepository copyVariantRepository;
@@ -64,7 +68,8 @@ public class AiCrossModuleSupportService {
     private final AiActionLogRepository aiActionLogRepository;
     private final ObjectMapper objectMapper;
 
-    public AiCrossModuleSupportService(CreativeAnalysisRepository creativeAnalysisRepository,
+    public AiCrossModuleSupportService(SystemSettingService systemSettingService,
+                                       CreativeAnalysisRepository creativeAnalysisRepository,
                                        CreativeAssetRepository creativeAssetRepository,
                                        CopyVariantRepository copyVariantRepository,
                                        CreativePackageItemRepository creativePackageItemRepository,
@@ -78,6 +83,7 @@ public class AiCrossModuleSupportService {
                                        AiSuggestionRepository aiSuggestionRepository,
                                        AiActionLogRepository aiActionLogRepository,
                                        ObjectMapper objectMapper) {
+        this.systemSettingService = systemSettingService;
         this.creativeAnalysisRepository = creativeAnalysisRepository;
         this.creativeAssetRepository = creativeAssetRepository;
         this.copyVariantRepository = copyVariantRepository;
@@ -170,12 +176,16 @@ public class AiCrossModuleSupportService {
                 .filter(a -> !usedAssetIds.contains(a.getCreativeAssetId()))
                 .toList();
 
+        BigDecimal qualityThreshold = BigDecimal.valueOf(
+                systemSettingService.getInt("ai.cross.module.quality.threshold", DEFAULT_QUALITY_THRESHOLD));
+        int maxCreatives = systemSettingService.getInt("ai.cross.module.max.creatives", DEFAULT_MAX_CREATIVES);
+
         List<CreativeAnalysis> shortlisted = allAnalyses.stream()
-                .filter(a -> a.getQualityScore() != null && a.getQualityScore().compareTo(HIGH_QUALITY_THRESHOLD) >= 0)
-                .limit(3)
+                .filter(a -> a.getQualityScore() != null && a.getQualityScore().compareTo(qualityThreshold) >= 0)
+                .limit(maxCreatives)
                 .toList();
         if (shortlisted.isEmpty()) {
-            shortlisted = allAnalyses.stream().limit(3).toList();
+            shortlisted = allAnalyses.stream().limit(maxCreatives).toList();
         }
 
         List<Map<String, Object>> recommendedCreatives = new ArrayList<>();
@@ -273,7 +283,7 @@ public class AiCrossModuleSupportService {
                 .sorted(Comparator.comparingDouble(AdPerformanceSample::avgCtr).reversed()
                         .thenComparingDouble(AdPerformanceSample::avgCpc)
                         .thenComparingLong(AdPerformanceSample::impressions).reversed())
-                .limit(3)
+                .limit(systemSettingService.getInt("ai.cross.module.top.ads", DEFAULT_TOP_ADS))
                 .toList();
 
         if (topAds.isEmpty()) {

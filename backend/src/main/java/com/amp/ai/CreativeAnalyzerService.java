@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Analyzes uploaded creative assets using Claude Vision API.
  * <p>
@@ -56,17 +58,20 @@ public class CreativeAnalyzerService {
     private final S3StorageService s3StorageService;
     private final AiContextBuilder aiContextBuilder;
     private final AiProperties aiProperties;
+    private final AiPromptTemplateService promptTemplateService;
 
     public CreativeAnalyzerService(ClaudeApiClient claudeClient,
                                    CreativeAnalysisRepository analysisRepository,
                                    S3StorageService s3StorageService,
                                    AiContextBuilder aiContextBuilder,
-                                   AiProperties aiProperties) {
+                                   AiProperties aiProperties,
+                                   AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.analysisRepository = analysisRepository;
         this.s3StorageService = s3StorageService;
         this.aiContextBuilder = aiContextBuilder;
         this.aiProperties = aiProperties;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -97,6 +102,8 @@ public class CreativeAnalyzerService {
         log.info("Starting creative analysis for asset {} ({}, type={})",
                 asset.getId(), asset.getOriginalFilename(), asset.getAssetType());
 
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "CREATIVE_ANALYZER", "system_prompt", SYSTEM_PROMPT);
         String clientContext = aiContextBuilder.buildContext(asset.getAgencyId(), asset.getClientId());
         ClaudeApiClient.ClaudeResponse response = null;
 
@@ -109,7 +116,7 @@ public class CreativeAnalyzerService {
                 asset.getOriginalFilename(), asset.getMimeType(), clientContext);
 
             response = claudeClient.sendVisionMessage(
-                    SYSTEM_PROMPT, userMessage, imageUrl, asset.getMimeType(),
+                    systemPrompt, userMessage, imageUrl, asset.getMimeType(),
                     MODULE, asset.getAgencyId(), asset.getClientId());
 
         } else if ("VIDEO".equals(asset.getAssetType())) {
@@ -124,7 +131,7 @@ public class CreativeAnalyzerService {
                     "\n\nShared client context:\n" + clientContext + "\n\n" +
                     "Respond ONLY in valid JSON as described in the system prompt.";
 
-                response = claudeClient.sendVideoMessage(SYSTEM_PROMPT,
+                response = claudeClient.sendVideoMessage(systemPrompt,
                         videoUserMessage, videoBytes, asset.getMimeType(),
                         MODULE, asset.getAgencyId(), asset.getClientId());
 
@@ -132,7 +139,7 @@ public class CreativeAnalyzerService {
                 // Video too large for Claude — fall back to metadata analysis
                 log.warn("Video asset {} too large for Claude vision ({}MB), falling back to metadata analysis",
                         asset.getId(), videoBytes.length / (1024 * 1024));
-                response = claudeClient.sendMessage(SYSTEM_PROMPT,
+                response = claudeClient.sendMessage(systemPrompt,
                     "This is a video creative that is too large to analyze visually. " +
                     "Based on metadata: filename=" + asset.getOriginalFilename() +
                     ", size=" + asset.getSizeBytes() + " bytes, mime=" + asset.getMimeType() +

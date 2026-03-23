@@ -1,6 +1,8 @@
 package com.amp.common;
 
 import jakarta.annotation.PostConstruct;
+import com.amp.config.EmailTemplateDbService;
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,10 +28,29 @@ public class EmailService {
 
     private final EmailProperties props;
     private final RestTemplate restTemplate;
+    private final EmailTemplateDbService emailTemplateDbService;
+    private final SystemSettingService systemSettingService;
 
-    public EmailService(EmailProperties props) {
+    public EmailService(EmailProperties props, EmailTemplateDbService emailTemplateDbService,
+                        SystemSettingService systemSettingService) {
         this.props = props;
+        this.emailTemplateDbService = emailTemplateDbService;
+        this.systemSettingService = systemSettingService;
         this.restTemplate = new RestTemplate();
+    }
+
+    // ── DB-backed getters with EmailProperties fallback ─────
+
+    private String getFromAddress() {
+        return systemSettingService.getString("email.from.address", props.getFromAddress());
+    }
+
+    private String getFromName() {
+        return systemSettingService.getString("email.from.name", props.getFromName());
+    }
+
+    private String getPlatformName() {
+        return systemSettingService.getString("platform.name", "AI Marketing Platform");
     }
 
     @PostConstruct
@@ -72,7 +93,7 @@ public class EmailService {
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             Map<String, Object> payload = Map.of(
-                "from", props.getFromName() + " <" + props.getFromAddress() + ">",
+                "from", getFromName() + " <" + getFromAddress() + ">",
                 "to", List.of(to),
                 "subject", subject,
                 "html", wrappedHtml
@@ -106,27 +127,26 @@ public class EmailService {
      * Load an inline template and substitute variables.
      */
     private String loadTemplate(String templateName, Map<String, String> variables) {
-        String template = switch (templateName) {
+        String templateKey = templateName.toUpperCase().replace("-", "_");
+        String fallbackTemplate = switch (templateName) {
             case "invitation" -> INVITATION_TEMPLATE;
             case "password-reset" -> PASSWORD_RESET_TEMPLATE;
             case "welcome" -> WELCOME_TEMPLATE;
             case "report-sent" -> REPORT_SENT_TEMPLATE;
             case "alert" -> ALERT_TEMPLATE;
             case "campaign-published" -> CAMPAIGN_PUBLISHED_TEMPLATE;
+            case "two-factor-code" -> TWO_FACTOR_CODE_TEMPLATE;
             default -> throw new IllegalArgumentException("Unknown email template: " + templateName);
         };
-
-        for (Map.Entry<String, String> entry : variables.entrySet()) {
-            template = template.replace("{{" + entry.getKey() + "}}", entry.getValue());
-        }
-        return template;
+        return emailTemplateDbService.renderBody(templateKey, variables, fallbackTemplate);
     }
 
     /**
      * Wrap content in a professional email template.
+     * Loads the outer wrapper from DB (key: OUTER_WRAPPER) with inline fallback.
      */
     private String wrapInTemplate(String content) {
-        return """
+        String defaultWrapper = """
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -167,7 +187,17 @@ public class EmailService {
                 </table>
             </body>
             </html>
-            """.formatted(content);
+            """;
+        String wrapper = emailTemplateDbService.getTemplateBody("OUTER_WRAPPER", defaultWrapper);
+
+        // Substitute platform-level variables
+        String platformName = getPlatformName();
+        wrapper = wrapper.replace("{{platform_name}}", platformName);
+
+        if (wrapper.contains("{{content}}")) {
+            return wrapper.replace("{{content}}", content);
+        }
+        return wrapper.formatted(content);
     }
 
     // ── Inline Templates ─────────────────────────────────────────
@@ -307,4 +337,23 @@ public class EmailService {
             </a>
         </div>
         """;
-}
+    // ── Two-Factor Authentication Code Template ──────────────────
+
+    private static final String TWO_FACTOR_CODE_TEMPLATE = """
+        <h2 style="color:#333333; margin-top:0;">\uD83D\uDD10 Verification Code</h2>
+        <p style="color:#555555; font-size:16px; line-height:1.6;">
+            Your verification code is:
+        </p>
+        <div style="text-align:center; margin:30px 0;">
+            <div style="display:inline-block; background-color:#E3F2FD; border:2px solid #1565C0; border-radius:8px; padding:16px 32px; letter-spacing:12px; font-size:32px; font-weight:bold; color:#0D47A1; font-family:'Courier New',monospace;">
+                {{code}}
+            </div>
+        </div>
+        <p style="color:#555555; font-size:16px; line-height:1.6; text-align:center;">
+            This code is valid for <strong>10 minutes</strong>.
+        </p>
+        <p style="color:#999999; font-size:13px; margin-top:30px;">
+            If you didn't request this code, please ignore this email
+            and consider changing your password.
+        </p>
+        """;}

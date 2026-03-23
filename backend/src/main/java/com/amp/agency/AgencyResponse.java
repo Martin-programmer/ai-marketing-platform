@@ -11,13 +11,15 @@ public record AgencyResponse(
         String name,
         String status,
         String planCode,
+        boolean twoFactorEnabled,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
     public static AgencyResponse from(Agency e) {
         return new AgencyResponse(
                 e.getId(), e.getName(), e.getStatus(),
-                e.getPlanCode(), e.getCreatedAt(), e.getUpdatedAt()
+                e.getPlanCode(), e.isTwoFactorEnabled(),
+                e.getCreatedAt(), e.getUpdatedAt()
         );
     }
 }

@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Generates adaptive ad-copy variants using Claude, informed by the
  * creative analysis result and the client's industry / profile.
@@ -53,17 +55,20 @@ public class CopyFactoryService {
     private final AiContextBuilder aiContextBuilder;
     private final AiProperties aiProperties;
     private final AiCrossModuleSupportService aiCrossModuleSupportService;
+    private final AiPromptTemplateService promptTemplateService;
 
     public CopyFactoryService(ClaudeApiClient claudeClient,
                                CopyVariantRepository copyVariantRepository,
                                AiContextBuilder aiContextBuilder,
                                AiProperties aiProperties,
-                               AiCrossModuleSupportService aiCrossModuleSupportService) {
+                               AiCrossModuleSupportService aiCrossModuleSupportService,
+                               AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.copyVariantRepository = copyVariantRepository;
         this.aiContextBuilder = aiContextBuilder;
         this.aiProperties = aiProperties;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -91,6 +96,9 @@ public class CopyFactoryService {
         String clientContext = clientContextFuture.join();
         String performanceLearning = performanceLearningFuture.join();
 
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "COPY_FACTORY", "system_prompt", SYSTEM_PROMPT);
+
         String userMessage = String.format(
                 "Generate 5 ad-copy variants for this creative.\n\n"
                         + "--- Client Context ---\n%s\n\n"
@@ -100,7 +108,7 @@ public class CopyFactoryService {
             clientContext, performanceLearning, analysis.getAnalysisJson());
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
-                SYSTEM_PROMPT, userMessage, MODULE, agencyId, clientId);
+                systemPrompt, userMessage, MODULE, agencyId, clientId);
 
         if (!response.isSuccess()) {
             log.error("Copy generation failed for asset {}: {}", analysis.getCreativeAssetId(), response.error());

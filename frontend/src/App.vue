@@ -33,9 +33,14 @@
           <v-list-item prepend-icon="mdi-domain" title="Agencies" to="/owner/agencies" />
           <v-list-item prepend-icon="mdi-brain" title="AI Audit" to="/owner/ai-audit" />
           <v-divider class="my-2" />
+          <v-list-item prepend-icon="mdi-cog" title="Platform Settings" to="/owner/settings" />
+          <v-list-item prepend-icon="mdi-robot" title="AI Prompts" to="/owner/prompts" />
+          <v-list-item prepend-icon="mdi-email-edit" title="Email Templates" to="/owner/email-templates" />
+          <v-divider class="my-2" />
           <v-list-item prepend-icon="mdi-account-multiple" title="Team" to="/team" />
           <v-list-item prepend-icon="mdi-history" title="Audit Log" to="/audit" />
           <v-list-item prepend-icon="mdi-shield-crown" title="Admin" to="/admin" />
+          <v-list-item prepend-icon="mdi-cog" title="Settings" to="/settings" />
         </template>
 
         <!-- Agency navigation -->
@@ -60,6 +65,7 @@
 
           <v-divider v-if="isAgencyAdmin" class="my-2" />
           <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-account-multiple" title="Team" to="/team" />
+          <v-list-item prepend-icon="mdi-cog" title="Settings" to="/settings" />
         </template>
 
         <!-- Client Portal navigation -->

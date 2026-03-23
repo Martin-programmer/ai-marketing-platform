@@ -1,6 +1,7 @@
 package com.amp.ai;
 
 import com.amp.ai.ClaudeApiClient.ClaudeResponse;
+import com.amp.config.SystemSettingService;
 import com.amp.clients.Client;
 import com.amp.clients.ClientProfile;
 import com.amp.clients.ClientProfileRepository;
@@ -21,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Analyses a client's website and auto-fills their profile using Claude.
  */
@@ -28,29 +31,35 @@ import java.util.UUID;
 public class ClientBrieferService {
 
     private static final Logger log = LoggerFactory.getLogger(ClientBrieferService.class);
-    private static final int JSOUP_TIMEOUT_MS = 10_000;
-    private static final int MAX_TEXT_CHARS = 5_000;
+    private static final int DEFAULT_JSOUP_TIMEOUT_MS = 10_000;
+    private static final int DEFAULT_MAX_TEXT_CHARS = 5_000;
     private static final String MODULE = "CLIENT_BRIEFER";
 
+    private final SystemSettingService systemSettingService;
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
     private final ClientRepository clientRepo;
     private final ClientProfileRepository profileRepo;
     private final ClientProfileService profileService;
     private final ObjectMapper objectMapper;
+    private final AiPromptTemplateService promptTemplateService;
 
-    public ClientBrieferService(ClaudeApiClient claudeClient,
+    public ClientBrieferService(SystemSettingService systemSettingService,
+                                 ClaudeApiClient claudeClient,
                                  AiProperties aiProps,
                                  ClientRepository clientRepo,
                                  ClientProfileRepository profileRepo,
                                  ClientProfileService profileService,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 AiPromptTemplateService promptTemplateService) {
+        this.systemSettingService = systemSettingService;
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.clientRepo = clientRepo;
         this.profileRepo = profileRepo;
         this.profileService = profileService;
         this.objectMapper = objectMapper;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -76,14 +85,15 @@ public class ClientBrieferService {
         ctx.append("\n");
 
         if (siteText != null && !siteText.isBlank()) {
-            ctx.append("=== EXTRACTED WEBSITE TEXT (first ").append(MAX_TEXT_CHARS).append(" chars) ===\n");
+            int maxTextChars = systemSettingService.getInt("client.briefer.max.text.chars", DEFAULT_MAX_TEXT_CHARS);
+            ctx.append("=== EXTRACTED WEBSITE TEXT (first ").append(maxTextChars).append(" chars) ===");
             ctx.append(siteText).append("\n");
         } else {
             ctx.append("NOTE: Could not scrape website text. Analyse based on the URL alone.\n");
         }
 
         // 3. Call Claude
-        String systemPrompt = """
+        String defaultPrompt = """
                 You are a marketing strategist analysing a business website.
                 Based on the provided website text (or URL if text is unavailable), return a JSON object with:
                 {
@@ -103,6 +113,8 @@ public class ClientBrieferService {
                 Respond with STRICT JSON only, no markdown fences, no extra text.
                 If you cannot determine a field, use null or an empty array.
                 """;
+        String systemPrompt = promptTemplateService.getActivePromptText(
+                "CLIENT_BRIEFER", "system_prompt", defaultPrompt);
 
         ClaudeResponse response = claudeClient.sendMessage(
                 systemPrompt, ctx.toString(),
@@ -176,9 +188,11 @@ public class ClientBrieferService {
     // ──────── Jsoup website fetch ────────
 
     private String fetchWebsiteText(String url) {
+        int timeoutMs = systemSettingService.getInt("client.briefer.jsoup.timeout.ms", DEFAULT_JSOUP_TIMEOUT_MS);
+        int maxTextChars = systemSettingService.getInt("client.briefer.max.text.chars", DEFAULT_MAX_TEXT_CHARS);
         try {
             Document doc = Jsoup.connect(url)
-                    .timeout(JSOUP_TIMEOUT_MS)
+                    .timeout(timeoutMs)
                     .userAgent("Mozilla/5.0 (compatible; AMP-Bot/1.0)")
                     .followRedirects(true)
                     .get();
@@ -188,8 +202,8 @@ public class ClientBrieferService {
             String text = doc.body() != null ? doc.body().text() : doc.text();
 
             // Trim to max chars
-            if (text.length() > MAX_TEXT_CHARS) {
-                text = text.substring(0, MAX_TEXT_CHARS);
+            if (text.length() > maxTextChars) {
+                text = text.substring(0, maxTextChars);
             }
             return text;
         } catch (Exception e) {

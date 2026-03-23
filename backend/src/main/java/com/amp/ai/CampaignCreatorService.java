@@ -18,6 +18,7 @@ import com.amp.meta.MetaConnection;
 import com.amp.meta.MetaConnectionRepository;
 import com.amp.tenancy.TenantContext;
 import com.amp.tenancy.TenantContextHolder;
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -32,6 +33,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Generates full campaign proposals using Claude.
  * <p>
@@ -43,7 +46,9 @@ import java.util.stream.Collectors;
 public class CampaignCreatorService {
 
     private static final Logger log = LoggerFactory.getLogger(CampaignCreatorService.class);
+    private static final int DEFAULT_CAMPAIGN_MAX_TOKENS = 8192;
 
+    private final SystemSettingService systemSettingService;
     private final ClaudeApiClient claudeClient;
     private final AiProperties aiProps;
     private final ClientRepository clientRepo;
@@ -60,8 +65,10 @@ public class CampaignCreatorService {
     private final AiContextBuilder aiContextBuilder;
     private final AiCrossModuleSupportService aiCrossModuleSupportService;
     private final ObjectMapper objectMapper;
+    private final AiPromptTemplateService promptTemplateService;
 
-    public CampaignCreatorService(ClaudeApiClient claudeClient,
+    public CampaignCreatorService(SystemSettingService systemSettingService,
+                                  ClaudeApiClient claudeClient,
                                   AiProperties aiProps,
                                   ClientRepository clientRepo,
                                   CreativeAssetRepository creativeRepo,
@@ -76,7 +83,9 @@ public class CampaignCreatorService {
                                   MetaConnectionRepository metaConnRepo,
                                   AiContextBuilder aiContextBuilder,
                                   AiCrossModuleSupportService aiCrossModuleSupportService,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  AiPromptTemplateService promptTemplateService) {
+        this.systemSettingService = systemSettingService;
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.clientRepo = clientRepo;
@@ -93,6 +102,7 @@ public class CampaignCreatorService {
         this.aiContextBuilder = aiContextBuilder;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
         this.objectMapper = objectMapper;
+        this.promptTemplateService = promptTemplateService;
     }
 
     // ──────── Public API ────────
@@ -115,7 +125,7 @@ public class CampaignCreatorService {
         // ── 2. Call Claude Sonnet ──
         String systemPrompt = buildSystemPrompt();
         String model = aiProps.getAnthropic().getDefaultModel();
-        int maxTokens = 8192;
+        int maxTokens = systemSettingService.getInt("ai.campaign.creator.max.tokens", DEFAULT_CAMPAIGN_MAX_TOKENS);
 
         ClaudeApiClient.ClaudeResponse response = claudeClient.sendMessage(
                 systemPrompt, contextPayload, "CAMPAIGN_CREATOR",
@@ -183,7 +193,7 @@ public class CampaignCreatorService {
     // ──────── System prompt ────────
 
     private String buildSystemPrompt() {
-        return """
+        String defaultPrompt = """
             You are a senior Meta Ads media buyer with 10+ years of experience.
             Create a detailed campaign proposal in STRICT JSON format.
 
@@ -238,6 +248,8 @@ public class CampaignCreatorService {
             - Campaign name must be unique and descriptive
             - Respond ONLY with the JSON object, no markdown or extra text
             """;
+        return promptTemplateService.getActivePromptText(
+                "CAMPAIGN_CREATOR", "system_prompt", defaultPrompt);
     }
 
     // ──────── Persist proposal ────────

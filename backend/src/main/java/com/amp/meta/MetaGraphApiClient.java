@@ -1,5 +1,6 @@
 package com.amp.meta;
 
+import com.amp.config.SystemSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -38,10 +41,12 @@ public class MetaGraphApiClient {
     private static final Logger log = LoggerFactory.getLogger(MetaGraphApiClient.class);
 
     private final MetaProperties metaProps;
+    private final SystemSettingService systemSettingService;
     private final RestTemplate restTemplate;
 
-    public MetaGraphApiClient(MetaProperties metaProps) {
+    public MetaGraphApiClient(MetaProperties metaProps, SystemSettingService systemSettingService) {
         this.metaProps = metaProps;
+        this.systemSettingService = systemSettingService;
         this.restTemplate = new RestTemplate();
         this.restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
         this.restTemplate.getInterceptors().add((request, body, execution) -> {
@@ -51,16 +56,71 @@ public class MetaGraphApiClient {
     }
 
     /**
+     * Build a Graph API URL using the DB-backed API version (with MetaProperties fallback).
+     */
+    private String graphUrl(String path) {
+        String version = systemSettingService.getString("meta.graph.api.version",
+                metaProps.getGraphApiVersion());
+        return metaProps.getGraphApiBaseUrl() + "/" + version + "/" + path;
+    }
+
+    private String generateAppSecretProof(String accessToken) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec secretKey = new SecretKeySpec(
+                    metaProps.getAppSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            mac.init(secretKey);
+            byte[] hmac = mac.doFinal(accessToken.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hmac) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate appsecret_proof", e);
+        }
+    }
+
+    private void addAuth(MultiValueMap<String, String> params, String accessToken) {
+        params.add("access_token", accessToken);
+        params.add("appsecret_proof", generateAppSecretProof(accessToken));
+    }
+
+    private void addMultipartAuth(MultiValueMap<String, Object> params, String accessToken) {
+        params.add("access_token", accessToken);
+        params.add("appsecret_proof", generateAppSecretProof(accessToken));
+    }
+
+    private String addAppSecretProofToUrl(String url, String tokenForProof) {
+        return UriComponentsBuilder
+                .fromUriString(url)
+                .replaceQueryParam("appsecret_proof", generateAppSecretProof(tokenForProof))
+                .build(false)
+                .toUriString();
+    }
+
+    private String addAuthToUrl(String url, String accessToken) {
+        return UriComponentsBuilder
+                .fromUriString(url)
+                .replaceQueryParam("access_token", accessToken)
+                .replaceQueryParam("appsecret_proof", generateAppSecretProof(accessToken))
+                .build(false)
+                .toUriString();
+    }
+
+    /**
      * Exchange authorization code for access token.
      */
     public TokenExchangeResult exchangeCodeForToken(String code) {
         String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("oauth/access_token"))
+                .fromHttpUrl(graphUrl("oauth/access_token"))
                 .queryParam("client_id", metaProps.getAppId())
                 .queryParam("client_secret", metaProps.getAppSecret())
                 .queryParam("redirect_uri", metaProps.getRedirectUri())
                 .queryParam("code", code)
                 .toUriString();
+
+        url = addAppSecretProofToUrl(url, metaProps.getAppId() + "|" + metaProps.getAppSecret());
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode body = resp.getBody();
@@ -76,12 +136,14 @@ public class MetaGraphApiClient {
      */
     public TokenExchangeResult exchangeForLongLivedToken(String shortLivedToken) {
         String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("oauth/access_token"))
+                .fromHttpUrl(graphUrl("oauth/access_token"))
                 .queryParam("grant_type", "fb_exchange_token")
                 .queryParam("client_id", metaProps.getAppId())
                 .queryParam("client_secret", metaProps.getAppSecret())
                 .queryParam("fb_exchange_token", shortLivedToken)
-                .toUriString();
+            .toUriString();
+
+        url = addAppSecretProofToUrl(url, shortLivedToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode body = resp.getBody();
@@ -96,12 +158,11 @@ public class MetaGraphApiClient {
      * Get list of ad accounts the user has access to.
      */
     public List<AdAccountInfo> getAdAccounts(String accessToken) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("me/adaccounts"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl("me/adaccounts"))
                 .queryParam("fields", "id,name,account_id,account_status,currency,timezone_name")
                 .queryParam("limit", 100)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode data = resp.getBody().get("data");
@@ -127,7 +188,7 @@ public class MetaGraphApiClient {
      */
     public List<JsonNode> getCampaigns(String accessToken, String adAccountId) {
         return fetchPaginated(
-                metaProps.getGraphUrl(adAccountId + "/campaigns"),
+                graphUrl(adAccountId + "/campaigns"),
                 accessToken,
                 "id,name,objective,status,daily_budget,lifetime_budget,start_time,stop_time,created_time,updated_time"
         );
@@ -138,7 +199,7 @@ public class MetaGraphApiClient {
      */
     public List<JsonNode> getAdSets(String accessToken, String adAccountId) {
         return fetchPaginated(
-                metaProps.getGraphUrl(adAccountId + "/adsets"),
+                graphUrl(adAccountId + "/adsets"),
                 accessToken,
                 "id,name,campaign_id,status,daily_budget,lifetime_budget,targeting,optimization_goal,billing_event,start_time,end_time,created_time,updated_time"
         );
@@ -149,7 +210,7 @@ public class MetaGraphApiClient {
      */
     public List<JsonNode> getAds(String accessToken, String adAccountId) {
         return fetchPaginated(
-                metaProps.getGraphUrl(adAccountId + "/ads"),
+                graphUrl(adAccountId + "/ads"),
                 accessToken,
                 "id,name,adset_id,campaign_id,status,creative,created_time,updated_time"
         );
@@ -175,8 +236,7 @@ public class MetaGraphApiClient {
             }
 
             String url = UriComponentsBuilder
-                    .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/insights"))
-                    .queryParam("access_token", accessToken)
+                    .fromHttpUrl(graphUrl(adAccountId + "/insights"))
                     .queryParam("fields", "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,"
                             + "impressions,clicks,spend,cpc,cpm,ctr,frequency,reach,actions,action_values,cost_per_action_type")
                     .queryParam("time_range[since]", start.toString())
@@ -187,8 +247,10 @@ public class MetaGraphApiClient {
                     .build(false)
                     .toUriString();
 
+            url = addAuthToUrl(url, accessToken);
+
             try {
-                List<JsonNode> chunkResults = fetchPaginatedRaw(url);
+                List<JsonNode> chunkResults = fetchPaginatedRaw(url, accessToken);
                 allResults.addAll(chunkResults);
                 log.info("Fetched {} insight records for period {} to {}", chunkResults.size(), start, chunkEnd);
             } catch (Exception e) {
@@ -206,12 +268,11 @@ public class MetaGraphApiClient {
      * Get user's Facebook pages.
      */
     public List<PageInfo> getPages(String accessToken) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("me/accounts"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl("me/accounts"))
                 .queryParam("fields", "id,name")
                 .queryParam("limit", 100)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode data = resp.getBody().get("data");
@@ -229,12 +290,11 @@ public class MetaGraphApiClient {
      * Get pixels available for an ad account.
      */
     public List<PixelInfo> getAdAccountPixels(String accessToken, String adAccountId) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/adspixels"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl(adAccountId + "/adspixels"))
                 .queryParam("fields", "id,name")
                 .queryParam("limit", 100)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode data = resp.getBody().get("data");
@@ -258,14 +318,13 @@ public class MetaGraphApiClient {
      * GET /search?type=adinterest&q={query}
      */
     public List<JsonNode> searchInterests(String accessToken, String query) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("search"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl("search"))
                 .queryParam("type", "adinterest")
                 .queryParam("q", query)
                 .queryParam("limit", 25)
                 .build(false)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode data = resp.getBody().get("data");
@@ -307,15 +366,14 @@ public class MetaGraphApiClient {
             locationTypes = "[\"country\",\"city\",\"region\"]";
         }
 
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl("search"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl("search"))
                 .queryParam("type", "adgeolocation")
                 .queryParam("q", query)
                 .queryParam("location_types", locationTypes)
                 .queryParam("limit", 25)
                 .build(false)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         JsonNode data = resp.getBody().get("data");
@@ -333,14 +391,13 @@ public class MetaGraphApiClient {
      * GET /{ad_account_id}/customaudiences?fields=id,name,approximate_count
      */
     public List<JsonNode> getCustomAudiences(String accessToken, String adAccountId) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl(adAccountId + "/customaudiences"))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl(adAccountId + "/customaudiences"))
                 .queryParam("fields", "id,name,approximate_count")
                 .queryParam("limit", 200)
-                .toUriString();
+            .toUriString(), accessToken);
 
-        return fetchPaginatedRaw(url);
+        return fetchPaginatedRaw(url, accessToken);
     }
 
     // ── Write methods ───────────────────────────────────────
@@ -368,7 +425,7 @@ public class MetaGraphApiClient {
 
     public JsonNode updateCampaign(String accessToken, String campaignId, String name, String status) {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         if (name != null && !name.isBlank()) {
             params.add("name", name);
         }
@@ -390,7 +447,7 @@ public class MetaGraphApiClient {
                                 String optimizationGoal, String promotedObjectJson,
                                 String status) {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         if (name != null && !name.isBlank()) params.add("name", name);
         if (dailyBudgetCents != null) params.add("daily_budget", String.valueOf(dailyBudgetCents));
         if (targetingJson != null && !targetingJson.isBlank()) params.add("targeting", targetingJson);
@@ -402,7 +459,7 @@ public class MetaGraphApiClient {
 
     public JsonNode updateAd(String accessToken, String adId, String name, String creativeJson, String status) {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         if (name != null && !name.isBlank()) params.add("name", name);
         if (creativeJson != null && !creativeJson.isBlank()) params.add("creative", creativeJson);
         if (status != null && !status.isBlank()) params.add("status", status);
@@ -413,11 +470,10 @@ public class MetaGraphApiClient {
      * Get current entity details from Meta.
      */
     public JsonNode getEntityDetails(String accessToken, String entityId, String fields) {
-        String url = UriComponentsBuilder
-                .fromHttpUrl(metaProps.getGraphUrl(entityId))
-                .queryParam("access_token", accessToken)
+        String url = addAuthToUrl(UriComponentsBuilder
+                .fromHttpUrl(graphUrl(entityId))
                 .queryParam("fields", fields)
-                .toUriString();
+            .toUriString(), accessToken);
 
         ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
         return resp.getBody();
@@ -430,13 +486,13 @@ public class MetaGraphApiClient {
     public JsonNode createCampaign(String accessToken, String adAccountId,
                                    String name, String objective, String status,
                                    String budgetType, BigDecimal dailyBudget) {
-        String url = metaProps.getGraphUrl(adAccountId + "/campaigns");
+        String url = graphUrl(adAccountId + "/campaigns");
         log.info("Meta API: POST {} — name={}, objective={}, budgetType={}", url, name, objective, budgetType);
 
         String resolvedBudgetType = "CBO".equalsIgnoreCase(budgetType) ? "CBO" : "ABO";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         params.add("name", name);
         params.add("objective", objective);
         params.add("status", status != null ? status : "PAUSED");
@@ -478,11 +534,11 @@ public class MetaGraphApiClient {
                                 String targetingJson, String optimizationGoal,
                           String promotedObjectJson, String startTimeUnix, String endTimeUnix,
                                 String status, boolean isCBO) {
-        String url = metaProps.getGraphUrl(adAccountId + "/adsets");
+        String url = graphUrl(adAccountId + "/adsets");
         log.info("Meta API: POST {} — name={}, campaignId={}, isCBO={}", url, name, campaignId, isCBO);
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", token);
+        addAuth(params, token);
         params.add("campaign_id", campaignId);
         params.add("name", name);
 
@@ -516,14 +572,14 @@ public class MetaGraphApiClient {
      * Returns the image hash string directly.
      */
     public String uploadImage(String accessToken, String adAccountId, byte[] imageBytes, String filename) {
-        String url = metaProps.getGraphUrl(adAccountId + "/adimages");
+        String url = graphUrl(adAccountId + "/adimages");
         log.info("Meta API: POST {} — filename={}, size={}bytes", url, filename, imageBytes != null ? imageBytes.length : 0);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("access_token", accessToken);
+        addMultipartAuth(body, accessToken);
 
         ByteArrayResource resource = new ByteArrayResource(imageBytes) {
             @Override
@@ -578,7 +634,7 @@ public class MetaGraphApiClient {
             throw new IllegalStateException("page_id is REQUIRED for ad creatives. Please link a Facebook Page.");
         }
 
-        String url = metaProps.getGraphUrl(adAccountId + "/adcreatives");
+        String url = graphUrl(adAccountId + "/adcreatives");
         log.info("Meta API: POST {} — name={}, pageId={}, hasImage={}", url, name, pageId, imageHash != null);
 
         // Build the object_story_spec JSON
@@ -606,7 +662,7 @@ public class MetaGraphApiClient {
         }
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         params.add("name", name);
         params.add("object_story_spec", storySpec.toString());
 
@@ -621,11 +677,11 @@ public class MetaGraphApiClient {
      */
     public JsonNode createAd(String token, String adAccountId, String adsetId,
                              String name, String creativeId, String status) {
-        String url = metaProps.getGraphUrl(adAccountId + "/ads");
+        String url = graphUrl(adAccountId + "/ads");
         log.info("Meta API: POST {} — name={}, adsetId={}, creativeId={}", url, name, adsetId, creativeId);
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", token);
+        addAuth(params, token);
         params.add("adset_id", adsetId);
         params.add("name", name);
         params.add("status", status != null ? status : "PAUSED");
@@ -681,7 +737,7 @@ public class MetaGraphApiClient {
     private JsonNode updateEntityField(String accessToken, String entityId,
                                        String field, String value) {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("access_token", accessToken);
+        addAuth(params, accessToken);
         params.add(field, value);
 
         return updateEntityFields(accessToken, entityId, params);
@@ -689,7 +745,7 @@ public class MetaGraphApiClient {
 
     private JsonNode updateEntityFields(String accessToken, String entityId,
                                         MultiValueMap<String, String> params) {
-        String url = metaProps.getGraphUrl(entityId);
+        String url = graphUrl(entityId);
         log.info("Meta API: POST {} — fields={}", url, params.keySet());
 
         return postFormParams(url, params);
@@ -698,23 +754,23 @@ public class MetaGraphApiClient {
     // ── Pagination helpers ──────────────────────────────────
 
     private List<JsonNode> fetchPaginated(String baseUrl, String accessToken, String fields) {
-        String url = UriComponentsBuilder
+        String url = addAuthToUrl(UriComponentsBuilder
                 .fromHttpUrl(baseUrl)
-                .queryParam("access_token", accessToken)
                 .queryParam("fields", fields)
                 .queryParam("limit", 200)
-                .toUriString();
+                .toUriString(), accessToken);
 
-        return fetchPaginatedRaw(url);
+        return fetchPaginatedRaw(url, accessToken);
     }
 
-    private List<JsonNode> fetchPaginatedRaw(String url) {
+    private List<JsonNode> fetchPaginatedRaw(String url, String accessToken) {
         List<JsonNode> allResults = new ArrayList<>();
         int maxPages = 20; // safety limit
 
         for (int page = 0; page < maxPages && url != null; page++) {
             try {
-                ResponseEntity<JsonNode> resp = restTemplate.getForEntity(url, JsonNode.class);
+                String authenticatedUrl = addAuthToUrl(url, accessToken);
+                ResponseEntity<JsonNode> resp = restTemplate.getForEntity(authenticatedUrl, JsonNode.class);
                 JsonNode body = resp.getBody();
                 JsonNode data = body.get("data");
 

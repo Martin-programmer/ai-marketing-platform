@@ -8,20 +8,11 @@
           <p class="text-body-2 text-grey mt-1">Enter your email to receive a reset link</p>
         </div>
 
-        <!-- Success state -->
-        <div v-if="submitted" class="text-center py-4">
-          <v-icon size="64" color="success" class="mb-4">mdi-email-check</v-icon>
-          <h2 class="text-h6 mb-2">Check Your Email</h2>
-          <p class="text-body-2 text-grey mb-4">
-            If this email is registered, you will receive a password reset link shortly.
-          </p>
-          <v-btn color="primary" to="/login" prepend-icon="mdi-arrow-left">
-            Back to Login
-          </v-btn>
-        </div>
+        <div>
+          <v-alert v-if="submitted" type="success" variant="tonal" class="mb-4">
+            If this email is registered, you'll receive a reset link.
+          </v-alert>
 
-        <!-- Form -->
-        <div v-else>
           <v-alert v-if="error" type="error" variant="tonal" class="mb-4" closable @click:close="error = null">
             {{ error }}
           </v-alert>
@@ -35,7 +26,7 @@
               variant="outlined"
               density="comfortable"
               class="mb-4"
-              :rules="[v => !!v || 'Required', v => /.+@.+\..+/.test(v) || 'Invalid email']"
+              :rules="[(v: string) => !!v || 'Required', (v: string) => /.+@.+\..+/.test(v) || 'Invalid email']"
               :disabled="loading"
               @keyup.enter="handleSubmit"
             />
@@ -46,11 +37,15 @@
               color="primary"
               type="submit"
               :loading="loading"
-              :disabled="!email"
+              :disabled="!email || cooldown > 0"
             >
-              Send Reset Link
+              {{ cooldown > 0 ? `Send Again in ${cooldown}s` : 'Send Reset Link' }}
             </v-btn>
           </v-form>
+
+          <p v-if="cooldown > 0" class="text-caption text-medium-emphasis text-center mt-3">
+            You can request again in {{ cooldown }}s
+          </p>
 
           <div class="text-center mt-4">
             <router-link to="/login" class="text-primary text-decoration-none">
@@ -64,26 +59,54 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import api from '@/api/client'
 
 const email = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const submitted = ref(false)
+const cooldown = ref(0)
+let cooldownTimer: number | null = null
+
+function startCooldown(seconds = 60) {
+  clearCooldown()
+  cooldown.value = seconds
+  cooldownTimer = window.setInterval(() => {
+    cooldown.value -= 1
+    if (cooldown.value <= 0) {
+      clearCooldown()
+    }
+  }, 1000)
+}
+
+function clearCooldown() {
+  if (cooldownTimer !== null) {
+    window.clearInterval(cooldownTimer)
+    cooldownTimer = null
+  }
+  if (cooldown.value < 0) {
+    cooldown.value = 0
+  }
+}
 
 async function handleSubmit() {
-  if (!email.value) return
+  if (!email.value || cooldown.value > 0) return
   loading.value = true
   error.value = null
 
   try {
-    await api.post('/auth/forgot-password', { email: email.value })
+    const res = await api.post<{ cooldownSeconds?: number }>('/auth/forgot-password', { email: email.value })
     submitted.value = true
+    startCooldown(res.data.cooldownSeconds ?? 60)
   } catch (e: any) {
     error.value = e.response?.data?.message || 'Something went wrong. Please try again.'
   } finally {
     loading.value = false
   }
 }
+
+onUnmounted(() => {
+  clearCooldown()
+})
 </script>

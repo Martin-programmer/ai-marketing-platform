@@ -60,6 +60,39 @@ public class UserAccount {
     @Column(name = "password_reset_expires_at")
     private OffsetDateTime passwordResetExpiresAt;
 
+    @Column(name = "two_factor_enabled")
+    private boolean twoFactorEnabled;
+
+    @Column(name = "two_factor_code")
+    private String twoFactorCode;
+
+    @Column(name = "two_factor_code_expires_at")
+    private OffsetDateTime twoFactorCodeExpiresAt;
+
+    @Column(name = "two_factor_attempts")
+    private int twoFactorAttempts;
+
+    @Column(name = "two_factor_locked_until")
+    private OffsetDateTime twoFactorLockedUntil;
+
+    @Column(name = "two_factor_resend_count")
+    private int twoFactorResendCount;
+
+    @Column(name = "failed_login_attempts")
+    private int failedLoginAttempts;
+
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
+
+    @Column(name = "last_password_reset_request_at")
+    private OffsetDateTime lastPasswordResetRequestAt;
+
+    @Column(name = "password_reset_count_hourly")
+    private int passwordResetCountHourly;
+
+    @Column(name = "password_reset_count_reset_at")
+    private OffsetDateTime passwordResetCountResetAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -111,6 +144,39 @@ public class UserAccount {
 
     public OffsetDateTime getPasswordResetExpiresAt() { return passwordResetExpiresAt; }
     public void setPasswordResetExpiresAt(OffsetDateTime passwordResetExpiresAt) { this.passwordResetExpiresAt = passwordResetExpiresAt; }
+
+    public boolean isTwoFactorEnabled() { return twoFactorEnabled; }
+    public void setTwoFactorEnabled(boolean twoFactorEnabled) { this.twoFactorEnabled = twoFactorEnabled; }
+
+    public String getTwoFactorCode() { return twoFactorCode; }
+    public void setTwoFactorCode(String twoFactorCode) { this.twoFactorCode = twoFactorCode; }
+
+    public OffsetDateTime getTwoFactorCodeExpiresAt() { return twoFactorCodeExpiresAt; }
+    public void setTwoFactorCodeExpiresAt(OffsetDateTime twoFactorCodeExpiresAt) { this.twoFactorCodeExpiresAt = twoFactorCodeExpiresAt; }
+
+    public int getTwoFactorAttempts() { return twoFactorAttempts; }
+    public void setTwoFactorAttempts(int twoFactorAttempts) { this.twoFactorAttempts = twoFactorAttempts; }
+
+    public OffsetDateTime getTwoFactorLockedUntil() { return twoFactorLockedUntil; }
+    public void setTwoFactorLockedUntil(OffsetDateTime twoFactorLockedUntil) { this.twoFactorLockedUntil = twoFactorLockedUntil; }
+
+    public int getTwoFactorResendCount() { return twoFactorResendCount; }
+    public void setTwoFactorResendCount(int twoFactorResendCount) { this.twoFactorResendCount = twoFactorResendCount; }
+
+    public int getFailedLoginAttempts() { return failedLoginAttempts; }
+    public void setFailedLoginAttempts(int failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
+
+    public OffsetDateTime getLockedUntil() { return lockedUntil; }
+    public void setLockedUntil(OffsetDateTime lockedUntil) { this.lockedUntil = lockedUntil; }
+
+    public OffsetDateTime getLastPasswordResetRequestAt() { return lastPasswordResetRequestAt; }
+    public void setLastPasswordResetRequestAt(OffsetDateTime lastPasswordResetRequestAt) { this.lastPasswordResetRequestAt = lastPasswordResetRequestAt; }
+
+    public int getPasswordResetCountHourly() { return passwordResetCountHourly; }
+    public void setPasswordResetCountHourly(int passwordResetCountHourly) { this.passwordResetCountHourly = passwordResetCountHourly; }
+
+    public OffsetDateTime getPasswordResetCountResetAt() { return passwordResetCountResetAt; }
+    public void setPasswordResetCountResetAt(OffsetDateTime passwordResetCountResetAt) { this.passwordResetCountResetAt = passwordResetCountResetAt; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

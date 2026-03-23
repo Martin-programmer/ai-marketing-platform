@@ -2,6 +2,7 @@ package com.amp.ai;
 
 import com.amp.audit.AuditAction;
 import com.amp.audit.AuditService;
+import com.amp.config.SystemSettingService;
 import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailProperties;
@@ -62,6 +63,7 @@ public class ExecutorService {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutorService.class);
 
+    private final SystemSettingService systemSettingService;
     private final AiSuggestionRepository suggestionRepo;
     private final AiActionLogRepository actionLogRepo;
     private final MetaConnectionRepository metaConnRepo;
@@ -81,7 +83,8 @@ public class ExecutorService {
     private final EmailProperties emailProperties;
     private final ClientRepository clientRepo;
 
-    public ExecutorService(AiSuggestionRepository suggestionRepo,
+    public ExecutorService(SystemSettingService systemSettingService,
+                           AiSuggestionRepository suggestionRepo,
                            AiActionLogRepository actionLogRepo,
                            MetaConnectionRepository metaConnRepo,
                            MetaGraphApiClient metaClient,
@@ -99,6 +102,7 @@ public class ExecutorService {
                            NotificationHelper notificationHelper,
                            EmailProperties emailProperties,
                            ClientRepository clientRepo) {
+        this.systemSettingService = systemSettingService;
         this.suggestionRepo = suggestionRepo;
         this.actionLogRepo = actionLogRepo;
         this.metaConnRepo = metaConnRepo;
@@ -708,8 +712,10 @@ public class ExecutorService {
             } else {
                 // Fallback — MUST have at least one country
                 ArrayNode countries = geoLocations.putArray("countries");
-                countries.add("BG"); // default
-                log.warn("No geo_locations found in targeting, defaulting to BG");
+                String defaultCountry = systemSettingService.getString(
+                        "publish.default.country", "BG");
+                countries.add(defaultCountry);
+                log.warn("No geo_locations found in targeting, defaulting to {}", defaultCountry);
             }
 
             // Age
@@ -947,7 +953,8 @@ public class ExecutorService {
 
         ObjectNode promotedObject = objectMapper.createObjectNode();
         promotedObject.put("pixel_id", pixelId);
-        promotedObject.put("custom_event_type", firstNonBlank(adset.getConversionEvent(), "PURCHASE"));
+        promotedObject.put("custom_event_type", firstNonBlank(adset.getConversionEvent(),
+                systemSettingService.getString("publish.default.conversion.event", "PURCHASE")));
         return promotedObject.toString();
     }
 
@@ -960,15 +967,18 @@ public class ExecutorService {
     }
 
     private ZoneId resolveClientZoneId(UUID agencyId, UUID clientId) {
+        String fallbackTimezone = systemSettingService.getString(
+                "publish.default.timezone", "Europe/Sofia");
         String timezone = clientRepo.findByIdAndAgencyId(clientId, agencyId)
                 .map(Client::getTimezone)
                 .filter(value -> value != null && !value.isBlank())
-                .orElse("Europe/Sofia");
+                .orElse(fallbackTimezone);
         try {
             return ZoneId.of(timezone);
         } catch (DateTimeException e) {
-            log.warn("Invalid client timezone '{}' for client {}, falling back to Europe/Sofia", timezone, clientId);
-            return ZoneId.of("Europe/Sofia");
+            log.warn("Invalid client timezone '{}' for client {}, falling back to {}",
+                    timezone, clientId, fallbackTimezone);
+            return ZoneId.of(fallbackTimezone);
         }
     }
 

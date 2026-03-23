@@ -26,6 +26,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import com.amp.config.AiPromptTemplateService;
+
 /**
  * Uses Claude (Sonnet) to generate narrative sections for performance reports.
  */
@@ -44,6 +46,7 @@ public class AiReporterService {
         private final AiContextBuilder aiContextBuilder;
         private final AiCrossModuleSupportService aiCrossModuleSupportService;
         private final ObjectMapper objectMapper;
+    private final AiPromptTemplateService promptTemplateService;
 
     public AiReporterService(ClaudeApiClient claudeClient,
                              AiProperties aiProps,
@@ -54,7 +57,8 @@ public class AiReporterService {
                              ClientRepository clientRepo,
                              AiContextBuilder aiContextBuilder,
                              AiCrossModuleSupportService aiCrossModuleSupportService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             AiPromptTemplateService promptTemplateService) {
         this.claudeClient = claudeClient;
         this.aiProps = aiProps;
         this.insightRepo = insightRepo;
@@ -65,6 +69,7 @@ public class AiReporterService {
         this.aiContextBuilder = aiContextBuilder;
         this.aiCrossModuleSupportService = aiCrossModuleSupportService;
         this.objectMapper = objectMapper;
+        this.promptTemplateService = promptTemplateService;
     }
 
     /**
@@ -185,7 +190,7 @@ public class AiReporterService {
                                         .append("\n");
 
             // 7. Call Claude (Sonnet — fast and cheap)
-            String systemPrompt = """
+            String defaultPrompt = """
                     You are a marketing consultant writing a monthly performance report.
                     Based on the provided data, write the following sections:
                     1) Executive Summary (3-5 sentences overview of overall performance)
@@ -206,6 +211,8 @@ public class AiReporterService {
                       "recommendations": "..."
                     }
                     """;
+            String systemPrompt = promptTemplateService.getActivePromptText(
+                    "AI_REPORTER", "system_prompt", defaultPrompt);
 
             ClaudeResponse response = claudeClient.sendMessage(
                     systemPrompt, ctx.toString(),

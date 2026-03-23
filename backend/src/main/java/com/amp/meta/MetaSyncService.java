@@ -11,6 +11,7 @@ import com.amp.clients.Client;
 import com.amp.clients.ClientRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
+import com.amp.config.SystemSettingService;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
 import com.amp.tenancy.TenantContextHolder;
@@ -54,6 +55,7 @@ public class MetaSyncService {
     private final EmailProperties emailProperties;
     private final ClientRepository clientRepository;
     private final CacheManager cacheManager;
+    private final SystemSettingService systemSettingService;
 
     public MetaSyncService(MetaGraphApiClient graphApiClient,
                            MetaService metaService,
@@ -67,7 +69,8 @@ public class MetaSyncService {
                            NotificationHelper notificationHelper,
                            EmailProperties emailProperties,
                            ClientRepository clientRepository,
-                           CacheManager cacheManager) {
+                           CacheManager cacheManager,
+                           SystemSettingService systemSettingService) {
         this.graphApiClient = graphApiClient;
         this.metaService = metaService;
         this.connectionRepository = connectionRepository;
@@ -81,6 +84,7 @@ public class MetaSyncService {
         this.emailProperties = emailProperties;
         this.clientRepository = clientRepository;
         this.cacheManager = cacheManager;
+        this.systemSettingService = systemSettingService;
     }
 
     // ──────── Public entry points ────────
@@ -90,7 +94,8 @@ public class MetaSyncService {
      */
     @Transactional
     public MetaSyncJob runInitialSync(UUID agencyId, UUID clientId) {
-        return runSync(agencyId, clientId, "INITIAL", 90);
+        return runSync(agencyId, clientId, "INITIAL",
+                systemSettingService.getInt("meta.sync.initial.days", 90));
     }
 
     /**
@@ -98,7 +103,8 @@ public class MetaSyncService {
      */
     @Transactional
     public MetaSyncJob runDailySync(UUID agencyId, UUID clientId) {
-        return runSync(agencyId, clientId, "DAILY", 7);
+        return runSync(agencyId, clientId, "DAILY",
+                systemSettingService.getInt("meta.sync.daily.days", 7));
     }
 
     /**
@@ -106,7 +112,8 @@ public class MetaSyncService {
      */
     @Transactional
     public MetaSyncJob runManualSync(UUID agencyId, UUID clientId) {
-        return runSync(agencyId, clientId, "MANUAL", 30);
+        return runSync(agencyId, clientId, "MANUAL",
+                systemSettingService.getInt("meta.sync.manual.days", 30));
     }
 
     /**
