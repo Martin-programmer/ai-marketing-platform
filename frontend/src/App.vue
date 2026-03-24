@@ -12,6 +12,15 @@
   <!-- If authenticated, show navigation layout -->
   <v-app v-else>
     <v-navigation-drawer permanent>
+      <!-- Branding header -->
+      <div class="pa-4 text-center" v-if="isClientUser && brandingStore.logoUrl">
+        <img
+          :src="brandingStore.logoUrl"
+          :alt="brandingStore.name"
+          style="max-width: 160px; max-height: 48px; object-fit: contain;"
+        />
+      </div>
+
       <v-list-item
         :title="authStore.displayName"
         :subtitle="authStore.userRole"
@@ -65,6 +74,7 @@
 
           <v-divider v-if="isAgencyAdmin" class="my-2" />
           <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-account-multiple" title="Team" to="/team" />
+          <v-list-item v-if="isAgencyAdmin" prepend-icon="mdi-palette" title="Branding" to="/agency/branding" />
           <v-list-item prepend-icon="mdi-cog" title="Settings" to="/settings" />
         </template>
 
@@ -94,13 +104,19 @@
           <v-btn block variant="tonal" color="error" prepend-icon="mdi-logout" @click="handleLogout">
             Logout
           </v-btn>
+          <div
+            v-if="isClientUser && brandingStore.poweredByVisible && brandingStore.poweredByText"
+            class="text-center text-caption text-medium-emphasis mt-2"
+          >
+            Powered by {{ brandingStore.poweredByText }}
+          </div>
         </div>
       </template>
     </v-navigation-drawer>
 
     <v-app-bar flat border>
       <v-app-bar-title>
-        {{ isOwnerAdmin ? 'Platform Admin' : isClientUser ? 'Client Portal' : 'AI Marketing Platform' }}
+        {{ isOwnerAdmin ? 'Platform Admin' : isClientUser ? brandingStore.name : 'AI Marketing Platform' }}
       </v-app-bar-title>
     </v-app-bar>
 
@@ -138,16 +154,20 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import api from '@/api/client'
 import portalApi from '@/api/portal'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardStore } from '@/stores/dashboard'
+import { useBrandingStore } from '@/stores/branding'
 import { useRoute, useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
 const dashStore = useDashboardStore()
+const brandingStore = useBrandingStore()
 const router = useRouter()
 const route = useRoute()
+const theme = useTheme()
 
 const isAgencyAdmin = computed(() =>
   ['AGENCY_ADMIN', 'OWNER_ADMIN'].includes(authStore.userRole)
@@ -155,6 +175,27 @@ const isAgencyAdmin = computed(() =>
 const isOwnerAdmin = computed(() => authStore.userRole === 'OWNER_ADMIN')
 const isClientUser = computed(() => authStore.userRole === 'CLIENT_USER')
 const portalQuestionnaireCompleted = ref(false)
+
+// Fetch branding when user role is available
+watch(
+  () => authStore.userRole,
+  (role) => {
+    if (role) {
+      brandingStore.fetchForRole(role)
+    }
+  },
+  { immediate: true }
+)
+
+// Apply branding colors to Vuetify theme whenever they change
+watch(
+  () => [brandingStore.primaryColor, brandingStore.secondaryColor, brandingStore.accentColor],
+  () => {
+    if (brandingStore.loaded) {
+      brandingStore.applyTheme(theme)
+    }
+  }
+)
 const metaWarnings = ref<Array<{ clientId: string; clientName: string; status: string; daysUntilExpiry: number | null; tokenRefreshFailed: boolean }>>([])
 
 const showMetaBanner = computed(() => !isOwnerAdmin.value && !isClientUser.value && metaWarnings.value.length > 0)
@@ -188,6 +229,11 @@ async function loadPortalQuestionnaireStatus() {
 }
 
 function handleLogout() {
+  brandingStore.$reset()
+  // Restore default theme colors on logout
+  theme.themes.value.light.colors.primary = '#1565C0'
+  theme.themes.value.light.colors.secondary = '#424242'
+  theme.themes.value.light.colors.accent = '#FF6F00'
   authStore.logout()
   router.push('/login')
 }

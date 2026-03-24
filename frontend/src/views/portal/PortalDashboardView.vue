@@ -13,6 +13,17 @@
       </div>
     </div>
 
+    <!-- Welcome Message -->
+    <v-alert
+      v-if="brandingStore.portalWelcomeMessage"
+      type="info"
+      variant="tonal"
+      class="mb-6"
+      closable
+    >
+      {{ brandingStore.portalWelcomeMessage }}
+    </v-alert>
+
     <!-- Date Range Filter -->
     <v-card class="mb-6" variant="outlined">
       <v-card-text>
@@ -211,6 +222,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import portalApi from '@/api/portal'
+import { useBrandingStore } from '@/stores/branding'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -225,6 +237,8 @@ import {
 } from 'chart.js'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
+
+const brandingStore = useBrandingStore()
 
 interface ClientData {
   id: string

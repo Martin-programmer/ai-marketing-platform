@@ -1,6 +1,8 @@
 import api from './client'
+import type { PortalBrandingResponse } from './branding'
 
 export const portalApi = {
+  getBranding: () => api.get<PortalBrandingResponse>('/portal/branding'),
   getMyClient: () => api.get('/portal/me/client'),
   getMyProfile: () => api.get('/portal/me/client/profile'),
   getQuestionnaire: () => api.get('/portal/questionnaire'),

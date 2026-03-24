@@ -1,17 +1,34 @@
 <template>
   <v-app>
-    <v-main class="d-flex align-center justify-center" style="min-height: 100vh; background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);">
+    <v-main class="d-flex align-center justify-center" :style="{ minHeight: '100vh', background: brandingStore.gradientStyle }">
       <v-card width="420" class="pa-8" elevation="12" rounded="lg">
         <div class="text-center mb-6">
-          <v-icon size="48" color="primary" class="mb-2">mdi-rocket-launch</v-icon>
-          <h1 class="text-h5 font-weight-bold">AI Marketing Platform</h1>
-          <p class="text-body-2 text-grey mt-1">
+          <img
+            v-if="brandingStore.logoUrl"
+            :src="brandingStore.logoUrl"
+            :alt="brandingStore.name"
+            style="max-width: 200px; max-height: 56px; object-fit: contain;"
+            class="mb-2"
+          />
+          <v-icon v-else size="48" color="primary" class="mb-2">mdi-rocket-launch</v-icon>
+          <h1 class="text-h5 font-weight-bold">{{ brandingStore.name }}</h1>
+          <p v-if="brandingStore.tagline && !authStore.twoFactorPending" class="text-body-2 text-grey mt-1">
+            {{ brandingStore.tagline }}
+          </p>
+          <p v-else class="text-body-2 text-grey mt-1">
             {{ authStore.twoFactorPending ? 'Enter verification code' : 'Sign in to your account' }}
           </p>
         </div>
 
         <v-alert v-if="authStore.error" type="error" variant="tonal" class="mb-4" closable @click:close="authStore.error = null">
           {{ authStore.error }}
+        </v-alert>
+
+        <v-alert v-if="agencyNotFound" type="error" variant="tonal" class="mb-4">
+          Agency not found.
+          <template #append>
+            <v-btn variant="text" size="small" to="/login">Normal Login</v-btn>
+          </template>
         </v-alert>
 
         <!-- ── Login Form ── -->
@@ -127,6 +144,12 @@
         </div>
 
         <div class="text-center mt-6">
+          <div
+            v-if="brandingStore.poweredByVisible && brandingStore.poweredByText"
+            class="text-caption text-medium-emphasis mb-3"
+          >
+            Powered by {{ brandingStore.poweredByText }}
+          </div>
           <router-link to="/privacy" class="text-caption text-medium-emphasis text-decoration-none mr-3">
             Privacy Policy
           </router-link>
@@ -140,13 +163,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useBrandingStore } from '@/stores/branding'
 import VerificationCodeInput from '@/components/VerificationCodeInput.vue'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const brandingStore = useBrandingStore()
+const agencyNotFound = ref(false)
+
+onMounted(async () => {
+  const agencySlug = typeof route.params.agencySlug === 'string' ? route.params.agencySlug : undefined
+  const agencyId = typeof route.query.agency === 'string' ? route.query.agency : undefined
+
+  agencyNotFound.value = false
+
+  if (agencySlug) {
+    const found = await brandingStore.fetchPublicBrandingBySlug(agencySlug)
+    agencyNotFound.value = !found
+    return
+  }
+
+  await brandingStore.fetchPublicBranding(agencyId || undefined)
+})
 
 const email = ref('')
 const password = ref('')

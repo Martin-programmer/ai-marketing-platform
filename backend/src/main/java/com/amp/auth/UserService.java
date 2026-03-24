@@ -1,6 +1,7 @@
 package com.amp.auth;
 
 import com.amp.agency.Agency;
+import com.amp.agency.AgencyBrandingService;
 import com.amp.agency.AgencyRepository;
 import com.amp.common.EmailProperties;
 import com.amp.common.EmailService;
@@ -39,6 +40,7 @@ public class UserService {
     private final ClientPermissionService clientPermissionService;
     private final EmailService emailService;
     private final EmailProperties emailProperties;
+    private final AgencyBrandingService agencyBrandingService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public UserService(UserAccountRepository userAccountRepository,
@@ -46,13 +48,15 @@ public class UserService {
                        ClientRepository clientRepository,
                        ClientPermissionService clientPermissionService,
                        EmailService emailService,
-                       EmailProperties emailProperties) {
+                       EmailProperties emailProperties,
+                       AgencyBrandingService agencyBrandingService) {
         this.userAccountRepository = userAccountRepository;
         this.agencyRepository = agencyRepository;
         this.clientRepository = clientRepository;
         this.clientPermissionService = clientPermissionService;
         this.emailService = emailService;
         this.emailProperties = emailProperties;
+        this.agencyBrandingService = agencyBrandingService;
     }
 
     @Transactional(readOnly = true)
@@ -140,12 +144,20 @@ public class UserService {
         userAccountRepository.save(user);
 
         String resetLink = emailProperties.getBaseUrl() + "/reset-password?token=" + resetToken;
+        String loginLink = buildAgencyLoginUrl(user.getAgencyId());
+        String portalLoginHint = "CLIENT_USER".equals(user.getRole()) && loginLink != null
+            ? "<p style=\"color:#555555; font-size:16px; line-height:1.6;\">After resetting your password, login at: <a href=\""
+            + loginLink + "\" style=\"color:#1565C0;\">" + loginLink + "</a></p>"
+            : "";
 
         emailService.sendTemplatedEmail(
                 user.getEmail(),
                 "Reset Your Password — AI Marketing Platform",
                 "password-reset",
-                Map.of("resetLink", resetLink)
+            Map.of(
+                "resetLink", resetLink,
+                "portalLoginHint", portalLoginHint
+            )
         );
 
         log.info("Password reset email sent to {}", user.getEmail());
@@ -255,6 +267,11 @@ public class UserService {
         String agencyName = resolveAgencyName(agencyId);
         String activationLink = emailProperties.getBaseUrl()
                 + "/accept-invite?token=" + user.getInvitationToken();
+        String portalLoginUrl = buildAgencyLoginUrl(agencyId);
+        String portalLoginSection = "CLIENT_USER".equals(user.getRole()) && portalLoginUrl != null
+            ? "<p style=\"color:#555555; font-size:16px; line-height:1.6;\">You can always access your portal at: <a href=\""
+            + portalLoginUrl + "\" style=\"color:#1565C0;\">" + portalLoginUrl + "</a></p>"
+            : "";
 
         emailService.sendTemplatedEmail(
                 user.getEmail(),
@@ -263,10 +280,22 @@ public class UserService {
                 Map.of(
                         "agencyName", agencyName,
                         "role", user.getRole(),
-                        "activationLink", activationLink
+                "activationLink", activationLink,
+                "portalLoginSection", portalLoginSection
                 )
         );
     }
+
+        private String buildAgencyLoginUrl(UUID agencyId) {
+        if (agencyId == null) {
+            return null;
+        }
+        String slug = agencyBrandingService.getAgencySlug(agencyId);
+        if (slug == null || slug.isBlank()) {
+            return null;
+        }
+        return emailProperties.getBaseUrl() + "/login/" + slug;
+        }
 
     private UserAccount findOrThrow(UUID userId) {
         return userAccountRepository.findById(userId)

@@ -1,5 +1,6 @@
 package com.amp.common;
 
+import com.amp.agency.AgencyBrandingInfo;
 import jakarta.annotation.PostConstruct;
 import com.amp.config.EmailTemplateDbService;
 import com.amp.config.SystemSettingService;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -123,6 +125,66 @@ public class EmailService {
         sendEmail(to, subject, htmlBody);
     }
 
+    // ── Branded email support (white-label) ──────────────────
+
+    /**
+     * Send a branded HTML email using the agency's branding (logo, colors, name, footer).
+     * The "from" name is set to the agency name instead of the platform name.
+     */
+    public void sendBrandedEmail(String to, String subject, String htmlBody,
+                                 AgencyBrandingInfo branding) {
+        String wrappedHtml = wrapInBrandedTemplate(htmlBody, branding);
+        String fromName = branding.agencyName() != null ? branding.agencyName() : getFromName();
+
+        log.info("Sending branded email to={} subject=\"{}\" brand={}", to, subject, fromName);
+
+        if (!props.isEnabled()) {
+            log.info("Branded email skipped (disabled) to={} subject=\"{}\"", to, subject);
+            return;
+        }
+        if (props.getApiKey() == null || props.getApiKey().isBlank()
+            || "placeholder".equals(props.getApiKey())) {
+            log.warn("Branded email skipped (no API key) to={}", to);
+            return;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(props.getApiKey());
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> payload = Map.of(
+                "from", fromName + " <" + getFromAddress() + ">",
+                "to", List.of(to),
+                "subject", subject,
+                "html", wrappedHtml
+            );
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+            String endpoint = props.getApiUrl().replaceAll("/+$", "") + "/emails";
+            restTemplate.postForEntity(endpoint, request, JsonNode.class);
+            log.info("Branded email sent to={} subject=\"{}\"", to, subject);
+        } catch (Exception e) {
+            log.error("Failed to send branded email to={}: {}", to, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Send a branded templated email with agency branding variables injected.
+     */
+    public void sendBrandedTemplatedEmail(String to, String subject, String templateName,
+                                          Map<String, String> variables,
+                                          AgencyBrandingInfo branding) {
+        // Inject agency branding variables into template
+        Map<String, String> enriched = new HashMap<>(variables);
+        enriched.put("agency_name", branding.agencyName() != null ? branding.agencyName() : "");
+        enriched.put("agency_logo_url", branding.logoUrl() != null ? branding.logoUrl() : "");
+        enriched.put("agency_primary_color", branding.primaryColor() != null ? branding.primaryColor() : "#1976D2");
+
+        String htmlBody = loadTemplate(templateName, enriched);
+        sendBrandedEmail(to, subject, htmlBody, branding);
+    }
+
     /**
      * Load an inline template and substitute variables.
      */
@@ -200,6 +262,73 @@ public class EmailService {
         return wrapper.formatted(content);
     }
 
+    /**
+     * Wrap content in a branded email template using the agency's visual identity.
+     */
+    private String wrapInBrandedTemplate(String content, AgencyBrandingInfo branding) {
+        String name = branding.agencyName() != null ? branding.agencyName() : getPlatformName();
+        String color = branding.primaryColor() != null ? branding.primaryColor() : "#1565C0";
+        String logoHtml = "";
+        if (branding.logoUrl() != null && !branding.logoUrl().isBlank()) {
+            logoHtml = "<img src='" + branding.logoUrl()
+                    + "' alt='" + escapeHtmlAttr(name)
+                    + "' style='max-height:48px; margin-bottom:12px;' /><br/>";
+        }
+        String footerText = branding.emailFooterText() != null
+                ? branding.emailFooterText()
+                : "\u00a9 2026 " + name + ". All rights reserved.";
+
+        String poweredBy = systemSettingService.getBoolean("branding.powered.by.visible", true)
+                ? systemSettingService.getString("branding.powered.by.text", "Powered by Adverion")
+                : "";
+
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body style="margin:0; padding:0; background-color:#f5f5f5; font-family:Arial,Helvetica,sans-serif;">
+                <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;">
+                    <tr>
+                        <td align="center" style="padding:40px 0;">
+                            <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+                                <tr>
+                                    <td style="background-color:%s; padding:30px; text-align:center;">
+                                        %s
+                                        <h1 style="color:#ffffff; margin:0; font-size:24px; font-weight:bold;">%s</h1>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:30px;">%s</td>
+                                </tr>
+                                <tr>
+                                    <td style="background-color:#f9f9f9; padding:20px 30px; text-align:center; border-top:1px solid #eeeeee;">
+                                        <p style="color:#999999; font-size:12px; margin:0;">%s</p>
+                                        <p style="color:#bbbbbb; font-size:10px; margin:4px 0 0;">%s</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>
+            """.formatted(color, logoHtml, escapeHtmlContent(name), content, escapeHtmlContent(footerText), escapeHtmlContent(poweredBy));
+    }
+
+    private static String escapeHtmlAttr(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    }
+
+    private static String escapeHtmlContent(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     // ── Inline Templates ─────────────────────────────────────────
 
     private static final String INVITATION_TEMPLATE = """
@@ -221,6 +350,7 @@ public class EmailService {
         <p style="color:#999999; font-size:13px;">
             This invitation expires in 72 hours. If you didn't expect this invitation, you can safely ignore this email.
         </p>
+        {{portalLoginSection}}
         <p style="color:#999999; font-size:12px;">
             If the button doesn't work, copy and paste this link:<br>
             <a href="{{activationLink}}" style="color:#1565C0;">{{activationLink}}</a>
@@ -243,6 +373,7 @@ public class EmailService {
         <p style="color:#999999; font-size:13px;">
             This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.
         </p>
+        {{portalLoginHint}}
         <p style="color:#999999; font-size:12px;">
             If the button doesn't work, copy and paste this link:<br>
             <a href="{{resetLink}}" style="color:#1565C0;">{{resetLink}}</a>
@@ -264,6 +395,7 @@ public class EmailService {
                 Go to Dashboard
             </a>
         </div>
+        {{portalLoginSection}}
         <p style="color:#999999; font-size:13px;">
             If you have any questions, reach out to your account manager.
         </p>

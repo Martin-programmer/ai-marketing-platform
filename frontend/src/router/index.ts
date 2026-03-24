@@ -11,6 +11,12 @@ const router = createRouter({
       meta: { public: true }
     },
     {
+      path: '/login/:agencySlug',
+      name: 'agency-login',
+      component: LoginView,
+      meta: { public: true }
+    },
+    {
       path: '/accept-invite',
       name: 'accept-invite',
       component: () => import('@/views/AcceptInviteView.vue'),
@@ -56,6 +62,12 @@ const router = createRouter({
       name: 'team',
       component: () => import('@/views/TeamView.vue'),
       meta: { requiredRole: ['AGENCY_ADMIN', 'OWNER_ADMIN'] }
+    },
+    {
+      path: '/agency/branding',
+      name: 'agency-branding',
+      component: () => import('@/views/AgencyBrandingView.vue'),
+      meta: { requiredRole: ['AGENCY_ADMIN'] }
     },
     {
       path: '/settings',
@@ -161,7 +173,11 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  if (to.path === '/login' && token) {
+  if (to.path === '/login' || to.path.startsWith('/login/')) {
+    if (!token) {
+      next()
+      return
+    }
     const userStr = localStorage.getItem('user') ?? sessionStorage.getItem('user')
     const u = userStr ? JSON.parse(userStr) : null
     if (u?.role === 'CLIENT_USER') {
@@ -177,7 +193,7 @@ router.beforeEach((to, _from, next) => {
   // CLIENT_USER can only access /portal/* and /login
   const userStr = localStorage.getItem('user') ?? sessionStorage.getItem('user')
   const user = userStr ? JSON.parse(userStr) : null
-  if (token && user?.role === 'CLIENT_USER' && !to.path.startsWith('/portal') && to.path !== '/login') {
+  if (token && user?.role === 'CLIENT_USER' && !to.path.startsWith('/portal') && !to.path.startsWith('/login')) {
     next('/portal')
     return
   }

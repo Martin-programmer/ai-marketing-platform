@@ -1,9 +1,16 @@
 <template>
   <v-app>
-    <v-main class="d-flex align-center justify-center" style="min-height: 100vh; background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);">
+    <v-main class="d-flex align-center justify-center" :style="{ minHeight: '100vh', background: brandingStore.gradientStyle }">
       <v-card width="420" class="pa-8" elevation="12" rounded="lg">
         <div class="text-center mb-6">
-          <v-icon size="48" color="primary" class="mb-2">mdi-lock-reset</v-icon>
+          <img
+            v-if="brandingStore.logoUrl"
+            :src="brandingStore.logoUrl"
+            :alt="brandingStore.name"
+            style="max-width: 200px; max-height: 56px; object-fit: contain;"
+            class="mb-2"
+          />
+          <v-icon v-else size="48" color="primary" class="mb-2">mdi-lock-reset</v-icon>
           <h1 class="text-h5 font-weight-bold">Forgot Password</h1>
           <p class="text-body-2 text-grey mt-1">Enter your email to receive a reset link</p>
         </div>
@@ -59,8 +66,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import api from '@/api/client'
+import { useBrandingStore } from '@/stores/branding'
+
+const route = useRoute()
+const brandingStore = useBrandingStore()
+
+onMounted(() => {
+  const agencyId = route.query.agency as string | undefined
+  brandingStore.fetchPublicBranding(agencyId || undefined)
+})
 
 const email = ref('')
 const loading = ref(false)

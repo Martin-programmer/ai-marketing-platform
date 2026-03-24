@@ -1,6 +1,8 @@
 package com.amp.reports;
 
 import com.amp.agency.Agency;
+import com.amp.agency.AgencyBrandingInfo;
+import com.amp.agency.AgencyBrandingService;
 import com.amp.agency.AgencyRepository;
 import com.amp.ai.AiReporterService;
 import com.amp.audit.AuditAction;
@@ -44,6 +46,7 @@ public class ReportService {
     private final AiReporterService aiReporterService;
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
+    private final AgencyBrandingService brandingService;
 
     public ReportService(ReportRepository reportRepository,
                          FeedbackRepository feedbackRepository,
@@ -53,7 +56,8 @@ public class ReportService {
                          AgencyRepository agencyRepository,
                          AiReporterService aiReporterService,
                          NotificationHelper notificationHelper,
-                         EmailProperties emailProperties) {
+                         EmailProperties emailProperties,
+                         AgencyBrandingService brandingService) {
         this.reportRepository = reportRepository;
         this.feedbackRepository = feedbackRepository;
         this.auditService = auditService;
@@ -63,6 +67,7 @@ public class ReportService {
         this.aiReporterService = aiReporterService;
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
+        this.brandingService = brandingService;
     }
 
     // ──────── Report ────────
@@ -102,6 +107,11 @@ public class ReportService {
             }
         }
 
+        // Load agency branding for white-label reports
+        AgencyBrandingInfo branding = brandingService.getAgencyBrandingInfo(agencyId);
+        String poweredByText = brandingService.getPlatformBranding().name() != null
+                ? "Powered by " + brandingService.getPlatformBranding().name() : null;
+
         // Build professional HTML
         String htmlContent = ReportHtmlBuilder.buildHtml(
                 clientName, agencyName,
@@ -109,7 +119,9 @@ public class ReportService {
                 current, previous,
                 null, // dailyData not rendered in report HTML table (charts only in frontend)
                 topCampaigns,
-                narrative
+                narrative,
+                branding,
+                poweredByText
         );
 
         Report r = new Report();
@@ -279,12 +291,18 @@ public class ReportService {
         List<Map<String, Object>> topCampaigns = aggregateTopCampaigns(
                 agencyId, clientId, report.getPeriodStart(), report.getPeriodEnd(), 10);
 
+        AgencyBrandingInfo branding = brandingService.getAgencyBrandingInfo(agencyId);
+        String poweredByText = brandingService.getPlatformBranding().name() != null
+                ? "Powered by " + brandingService.getPlatformBranding().name() : null;
+
         return ReportHtmlBuilder.buildHtml(
                 clientName, agencyName,
                 report.getPeriodStart(), report.getPeriodEnd(),
                 current, previous,
                 null, topCampaigns,
-                narrative);
+                narrative,
+                branding,
+                poweredByText);
     }
 
     // ──────── Email notifications ────────
@@ -320,9 +338,12 @@ public class ReportService {
                 "portalLink", portalLink
         );
 
+        // Use agency branding for client-facing emails
+        AgencyBrandingInfo branding = brandingService.getAgencyBrandingInfo(agencyId);
+
         List<String> recipients = notificationHelper.getClientUserEmails(report.getClientId());
         for (String email : recipients) {
-            notificationHelper.sendTemplatedAsync(email, subject, "report-sent", vars);
+            notificationHelper.sendBrandedTemplatedAsync(email, subject, "report-sent", vars, branding);
         }
 
         log.info("Queued report-sent email to {} CLIENT_USER(s) for client {}", recipients.size(), report.getClientId());

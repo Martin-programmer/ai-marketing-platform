@@ -1,5 +1,6 @@
 package com.amp.common;
 
+import com.amp.agency.AgencyBrandingInfo;
 import com.amp.auth.UserAccount;
 import com.amp.auth.UserAccountRepository;
 import com.amp.clients.UserClientPermission;
@@ -114,6 +115,21 @@ public class NotificationHelper {
                 emailService.sendTemplatedEmail(to, subject, templateName, variables);
             } catch (Exception e) {
                 log.error("Async email failed to={} subject=\"{}\": {}", to, subject, e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Send a branded templated email asynchronously using agency branding.
+     */
+    public void sendBrandedTemplatedAsync(String to, String subject, String templateName,
+                                          java.util.Map<String, String> variables,
+                                          AgencyBrandingInfo branding) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                emailService.sendBrandedTemplatedEmail(to, subject, templateName, variables, branding);
+            } catch (Exception e) {
+                log.error("Async branded email failed to={} subject=\"{}\": {}", to, subject, e.getMessage(), e);
             }
         });
     }

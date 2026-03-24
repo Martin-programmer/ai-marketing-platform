@@ -10,4 +10,10 @@ import java.util.UUID;
 public interface AgencyRepository extends JpaRepository<Agency, UUID> {
 
     Optional<Agency> findByName(String name);
+
+    Optional<Agency> findBySlugIgnoreCase(String slug);
+
+    boolean existsBySlugIgnoreCase(String slug);
+
+    boolean existsBySlugIgnoreCaseAndIdNot(String slug, UUID id);
 }

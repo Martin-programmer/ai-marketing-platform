@@ -190,6 +190,27 @@ public class S3StorageService {
     }
 
     /**
+     * Upload raw bytes directly to S3.
+     * Used for server-side uploads (e.g. logo images).
+     */
+    public void uploadBytes(String s3Key, byte[] data, String contentType) {
+        if (!props.isEnabled()) {
+            log.info("S3 disabled — skipping upload for key: {}", s3Key);
+            return;
+        }
+
+        PutObjectRequest putRequest = PutObjectRequest.builder()
+                .bucket(props.getBucket())
+                .key(s3Key)
+                .contentType(contentType)
+                .build();
+
+        s3Client.putObject(putRequest,
+                software.amazon.awssdk.core.sync.RequestBody.fromBytes(data));
+        log.info("Uploaded to S3: {} ({} bytes)", s3Key, data.length);
+    }
+
+    /**
      * Delete an object from S3.
      */
     public void deleteObject(String s3Key) {

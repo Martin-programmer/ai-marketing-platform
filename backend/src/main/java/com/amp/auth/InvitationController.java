@@ -1,5 +1,6 @@
 package com.amp.auth;
 
+import com.amp.agency.AgencyBrandingService;
 import com.amp.common.EmailProperties;
 import com.amp.common.NotificationHelper;
 import com.amp.config.SystemSettingService;
@@ -36,6 +37,7 @@ public class InvitationController {
     private final NotificationHelper notificationHelper;
     private final EmailProperties emailProperties;
         private final SystemSettingService systemSettingService;
+        private final AgencyBrandingService agencyBrandingService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public InvitationController(UserAccountRepository userAccountRepository,
@@ -43,13 +45,15 @@ public class InvitationController {
                                 UserService userService,
                                 NotificationHelper notificationHelper,
                                                                 EmailProperties emailProperties,
-                                                                SystemSettingService systemSettingService) {
+                                                                SystemSettingService systemSettingService,
+                                                                AgencyBrandingService agencyBrandingService) {
         this.userAccountRepository = userAccountRepository;
         this.jwtService = jwtService;
         this.userService = userService;
         this.notificationHelper = notificationHelper;
         this.emailProperties = emailProperties;
                 this.systemSettingService = systemSettingService;
+                this.agencyBrandingService = agencyBrandingService;
     }
 
     // ── DTOs ────────────────────────────────────────────────────
@@ -63,6 +67,7 @@ public class InvitationController {
             String email,
             String role,
             String agencyName,
+            String agencySlug,
             boolean expired) {}
 
     public record ForgotPasswordRequest(
@@ -97,6 +102,7 @@ public class InvitationController {
                 user.getEmail(),
                 user.getRole(),
                 agencyName,
+                agencyBrandingService.getAgencySlug(user.getAgencyId()),
                 expired
         ));
     }
@@ -248,7 +254,10 @@ public class InvitationController {
     private void sendWelcomeEmail(UserAccount user) {
         String displayName = user.getDisplayName() != null ? user.getDisplayName() : user.getEmail();
         String agencyName = userService.resolveAgencyName(user.getAgencyId());
-        String loginLink = emailProperties.getBaseUrl() + "/login";
+        String loginLink = buildPreferredLoginLink(user);
+        String portalLoginSection = "CLIENT_USER".equals(user.getRole()) && user.getAgencyId() != null
+                ? buildPortalLoginSection(user.getAgencyId())
+                : "";
 
         String welcomeMessage = switch (user.getRole()) {
             case "AGENCY_ADMIN" -> "Welcome! You can now manage your agency <strong>" + agencyName
@@ -266,7 +275,8 @@ public class InvitationController {
                 Map.of(
                         "displayName", displayName,
                         "welcomeMessage", welcomeMessage,
-                        "loginLink", loginLink
+                        "loginLink", loginLink,
+                        "portalLoginSection", portalLoginSection
                 ));
 
         log.info("Queued welcome email to {} (role: {})", user.getEmail(), user.getRole());
@@ -287,5 +297,25 @@ public class InvitationController {
                                 "message", "If this email is registered, you'll receive a reset link.",
                                 "cooldownSeconds", cooldownSeconds
                 ));
+        }
+
+        private String buildPreferredLoginLink(UserAccount user) {
+                if (user.getAgencyId() != null) {
+                        String slug = agencyBrandingService.getAgencySlug(user.getAgencyId());
+                        if (slug != null && !slug.isBlank()) {
+                                return emailProperties.getBaseUrl() + "/login/" + slug;
+                        }
+                }
+                return emailProperties.getBaseUrl() + "/login";
+        }
+
+        private String buildPortalLoginSection(java.util.UUID agencyId) {
+                String slug = agencyBrandingService.getAgencySlug(agencyId);
+                if (slug == null || slug.isBlank()) {
+                        return "";
+                }
+                String loginLink = emailProperties.getBaseUrl() + "/login/" + slug;
+                return "<p style=\"color:#555555; font-size:16px; line-height:1.6;\">You can always access your portal at: <a href=\""
+                                + loginLink + "\" style=\"color:#1565C0;\">" + loginLink + "</a></p>";
         }
 }

@@ -6,6 +6,8 @@ import com.amp.ai.SuggestionResponse;
 import com.amp.campaigns.CampaignPerformanceResponse;
 import com.amp.campaigns.CampaignResponse;
 import com.amp.campaigns.CampaignService;
+import com.amp.agency.AgencyBrandingService;
+import com.amp.agency.PortalBrandingResponse;
 import com.amp.common.exception.ResourceNotFoundException;
 import com.amp.insights.InsightDaily;
 import com.amp.insights.InsightDailyRepository;
@@ -66,6 +68,7 @@ public class ClientPortalController {
     private final AiSuggestionService suggestionService;
     private final PdfGenerator pdfGenerator;
     private final ClientPortalAiService portalAiService;
+    private final AgencyBrandingService brandingService;
 
     public ClientPortalController(ClientService clientService,
                                   ClientProfileService profileService,
@@ -75,7 +78,8 @@ public class ClientPortalController {
                                   CampaignService campaignService,
                                   AiSuggestionService suggestionService,
                                   PdfGenerator pdfGenerator,
-                                  ClientPortalAiService portalAiService) {
+                                  ClientPortalAiService portalAiService,
+                                  AgencyBrandingService brandingService) {
         this.clientService = clientService;
         this.profileService = profileService;
         this.reportService = reportService;
@@ -85,6 +89,7 @@ public class ClientPortalController {
         this.suggestionService = suggestionService;
         this.pdfGenerator = pdfGenerator;
         this.portalAiService = portalAiService;
+        this.brandingService = brandingService;
     }
 
     // ── Request DTOs ────────────────────────────────────────────
@@ -95,6 +100,18 @@ public class ClientPortalController {
 
     public record PortalChatRequest(
             @NotBlank(message = "question is required") String question) {}
+
+    // ── Branding ───────────────────────────────────────────────
+
+    /**
+     * GET /api/v1/portal/branding — returns agency branding for the client portal.
+     */
+    @GetMapping("/branding")
+    public ResponseEntity<PortalBrandingResponse> getPortalBranding() {
+        TenantContext ctx = requireClientUser();
+        PortalBrandingResponse branding = brandingService.getPortalBranding(ctx.getAgencyId());
+        return ResponseEntity.ok(branding);
+    }
 
     // ── AI Chat ─────────────────────────────────────────────────
 
