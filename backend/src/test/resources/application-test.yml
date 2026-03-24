@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/amp
-    username: amp
-    password: amp
+    url: jdbc:postgresql://localhost:5432/amp_test
+    username: amp_test
+    password: amp_test
   jpa:
     hibernate:
       ddl-auto: validate

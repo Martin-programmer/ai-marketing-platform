@@ -43,7 +43,7 @@ jobs:
 
       - name: Build and test
         working-directory: backend
-        run: ./mvnw verify -B -Dspring.profiles.active=test
+        run: ./mvnw verify -B -Dspring.profiles.active=local
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/amp
           SPRING_DATASOURCE_USERNAME: amp
